@@ -1,0 +1,26 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native"] // 讓打包後也能執行
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Deck {
+  id        Int      @id @default(autoincrement())
+  name      String
+  class     String      // ex. Rune, Dragon…
+  createdAt DateTime @default(now())
+  matches   Match[]
+}
+
+model Match {
+  id        Int      @id @default(autoincrement())
+  result    Boolean  // true = win
+  opponent  String
+  deckId    Int
+  deck      Deck     @relation(fields: [deckId], references: [id])
+  playedAt  DateTime @default(now())
+}
