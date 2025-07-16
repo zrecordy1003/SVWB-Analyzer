@@ -11,22 +11,20 @@ import Dreizehn from '../../../../resources/character/Dreizehn.png'
 import { useSvwbStatus } from '../hooks/useSvwbStatus'
 
 const Role = (): React.JSX.Element => {
-  const running = useSvwbStatus()
+  const svwbStatus = useSvwbStatus()
 
   const [role, setRole] = useState()
   const [roleList, setRoleList] = useState([])
 
   const [captureFreq, setCaptureFreq] = useState(1)
 
+  const isMinimized =
+    svwbStatus?.bound && svwbStatus?.bound.x === -32000 && svwbStatus?.bound.y === -32000
+
   useEffect(() => {
     window.electron.ipcRenderer.send('start-capture', captureFreq)
-    window.electron.ipcRenderer.on('frame', (_event, frame) => {
-      console.log('[frame]', frame)
-    })
 
-    return () => {
-      window.electron.ipcRenderer.removeAllListeners('frame')
-    }
+    return () => {}
   }, [])
 
   const ROLES = [
@@ -113,7 +111,19 @@ const Role = (): React.JSX.Element => {
     <div style={{ display: 'flex', flexDirection: 'column', width: '70vw' }}>
       <span>{JSON.stringify(captureFreq)}</span>
       <div>
-        <h1>截圖頻率(秒)</h1>
+        <h1>截圖頻率 (秒)</h1>
+        {isMinimized ? (
+          <>遊戲以最小化執行中，擷取已停止...</>
+        ) : (
+          <>
+            <span style={{ color: 'red' }}>
+              {svwbStatus?.running ? '遊戲正在執行中' : '未偵測到遊戲'}
+            </span>
+            <span style={{ color: 'cyan' }}>
+              {svwbStatus?.hwnd ? svwbStatus?.hwnd : '執行遊戲後將顯示hwnd'}
+            </span>
+          </>
+        )}
         <button onClick={() => stopCapture()}>stop it!</button>
         <select
           value={captureFreq}
@@ -127,12 +137,9 @@ const Role = (): React.JSX.Element => {
           <option value={5}>5</option>
         </select>
       </div>
-      <span style={{ color: 'red' }}>{running?.running ? '遊戲正在執行中' : '未偵測到遊戲'}</span>
-      <span style={{ color: 'cyan' }}>
-        {running?.hwnd ? running?.hwnd : '執行遊戲後將顯示hwnd'}
-      </span>
+
       <span style={{ color: 'coral' }}>
-        {running?.bound ? JSON.stringify(running?.bound) : 'bound'}
+        {svwbStatus?.bound ? JSON.stringify(svwbStatus?.bound) : 'bound'}
       </span>
       <button
         onClick={async () => {

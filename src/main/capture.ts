@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import { spawn } from 'child_process'
 import path from 'path'
 
@@ -19,7 +20,9 @@ export function spawnCapture(interval: number): void {
 }
 
 function doSpawn(interval: number): void {
-  const exePath = path.join(__dirname, '../../resources', 'svwb-capture-tool.exe')
+  const exePath = app.isPackaged
+    ? path.join(process.resourcesPath, 'tools', 'svwb-capture-tool.exe')
+    : path.join(__dirname, '../../tools', 'svwb-capture-tool.exe')
   captureProcess = spawn(
     exePath,
     ['--interval', interval.toString(), '--output-pattern', `svwb-${interval}.png`],

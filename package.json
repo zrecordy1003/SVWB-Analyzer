@@ -1,5 +1,5 @@
 {
-  "name": "svtool",
+  "name": "svwb-tool",
   "version": "1.0.0",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
@@ -16,19 +16,48 @@
     "build": "prisma generate && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
+    "build:win": "prisma generate && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux"
+  },
+  "build": {
+    "appId": "app.electron.svwb-tool",
+    "mac": {
+      "icon": "build/background.png",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": "NSIS",
+      "icon": "build/icon.ico"
+    },
+    "files": [
+      "out/**",
+      "node_modules/**",
+      "node_modules/.prisma/**/*",
+      "node_modules/@prisma/client/**",
+      "node_modules/@prisma/engines/**",
+      "!svwb-capture-tool.exe"
+    ],
+    "extraResources": [
+      "prisma/**/*",
+      "node_modules/.prisma/**/*",
+      "node_modules/@prisma/client/**/*",
+      "tools/svwb-capture-tool.exe"
+    ]
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^7.2.0",
     "@prisma/client": "^6.11.1",
     "@u4/opencv4nodejs": "^7.1.2",
     "electron-updater": "^6.3.9",
     "node-window-manager": "^2.2.4",
-    "pngjs": "^7.0.0",
-    "windows-desktop-duplication": "^1.0.3"
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
@@ -51,11 +80,5 @@
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.2.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "electron",
-      "esbuild"
-    ]
   }
 }

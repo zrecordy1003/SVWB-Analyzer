@@ -1,45 +1,65 @@
-appId: com.electron.app
-productName: svtool
-directories:
-  buildResources: build
-files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-asarUnpack:
-  - resources/**
-win:
-  executableName: svtool
-nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
-mac:
-  entitlementsInherit: build/entitlements.mac.plist
-  extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  notarize: false
-dmg:
-  artifactName: ${name}-${version}.${ext}
-linux:
-  target:
-    - AppImage
-    - snap
-    - deb
-  maintainer: electronjs.org
-  category: Utility
-appImage:
-  artifactName: ${name}-${version}.${ext}
-npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
-electronDownload:
-  mirror: https://npmmirror.com/mirrors/electron/
+# appId: com.svwbtool.app
+# productName: svwb-tool
+# directories:
+#   buildResources: build
+# files:
+#   # 1. 包含所有編譯後的程式碼
+#   - 'out/**'
+
+#   # 2. 包含 node_modules（你也可以只指定常用套件）
+#   - 'node_modules/**'
+#   - 'node_modules/@prisma/client/**'
+
+#   - 'prisma/**'
+
+#   - '!**/*.ts'
+#   - '!**/*.map'
+#   - '!**/.vscode/**'
+#   - '!src/**'
+#   - '!electron.vite.config.{js,ts,mjs,cjs}'
+#   - '!{.env,.npmrc,pnpm-lock.yaml,tsconfig*.json,README.md,CHANGELOG.md}'
+
+# extraResources:
+#   - 'prisma/**/*'
+#   - 'node_modules/.prisma/**/*'
+#   - 'node_modules/@prisma/client/**/*'
+#   - 'resources/**'
+
+# asarUnpack:
+#   - 'node_modules/.prisma/client/**'
+#   - 'resources/**'
+
+# win:
+#   executableName: svwb-tool
+#   target:
+#     - nsis
+# nsis:
+#   artifactName: ${name}-${version}-setup.${ext}
+#   shortcutName: ${productName}
+#   uninstallDisplayName: ${productName}
+#   createDesktopShortcut: always
+# mac:
+#   entitlementsInherit: build/entitlements.mac.plist
+#   extendInfo:
+#     - NSCameraUsageDescription: Application requests access to the device's camera.
+#     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+#     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+#     - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+#   notarize: false
+# dmg:
+#   artifactName: ${name}-${version}.${ext}
+# linux:
+#   target:
+#     - AppImage
+#     - snap
+#     - deb
+#   maintainer: electronjs.org
+#   category: Utility
+# appImage:
+#   artifactName: ${name}-${version}.${ext}
+# npmRebuild: false
+# publish:
+#   provider: generic
+#   url: https://example.com/auto-updates
+# electronDownload:
+#   mirror: https://npmmirror.com/mirrors/electron/
