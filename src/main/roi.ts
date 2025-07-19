@@ -1,8 +1,8 @@
 // roi.ts
 
 // 基準解析度
-const BW = 1920,
-  BH = 1080
+const BW = 1280,
+  BH = 720
 
 interface ROI {
   x: number

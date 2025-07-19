@@ -1,10 +1,10 @@
 {
   "name": "svwb-tool",
   "version": "1.0.0",
-  "description": "An Electron application with React and TypeScript",
+  "description": "A tool for Shadowverse: Worlds Beyond, recording and analyzing games data.",
   "main": "./out/main/index.js",
-  "author": "example.com",
-  "homepage": "https://electron-vite.org",
+  "author": "zrecordy1003",
+  "homepage": "https://github.com/zrecordy1003/svwb-tool",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -18,7 +18,8 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "prisma generate && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "electron-rebuild": "build-opencv --electron --version 35.1.5 build"
   },
   "build": {
     "appId": "app.electron.svwb-tool",
@@ -44,7 +45,11 @@
       "prisma/**/*",
       "node_modules/.prisma/**/*",
       "node_modules/@prisma/client/**/*",
-      "tools/svwb-capture-tool.exe"
+      "tools/svwb-capture-tool.exe",
+      {
+        "from": "resources/templates",
+        "to": "templates"
+      }
     ]
   },
   "dependencies": {
@@ -55,9 +60,11 @@
     "@mui/material": "^7.2.0",
     "@prisma/client": "^6.11.1",
     "@u4/opencv4nodejs": "^7.1.2",
+    "chart.js": "^4.5.0",
     "electron-updater": "^6.3.9",
     "node-window-manager": "^2.2.4",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "react-chartjs-2": "^5.3.0"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
@@ -80,5 +87,11 @@
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.2.6"
+  },
+  "opencv4nodejs": {
+    "disableAutoBuild": "1",
+    "OPENCV_INCLUDE_DIR": "C:\\tools\\opencv\\build\\include",
+    "OPENCV_LIB_DIR": "C:\\tools\\opencv\\build\\x64\\vc16\\lib",
+    "OPENCV_BIN_DIR": "C:\\tools\\opencv\\build\\x64\\vc16\\bin"
   }
 }

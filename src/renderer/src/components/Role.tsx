@@ -1,13 +1,6 @@
 import { CSSProperties, useEffect, useState } from 'react'
 
-import Lovesign from '../../../../resources/character/Lovesign.png'
-import MarieMalisse from '../../../../resources/character/MarieMalisse.png'
-import KaoriYuihara from '../../../../resources/character/KaoriYuihara.png'
-import Galan from '../../../../resources/character/Galan.png'
-import Esperanza from '../../../../resources/character/Esperanza.png'
-import Diawl from '../../../../resources/character/Diawl.png'
-import Dreizehn from '../../../../resources/character/Dreizehn.png'
-
+import { roles } from '../map/roleMap'
 import { useSvwbStatus } from '../hooks/useSvwbStatus'
 
 const Role = (): React.JSX.Element => {
@@ -26,16 +19,6 @@ const Role = (): React.JSX.Element => {
 
     return () => {}
   }, [])
-
-  const ROLES = [
-    { id: 1, label: '妖精', code: 'Digit1', src: Lovesign },
-    { id: 2, label: '皇家', code: 'Digit2', src: MarieMalisse },
-    { id: 3, label: '巫師', code: 'Digit3', src: KaoriYuihara },
-    { id: 4, label: '龍族', code: 'Digit4', src: Galan },
-    { id: 5, label: '主教', code: 'Digit5', src: Esperanza },
-    { id: 6, label: '夜魔', code: 'Digit6', src: Diawl },
-    { id: 7, label: '復仇', code: 'Digit7', src: Dreizehn }
-  ]
 
   type Deck = {
     id: number
@@ -150,7 +133,7 @@ const Role = (): React.JSX.Element => {
         ss
       </button>
       <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
-        {ROLES.map((roleItem) => (
+        {roles.map((roleItem) => (
           <img
             key={roleItem.id}
             src={roleItem.src}
@@ -217,7 +200,7 @@ const Role = (): React.JSX.Element => {
       </div>
       <div style={{ display: 'flex', width: '80vw', flexDirection: 'column', gap: '10px' }}>
         <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between' }}>
-          <h1>{role && ROLES.find((item) => item.id === role)?.label}</h1>
+          <h1>{role && roles.find((item) => item.id === role)?.label}</h1>
           {/* <select>
             <option>甲蟲</option>
             <option>妖精</option>
@@ -247,7 +230,7 @@ const Role = (): React.JSX.Element => {
           <ul>
             {roleList.map((r, idx) => (
               <li key={`${r}-${idx + 1}`}>
-                {idx + 1} {ROLES.find((role) => role.id === r)?.label}
+                {idx + 1} {roles.find((role) => role.id === r)?.label}
               </li>
             ))}
           </ul>
