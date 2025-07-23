@@ -48,8 +48,8 @@ const Analyzer = (): React.JSX.Element => {
   return (
     <div style={{ padding: 16 }}>
       <button onClick={() => analyze()}>start analyze</button>
-      <button onClick={() => console.log(JSON.stringify(battleState))}>got state</button>
-      <button onClick={() => console.log(JSON.stringify(roleAssets))}>got statessss</button>
+      <button onClick={() => console.log(battleState)}>got state</button>
+      <button onClick={() => console.log(roleAssets)}>got statessss</button>
       {battleState.inBattle ? (
         <div>
           <h2>🟢 對戰中</h2>
@@ -60,7 +60,18 @@ const Analyzer = (): React.JSX.Element => {
           </div>
           {battleState.ownRole && (
             <div>
-              <img src={roleAssets[battleState.ownRole].src} />
+              {/* <img
+                src={roleAssets[battleState.ownRole].src}
+                style={{
+                  width: '100px',
+                  height: '100px',
+                  borderRadius: '5px',
+                  // cursor: 'pointer',
+                  objectFit: 'cover',
+                  objectPosition: 'top top',
+                  transition: 'border 0.1s'
+                }}
+              /> */}
             </div>
           )}
           <p>
@@ -69,6 +80,22 @@ const Analyzer = (): React.JSX.Element => {
           <p>
             對方職業： <strong>{battleState.enemyRole}</strong>
           </p>
+          {battleState.enemyRole && (
+            <div>
+              {/* <img
+                src={roleAssets[battleState.enemyRole].src}
+                style={{
+                  width: '100px',
+                  height: '100px',
+                  borderRadius: '5px',
+                  // cursor: 'pointer',
+                  objectFit: 'cover',
+                  objectPosition: 'top top',
+                  transition: 'border 0.1s'
+                }}
+              /> */}
+            </div>
+          )}
         </div>
       ) : (
         <div>

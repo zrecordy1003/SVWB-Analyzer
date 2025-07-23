@@ -19,7 +19,8 @@
     "build:win": "prisma generate && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "electron-rebuild": "build-opencv --electron --version 35.1.5 build"
+    "electron-rebuild": "build-opencv --electron --version 35.1.5 build",
+    "wegood": "opencv-build-npm"
   },
   "build": {
     "appId": "app.electron.svwb-tool",
@@ -36,6 +37,7 @@
     "files": [
       "out/**",
       "node_modules/**",
+      "node_modules/@u4/**",
       "node_modules/.prisma/**/*",
       "node_modules/@prisma/client/**",
       "node_modules/@prisma/engines/**",
@@ -43,12 +45,25 @@
     ],
     "extraResources": [
       "prisma/**/*",
+      "node_modules/@u4/**",
       "node_modules/.prisma/**/*",
       "node_modules/@prisma/client/**/*",
       "tools/svwb-capture-tool.exe",
       {
+        "from": "resources/opencv",
+        "to": "opencv"
+      },
+      {
         "from": "resources/templates",
         "to": "templates"
+      },
+      {
+        "from": "resources/test.png",
+        "to": "templates/test.png"
+      },
+      {
+        "from": "resources/test2.png",
+        "to": "templates/test2.png"
       }
     ]
   },
@@ -59,6 +74,7 @@
     "@emotion/styled": "^11.14.1",
     "@mui/material": "^7.2.0",
     "@prisma/client": "^6.11.1",
+    "@u4/opencv-build": "^1.1.1",
     "@u4/opencv4nodejs": "^7.1.2",
     "chart.js": "^4.5.0",
     "electron-updater": "^6.3.9",
@@ -89,9 +105,6 @@
     "vite": "^6.2.6"
   },
   "opencv4nodejs": {
-    "disableAutoBuild": "1",
-    "OPENCV_INCLUDE_DIR": "C:\\tools\\opencv\\build\\include",
-    "OPENCV_LIB_DIR": "C:\\tools\\opencv\\build\\x64\\vc16\\lib",
-    "OPENCV_BIN_DIR": "C:\\tools\\opencv\\build\\x64\\vc16\\bin"
+    "disableAutoBuild": "1"
   }
 }

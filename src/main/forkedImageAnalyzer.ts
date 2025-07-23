@@ -125,19 +125,19 @@ function startAnalyzeLoop(port: MessagePortMain): void {
         console.log('playOrder', playOrder)
       }
 
-      result.score > 0.6 && console.log(`win or lose? ${result}`)
+      result.score > 0.5 && console.log(`win or lose? ${result}`)
 
-      const roleValid = ownRole.score > 0.6
-      const turnValid = playOrder.score > 0.6
+      const roleValid = ownRole.score > 0.5
+      const turnValid = playOrder.score > 0.5
       inBattle = roleValid && turnValid
 
       // console.log('inBattle', inBattle)
 
       // 6. 組合結果回傳
       resultData = {
-        ownRole: ownRole.score > 0.6 ? ownRole.name : null,
-        enemyRole: enemyRole.score > 0.6 ? enemyRole.name : null,
-        playOrder: playOrder.score > 0.6 ? playOrder.name : null,
+        ownRole: ownRole.score > 0.5 ? ownRole.name : null,
+        enemyRole: enemyRole.score > 0.5 ? enemyRole.name : null,
+        playOrder: playOrder.score > 0.5 ? playOrder.name : null,
         inBattle: inBattle
       }
 

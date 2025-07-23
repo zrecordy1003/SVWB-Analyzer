@@ -7,11 +7,22 @@ import { getDecks, addDeck } from './database'
 
 import { isSvwbRunning } from './svwbDetector'
 import { spawnCapture, stopCapture } from './capture'
+import fs from 'fs'
+
+process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
+process.env.OPENCV_INCLUDE_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'opencv', 'include')
+  : path.join(__dirname, '../../resources/opencv/include')
+process.env.OPENCV_LIB_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'opencv', 'lib')
+  : path.join(__dirname, '../../resources/opencv/lib')
+process.env.OPENCV_BIN_DIR = app.isPackaged
+  ? path.join(process.resourcesPath, 'opencv', 'bin')
+  : path.join(__dirname, '../../resources/opencv/bin')
 
 // import { fork } from 'child_process'
 import forkPath from './forkedImageAnalyzer?modulePath'
 
-import fs from 'fs'
 // import cv from '@u4/opencv4nodejs'
 
 const gotTheLock = app.requestSingleInstanceLock()
@@ -29,11 +40,13 @@ if (!gotTheLock) {
   let mainWindow: BrowserWindow
 
   ipcMain.on('analyze-image', () => {
+    // console.log(path.join(process.resourcesPath, 'opencv', 'include'))
     console.log('[Main] analyze-image triggered')
 
     const imagePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'tools', 'svwb-1.png')
+      ? path.join(process.resourcesPath, 'templates', 'test.png')
       : path.join(__dirname, '../../resources', 'test.png')
+    // ? path.join(process.resourcesPath, 'tools', 'svwb-1.png')
 
     const { port1, port2 } = new MessageChannelMain()
     const child = utilityProcess.fork(forkPath)
@@ -143,6 +156,8 @@ if (!gotTheLock) {
     setInterval(() => {
       const status = isSvwbRunning()
       const win = BrowserWindow.getAllWindows()[0]
+
+      win.webContents.postMessage('svwb:status', process.env.OPENCV_INCLUDE_DIR)
       let isShow = true
       if (win && win.webContents) {
         win.webContents.postMessage('svwb:status', status)

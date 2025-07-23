@@ -90,6 +90,10 @@ const Role = (): React.JSX.Element => {
     backgroundColor: 'darkcyan'
   }
 
+  useEffect(() => {
+    svwbStatus && console.log(svwbStatus)
+  }, [svwbStatus])
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', width: '70vw' }}>
       <span>{JSON.stringify(captureFreq)}</span>
