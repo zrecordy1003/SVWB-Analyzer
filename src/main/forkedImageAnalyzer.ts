@@ -1,8 +1,9 @@
-import type { MessagePortMain } from 'electron'
+import { type MessagePortMain } from 'electron'
 
 import fs from 'fs'
 import path from 'path'
 import cv, { Mat } from '@u4/opencv4nodejs'
+import { addMatch, modifyMatchResult } from './database'
 
 // 協助模板 / 縮放比例
 // const BASE_WIDTH = 1280
@@ -24,7 +25,7 @@ process.parentPort.on('message', (e) => {
     resourcesPath = e.data.resourcesPath
 
     try {
-      roleTemplates = loadTemplates(resolveTemplatePath('roles'))
+      classesTemplates = loadTemplates(resolveTemplatePath('classes'))
       playOrderTemplates = loadTemplates(resolveTemplatePath('play_order'))
       resultTemplates = loadTemplates(resolveTemplatePath('result'))
 
@@ -50,12 +51,13 @@ function loadTemplates(dir: string): { name: string; image: Mat }[] {
     .readdirSync(dir)
     .filter((f) => f.endsWith('.png'))
     .map((file) => ({
-      name: path.basename(file, '.png'),
-      image: cv.imread(path.join(dir, file)).bgrToGray()
+      name: path.basename(file, '.png').split('-')[0],
+      image: cv.imread(path.join(dir, file)).bgrToGray(),
+      addition: path.basename(file, '.png').split('-')[1] || 'none'
     }))
 }
 
-let roleTemplates: { name: string; image: Mat }[] = []
+let classesTemplates: { name: string; image: Mat }[] = []
 let playOrderTemplates: { name: string; image: Mat }[] = []
 let resultTemplates: { name: string; image: Mat }[] = []
 
@@ -83,6 +85,7 @@ function matchTemplate(
 function startAnalyzeLoop(port: MessagePortMain): void {
   const INTERVAL = 1000
   let inBattle = false
+  let isMatchRecord = false
   setInterval(() => {
     if (!fs.existsSync(imagePath)) return
 
@@ -112,36 +115,73 @@ function startAnalyzeLoop(port: MessagePortMain): void {
       // const rightArea = gray.getRegion(rightROI)
 
       // 5. 分別做模板匹配
-      const ownRole = matchTemplate(leftArea, roleTemplates)
-      const enemyRole = matchTemplate(rightArea, roleTemplates)
+      const ownClass = matchTemplate(leftArea, classesTemplates)
+      const enemyClass = matchTemplate(rightArea, classesTemplates)
 
       const playOrder = matchTemplate(leftArea, playOrderTemplates)
 
       const result = matchTemplate(gray, resultTemplates)
 
-      if (!inBattle) {
-        console.log('ownRole', ownRole)
-        console.log('enemyRole', enemyRole)
+      // if (!inBattle) {
+      //   console.log('ownClass', ownClass)
+      //   console.log('enemyClass', enemyClass)
+      //   console.log('playOrder', playOrder)
+      //   console.log('result', result)
+      // }
+
+      const classValid = ownClass.score > 0.6 || enemyClass.score > 0.6
+      const turnValid = playOrder.score > 0.6
+      inBattle = classValid && turnValid
+
+      if (inBattle) {
+        console.log('ownClass', ownClass)
+        console.log('enemyClass', enemyClass)
         console.log('playOrder', playOrder)
+        console.log('result', result)
       }
-
-      result.score > 0.5 && console.log(`win or lose? ${result}`)
-
-      const roleValid = ownRole.score > 0.5
-      const turnValid = playOrder.score > 0.5
-      inBattle = roleValid && turnValid
-
       // console.log('inBattle', inBattle)
 
-      // 6. 組合結果回傳
-      resultData = {
-        ownRole: ownRole.score > 0.5 ? ownRole.name : null,
-        enemyRole: enemyRole.score > 0.5 ? enemyRole.name : null,
-        playOrder: playOrder.score > 0.5 ? playOrder.name : null,
-        inBattle: inBattle
+      if (inBattle && !isMatchRecord) {
+        console.log('recording match...')
+        addMatch(ownClass.name, enemyClass.name, playOrder.name).catch((err) => {
+          console.error('[Analyzer] Failed to add match to DB:', err)
+        })
+        isMatchRecord = true
       }
 
-      resultData && port.postMessage(resultData)
+      if (isMatchRecord && result.score > 0.6) {
+        isMatchRecord = false
+        inBattle = false
+        console.log(result.score)
+
+        modifyMatchResult(result.name === 'win' ? true : false)
+          .then(() => {
+            resultData = {
+              ownClass: null,
+              enemyClass: null,
+              playOrder: null,
+              inBattle: false,
+              refetchTable: true
+            }
+
+            port.postMessage(resultData)
+          })
+          .catch((err) => {
+            console.error('[Analyzer] Failed to modify match result to DB:', err)
+          })
+      }
+
+      // 組合結果回傳
+      if (inBattle) {
+        resultData = {
+          ownClass: ownClass.score > 0.6 ? ownClass.name : null,
+          enemyClass: enemyClass.score > 0.6 ? enemyClass.name : null,
+          playOrder: playOrder.score > 0.6 ? playOrder.name : null,
+          inBattle,
+          refetchTable: false
+        }
+        port.postMessage(resultData)
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         console.error('An error occurred in startAnalyzeLoop:', err.message)

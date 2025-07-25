@@ -1,45 +1,104 @@
-import Versions from './components/Versions'
-import Role from './components/Role'
+import React, { useMemo, useState } from 'react'
+import {
+  ThemeProvider,
+  createTheme,
+  CssBaseline,
+  AppBar,
+  Toolbar,
+  Typography,
+  IconButton,
+  Box,
+  Switch
+} from '@mui/material'
+import { Brightness4, Brightness7 } from '@mui/icons-material'
+import MenuIcon from '@mui/icons-material/Menu'
+import Disclaimer from './components/Disclaimer'
+import ClassSelector from './components/ClassSelector'
 import Analyzer from './components/Analyzer'
-
-// import electronLogo from './assets/electron.svg'
+import MatchList from './components/MatchList'
 
 function App(): React.JSX.Element {
-  // const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+  // 1. state for theme mode
+  const [mode, setMode] = useState<'light' | 'dark'>('dark')
+
+  // 2. memoize theme so it only rebuilds when mode changes
+  const theme = useMemo(() => {
+    // determine scrollbar colors based on mode
+    const trackColor = mode === 'light' ? '#f0f0f0' : '#303030'
+    const thumbColor = mode === 'light' ? '#c1c1c1' : '#555'
+
+    return createTheme({
+      palette: {
+        mode,
+        primary: { main: '#1976d2' },
+        secondary: { main: '#dc004e' }
+      },
+      components: {
+        MuiCssBaseline: {
+          styleOverrides: {
+            // Global background and text color transition
+            body: {
+              fontFamily: '"Noto Sans TC", "Roboto", sans-serif',
+              transition: 'background-color 0.3s, color 0.3s'
+            },
+            // Custom scrollbar styling with transition
+            '*::-webkit-scrollbar': {
+              width: '8px',
+              height: '8px'
+            },
+            '*::-webkit-scrollbar-track': {
+              backgroundColor: trackColor,
+              transition: 'background-color 0.3s'
+            },
+            '*::-webkit-scrollbar-thumb': {
+              backgroundColor: thumbColor,
+              borderRadius: '4px',
+              transition: 'background-color 0.3s'
+            }
+          }
+        }
+      }
+    })
+  }, [mode])
+
+  // 3. toggle handler
+  const toggleTheme = (): void => {
+    setMode((prev) => (prev === 'light' ? 'dark' : 'light'))
+  }
 
   return (
-    <>
-      <Analyzer></Analyzer>
-      <Role></Role>
-      {/* <img alt="logo" className="logo" src={electronLogo} />
-      <div className="creator">Powered by electron-vite</div>
-      <div className="text">
-        Build an Electron app with <span className="react">React</span>
-        &nbsp;and <span className="ts">TypeScript</span>
-      </div>
-      <p className="tip">
-        Please try pressing <code>F12</code> to open the devTool
-      </p>
-      <div className="actions">
-        <div className="action">
-          <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">
-            Documentation
-          </a>
-        </div>
-        <div className="action">
-          <a target="_blank" rel="noreferrer" onClick={ipcHandle}>
-            Send IPC
-          </a>
-        </div>
-      </div> */}
-      <Versions></Versions>
-      <p>
-        「本網站／應用程式與 Cygames 並無合作、推薦、贊助或個別承認關係。Cygames
-        對本網站／應用程式之營運與內容不負任何責任。對 Cygames 商標及其他智慧財產之使用，必須遵守
-        Cygames 粉絲素材的服務協議。關於 Cygames
-        的詳細資訊請見該公司網站（https://www.cygames.co.jp/）。」
-      </p>
-    </>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+
+      {/* Top AppBar with theme switch */}
+      <AppBar position="static">
+        <Toolbar>
+          <IconButton size="large" edge="start" color="inherit" aria-label="menu" sx={{ mr: 2 }}>
+            <MenuIcon />
+          </IconButton>
+          <Typography variant="h6" sx={{ flexGrow: 1 }}>
+            SV Tool
+          </Typography>
+          <IconButton onClick={toggleTheme}>
+            {mode === 'light' ? <Brightness4 /> : <Brightness7 />}
+          </IconButton>
+          <Switch checked={mode === 'dark'} onChange={toggleTheme} />
+        </Toolbar>
+      </AppBar>
+      <Box>
+        {/* Main content */}
+        <Box p={2}>
+          <ClassSelector />
+          <Analyzer />
+          <MatchList />
+        </Box>
+
+        {/* Footer disclaimer */}
+        <Box component="footer" sx={{ textAlign: 'center', p: 1 }}>
+          <Disclaimer />
+        </Box>
+      </Box>
+    </ThemeProvider>
   )
 }
 

@@ -1,13 +1,14 @@
+import './ipc/matches'
 import { app, shell, BrowserWindow, ipcMain, utilityProcess, MessageChannelMain } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
+import fs from 'fs'
 import { getDecks, addDeck } from './database'
 
 import { isSvwbRunning } from './svwbDetector'
-import { spawnCapture, stopCapture } from './capture'
-import fs from 'fs'
+import { spawnCapture, stopCapture } from './manageCaptureTool'
 
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
 process.env.OPENCV_INCLUDE_DIR = app.isPackaged
@@ -20,10 +21,7 @@ process.env.OPENCV_BIN_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'bin')
   : path.join(__dirname, '../../resources/opencv/bin')
 
-// import { fork } from 'child_process'
 import forkPath from './forkedImageAnalyzer?modulePath'
-
-// import cv from '@u4/opencv4nodejs'
 
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -44,9 +42,9 @@ if (!gotTheLock) {
     console.log('[Main] analyze-image triggered')
 
     const imagePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'templates', 'test.png')
-      : path.join(__dirname, '../../resources', 'test.png')
-    // ? path.join(process.resourcesPath, 'tools', 'svwb-1.png')
+      ? path.join(process.resourcesPath, 'tools', 'svwb.png')
+      : path.join(__dirname, '../../tools', 'svwb.png')
+    // ? path.join(process.resourcesPath, 'templates', 'test.png')
 
     const { port1, port2 } = new MessageChannelMain()
     const child = utilityProcess.fork(forkPath)
@@ -56,16 +54,16 @@ if (!gotTheLock) {
       [port1]
     )
 
-    child.on('message', (msg) => {
-      console.log('[Main] Received from analyzer:', msg)
-      mainWindow.webContents.send('battle:status', msg)
+    port2.on('message', (e) => {
+      console.log('[Child] message from forked process')
+      mainWindow.webContents.send('battle:status', e.data)
+      if (e.data.refetchTable) {
+        mainWindow.webContents.send('matches:needRefetch')
+      }
     })
 
-    port2.on('message', (e) => {
-      mainWindow.webContents.send('battle:status', e.data)
-    })
     port2.start()
-    port2.postMessage('hello from main')
+    // port2.postMessage('hello from main')
   })
 
   // function readImageWhenReady(filePath: string, retry = 5): void {
@@ -106,7 +104,9 @@ if (!gotTheLock) {
       ...(process.platform === 'linux' ? { icon } : {}),
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
-        sandbox: false
+        sandbox: false,
+        contextIsolation: true,
+        nodeIntegration: false
       }
     })
 
@@ -151,51 +151,45 @@ if (!gotTheLock) {
     ipcMain.handle('decks:add', (_e, name, svClass) => addDeck(name, svClass))
 
     // IPC test
-    ipcMain.on('ping', () => console.log('pong'))
+    // ipcMain.on('ping', () => console.log('pong'))
+
+    let isCapturing = false
+    let isFirst = true
 
     setInterval(() => {
-      const status = isSvwbRunning()
+      const svwbStatus = isSvwbRunning()
       const win = BrowserWindow.getAllWindows()[0]
 
-      win.webContents.postMessage('svwb:status', process.env.OPENCV_INCLUDE_DIR)
-      let isShow = true
-      if (win && win.webContents) {
-        win.webContents.postMessage('svwb:status', status)
+      const isGameRunning = svwbStatus.running
+
+      if (win?.webContents) {
+        win.webContents.postMessage('svwb:status', svwbStatus)
       }
 
-      if (status.running) {
-        try {
-          isShow ?? console.log('svwb is running')
-          isShow = !isShow
-        } catch (err: unknown) {
-          if (err instanceof Error) {
-            console.error('An error occurred while svwb is running:', err.message)
-          } else {
-            console.error('Unknown error:', err)
+      try {
+        if (isGameRunning) {
+          if (!isCapturing) {
+            spawnCapture(isFirst)
+            isCapturing = true
+            win.webContents.send('capture:status', true)
+            if (isFirst) isFirst = false
+          }
+        } else {
+          if (isCapturing) {
+            stopCapture()
+            isCapturing = false
+            win.webContents.send('capture:status', false)
           }
         }
-      } else {
-        try {
-          isShow ?? console.log('should start svwb')
-          isShow = !isShow
-        } catch (err: unknown) {
-          if (err instanceof Error) {
-            console.error('An error occurred while svwb is not running:', err.message)
-          } else {
-            console.error('Unknown error:', err)
-          }
-        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error(`Error while ${isGameRunning ? 'running' : 'not running'}:`, msg)
       }
     }, 1000)
 
-    ipcMain.on('start-capture', (_e, interval: number) => {
-      spawnCapture(interval)
-
-      // const filePath = app.isPackaged
-      //   ? path.join(process.resourcesPath, 'tools', 'svwb-1.png')
-      //   : path.join(__dirname, '../../tools', 'svwb-1.png')
-      // readImageWhenReady(filePath)
-    })
+    // ipcMain.on('start-capture', (_e, interval: number) => {
+    //   spawnCapture(interval)
+    // })
 
     ipcMain.on('stop-capture', () => {
       stopCapture()

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { roles } from '@renderer/map/roleMap'
+import { classes } from '@renderer/map/classMap'
+import { Box, Button } from '@mui/material'
 
-interface Role {
+interface Class {
   id: number
   name: string
   label: string
@@ -11,29 +12,30 @@ interface Role {
 
 interface BattleState {
   inBattle: boolean
-  ownRole: string | null
-  enemyRole: string | null
+  ownClass: string | null
+  enemyClass: string | null
   playOrder: string | null
 }
 
 const Analyzer = (): React.JSX.Element => {
+  const [isRecognizing, setIsRecognizing] = useState<boolean>(false)
   const [battleState, setBattleState] = useState<BattleState>({
     inBattle: false,
-    ownRole: null,
-    enemyRole: null,
+    ownClass: null,
+    enemyClass: null,
     playOrder: null
   })
 
-  const [roleAssets, setRoleAssets] = useState<Record<string, Role>>({})
+  const [classAssets, setClassAssets] = useState<Record<string, Class>>({})
 
   useEffect(() => {
-    window.electron.ipcRenderer.on('battle:status', (_e, msg) => {
+    window.electron.ipcRenderer.on('battle:status', (_e, msg: BattleState) => {
       setBattleState(msg)
-      const matchedRoles = roles.filter(
-        (role) => role.name === msg.ownRole || role.name === msg.enemyRole
+      const matchedClasss = classes.filter(
+        (Class) => Class.name === msg.ownClass || Class.name === msg.enemyClass
       )
-      const rolesByName = Object.fromEntries(matchedRoles.map((role) => [role.name, role]))
-      setRoleAssets(rolesByName)
+      const ClasssByName = Object.fromEntries(matchedClasss.map((Class) => [Class.name, Class]))
+      setClassAssets(ClasssByName)
     })
 
     return () => {
@@ -42,67 +44,85 @@ const Analyzer = (): React.JSX.Element => {
   }, [])
 
   const analyze = (): void => {
+    setIsRecognizing(true)
     window.electron.ipcRenderer.send('analyze-image')
   }
 
   return (
-    <div style={{ padding: 16 }}>
-      <button onClick={() => analyze()}>start analyze</button>
-      <button onClick={() => console.log(battleState)}>got state</button>
-      <button onClick={() => console.log(roleAssets)}>got statessss</button>
-      {battleState.inBattle ? (
-        <div>
-          <h2>🟢 對戰中</h2>
+    <Box marginTop={1}>
+      <Box display={'flex'} gap={2}>
+        <Button
+          variant="contained"
+          color="success"
+          onClick={() => analyze()}
+          disabled={isRecognizing}
+        >
+          {isRecognizing ? '分析中' : '開始分析'}
+        </Button>
+        <Button variant="contained" color="success" onClick={() => console.log(battleState)}>
+          got state
+        </Button>
+        <Button variant="contained" color="success" onClick={() => console.log(classAssets)}>
+          got statessss
+        </Button>
+      </Box>
+      {isRecognizing ? (
+        battleState.inBattle ? (
           <div>
+            <h2>🟢 對戰中</h2>
+            <div>
+              <p>
+                我方職業：<strong>{battleState.ownClass}</strong>
+              </p>
+            </div>
+            {battleState.ownClass && (
+              <div>
+                {/* <img
+                src={ClassAssets[battleState.ownClass].src}
+                style={{
+                  width: '100px',
+                  height: '100px',
+                  borderRadius: '5px',
+                  // cursor: 'pointer',
+                  objectFit: 'cover',
+                  objectPosition: 'top top',
+                  transition: 'border 0.1s'
+                }}
+              /> */}
+              </div>
+            )}
             <p>
-              我方職業：<strong>{battleState.ownRole}</strong>
+              先手 / 後手：<strong>{battleState.playOrder === 'first' ? '先手' : '後手'}</strong>
             </p>
+            <p>
+              對方職業： <strong>{battleState.enemyClass}</strong>
+            </p>
+            {battleState.enemyClass && (
+              <div>
+                {/* <img
+                src={ClassAssets[battleState.enemyClass].src}
+                style={{
+                  width: '100px',
+                  height: '100px',
+                  borderRadius: '5px',
+                  // cursor: 'pointer',
+                  objectFit: 'cover',
+                  objectPosition: 'top top',
+                  transition: 'border 0.1s'
+                }}
+              /> */}
+              </div>
+            )}
           </div>
-          {battleState.ownRole && (
-            <div>
-              {/* <img
-                src={roleAssets[battleState.ownRole].src}
-                style={{
-                  width: '100px',
-                  height: '100px',
-                  borderRadius: '5px',
-                  // cursor: 'pointer',
-                  objectFit: 'cover',
-                  objectPosition: 'top top',
-                  transition: 'border 0.1s'
-                }}
-              /> */}
-            </div>
-          )}
-          <p>
-            先手 / 後手：<strong>{battleState.playOrder === 'first' ? '先手' : '後手'}</strong>
-          </p>
-          <p>
-            對方職業： <strong>{battleState.enemyRole}</strong>
-          </p>
-          {battleState.enemyRole && (
-            <div>
-              {/* <img
-                src={roleAssets[battleState.enemyRole].src}
-                style={{
-                  width: '100px',
-                  height: '100px',
-                  borderRadius: '5px',
-                  // cursor: 'pointer',
-                  objectFit: 'cover',
-                  objectPosition: 'top top',
-                  transition: 'border 0.1s'
-                }}
-              /> */}
-            </div>
-          )}
-        </div>
+        ) : (
+          <div>
+            <h2>🔴 尚未進入對戰</h2>
+          </div>
+        )
       ) : (
-        <div>
-          <h2>🔴 尚未進入對戰</h2>
-        </div>
+        <Box>尚未開始辨識</Box>
       )}
-    </div>
+    </Box>
   )
 }
 

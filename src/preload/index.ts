@@ -1,4 +1,4 @@
-import { contextBridge } from 'electron'
+import { contextBridge, shell } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
@@ -11,6 +11,9 @@ if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('electronAPI', {
+      openLink: (url: string) => shell.openExternal(url)
+    })
   } catch (error) {
     console.error(error)
   }

@@ -1,8 +1,8 @@
 generator client {
-  provider = "prisma-client-js"
-  engineType = "library"
+  provider      = "prisma-client-js"
+  engineType    = "library"
   binaryTargets = ["native", "windows"]
-  output = "../node_modules/.prisma/client"
+  output        = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -13,16 +13,24 @@ datasource db {
 model Deck {
   id        Int      @id @default(autoincrement())
   name      String
-  class     String      // ex. Rune, Dragon…
+  class     String
   createdAt DateTime @default(now())
-  matches   Match[]
+
+  matchesAsMyDeck   Match[] @relation("MatchMyDeck")
+  matchesAsOppoDeck Match[] @relation("MatchOppoDeck")
 }
 
 model Match {
-  id        Int      @id @default(autoincrement())
-  result    Boolean  // true = win
-  opponent  String
-  deckId    Int
-  deck      Deck     @relation(fields: [deckId], references: [id])
-  playedAt  DateTime @default(now())
+  id          Int       @id @default(autoincrement())
+  result      Boolean?
+  play_order  String
+  my_class    String
+  oppo_class  String
+  my_deckId   Int?
+  oppo_deckId Int?
+  playedAt    DateTime  @default(now())
+  endedAt     DateTime?
+
+  my_deck   Deck? @relation("MatchMyDeck", fields: [my_deckId], references: [id])
+  oppo_deck Deck? @relation("MatchOppoDeck", fields: [oppo_deckId], references: [id])
 }
