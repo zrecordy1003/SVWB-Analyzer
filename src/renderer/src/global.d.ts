@@ -1,3 +1,5 @@
+import { IpcRenderer } from '@electron-toolkit/preload'
+
 export {}
 
 declare global {
@@ -5,6 +7,6 @@ declare global {
     electronAPI: {
       openLink: (url: string) => void
     }
-    electron: Electron
+    electron: { ipcRenderer: IpcRenderer }
   }
 }

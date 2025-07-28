@@ -1,7 +1,7 @@
 import { Box } from '@mui/material'
 
 const Disclaimer = (): React.JSX.Element => {
-  const open = (e: React.MouseEvent, url: string): void => {
+  const handleExternalLink = (e: React.MouseEvent, url: string): void => {
     e.preventDefault()
     window.electronAPI.openLink(url)
   }
@@ -16,7 +16,7 @@ const Disclaimer = (): React.JSX.Element => {
         <a
           style={{ color: 'lightblue' }}
           href="https://www.cygames.co.jp/"
-          onClick={(e) => open(e, 'https://www.cygames.co.jp/')}
+          onClick={(e) => handleExternalLink(e, 'https://www.cygames.co.jp/')}
         >
           https://www.cygames.co.jp/
         </a>

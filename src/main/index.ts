@@ -1,5 +1,5 @@
 import './ipc/matches'
-import { app, shell, BrowserWindow, ipcMain, utilityProcess, MessageChannelMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -9,6 +9,7 @@ import { getDecks, addDeck } from './database'
 
 import { isSvwbRunning } from './svwbDetector'
 import { spawnCapture, stopCapture } from './manageCaptureTool'
+import { startAnalyzer } from './analyzer'
 
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
 process.env.OPENCV_INCLUDE_DIR = app.isPackaged
@@ -20,8 +21,6 @@ process.env.OPENCV_LIB_DIR = app.isPackaged
 process.env.OPENCV_BIN_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'bin')
   : path.join(__dirname, '../../resources/opencv/bin')
-
-import forkPath from './forkedImageAnalyzer?modulePath'
 
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -36,53 +35,6 @@ if (!gotTheLock) {
   })
 
   let mainWindow: BrowserWindow
-
-  ipcMain.on('analyze-image', () => {
-    // console.log(path.join(process.resourcesPath, 'opencv', 'include'))
-    console.log('[Main] analyze-image triggered')
-
-    const imagePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-      : path.join(__dirname, '../../tools', 'svwb.png')
-    // ? path.join(process.resourcesPath, 'templates', 'test.png')
-
-    const { port1, port2 } = new MessageChannelMain()
-    const child = utilityProcess.fork(forkPath)
-
-    child.postMessage(
-      { imagePath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath },
-      [port1]
-    )
-
-    port2.on('message', (e) => {
-      console.log('[Child] message from forked process')
-      mainWindow.webContents.send('battle:status', e.data)
-      if (e.data.refetchTable) {
-        mainWindow.webContents.send('matches:needRefetch')
-      }
-    })
-
-    port2.start()
-    // port2.postMessage('hello from main')
-  })
-
-  // function readImageWhenReady(filePath: string, retry = 5): void {
-  //   const delay = 100
-  //   const tryRead = (count: number) => {
-  //     if (count <= 0) return console.warn('Fail - retry count exceeded')
-  //     if (!fs.existsSync(filePath)) {
-  //       return setTimeout(() => tryRead(count - 1), delay)
-  //     }
-  //     const image = cv.imread(filePath)
-  //     if (image.empty) {
-  //       console.warn('retry...')
-  //       return setTimeout(() => tryRead(count - 1), delay)
-  //     }
-  //     console.log('Success - image sizes:', image.sizes)
-  //     // 處理 image...
-  //   }
-  //   tryRead(retry)
-  // }
 
   function clearCaptureImage(): void {
     const imagePath = app.isPackaged
@@ -130,6 +82,7 @@ if (!gotTheLock) {
     } else {
       mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     }
+    startAnalyzer(mainWindow)
   }
 
   // This method will be called when Electron has finished
@@ -186,10 +139,6 @@ if (!gotTheLock) {
         console.error(`Error while ${isGameRunning ? 'running' : 'not running'}:`, msg)
       }
     }, 1000)
-
-    // ipcMain.on('start-capture', (_e, interval: number) => {
-    //   spawnCapture(interval)
-    // })
 
     ipcMain.on('stop-capture', () => {
       stopCapture()

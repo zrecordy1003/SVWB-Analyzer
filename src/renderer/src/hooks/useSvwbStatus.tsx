@@ -17,12 +17,12 @@ export const useSvwbStatus = (): svwbStatus | undefined => {
   const [running, setRunning] = useState<svwbStatus>()
 
   useEffect(() => {
-    window.electron.ipcRenderer.on('svwb:status', (_event, status) => {
+    const unsubStatus = window.electron.ipcRenderer.on('svwb:status', (_event, status) => {
       setRunning(status)
     })
 
     return () => {
-      window.electron.ipcRenderer.removeAllListeners('svwb:status')
+      unsubStatus()
     }
   }, [])
 

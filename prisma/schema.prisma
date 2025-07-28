@@ -20,17 +20,50 @@ model Deck {
   matchesAsOppoDeck Match[] @relation("MatchOppoDeck")
 }
 
+enum PlayOrder {
+  first
+  second
+}
+
+enum ClassName {
+  elf
+  royal
+  witch
+  dragon
+  bishop
+  nightmare
+  nemesis
+}
+
+enum GameMode {
+  promotion
+  ranked
+  cpu
+  other
+}
+
 model Match {
   id          Int       @id @default(autoincrement())
-  result      Boolean?
-  play_order  String
-  my_class    String
-  oppo_class  String
+  result      Boolean? // true=win, false=lose, null=ongoing
+  play_order  PlayOrder
+  my_class    ClassName
+  oppo_class  ClassName
   my_deckId   Int?
   oppo_deckId Int?
-  playedAt    DateTime  @default(now())
-  endedAt     DateTime?
+  mode        GameMode?
+
+  bp           Int?
+  durationTime Int?
+  year         Int?
+  month        Int?
+  day          Int?
+
+  playedAt DateTime  @default(now())
+  endedAt  DateTime?
 
   my_deck   Deck? @relation("MatchMyDeck", fields: [my_deckId], references: [id])
   oppo_deck Deck? @relation("MatchOppoDeck", fields: [oppo_deckId], references: [id])
+
+  @@index([playedAt])
+  @@index([year, month, day])
 }

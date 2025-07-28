@@ -36,6 +36,7 @@ const Analyzer = (): React.JSX.Element => {
       )
       const ClasssByName = Object.fromEntries(matchedClasss.map((Class) => [Class.name, Class]))
       setClassAssets(ClasssByName)
+      setIsRecognizing(true)
     })
 
     return () => {
@@ -43,21 +44,16 @@ const Analyzer = (): React.JSX.Element => {
     }
   }, [])
 
-  const analyze = (): void => {
-    setIsRecognizing(true)
-    window.electron.ipcRenderer.send('analyze-image')
-  }
-
   return (
     <Box marginTop={1}>
       <Box display={'flex'} gap={2}>
         <Button
           variant="contained"
           color="success"
-          onClick={() => analyze()}
+          // onClick={() => analyze()}
           disabled={isRecognizing}
         >
-          {isRecognizing ? '分析中' : '開始分析'}
+          {isRecognizing ? '分析中' : '未在分析...'}
         </Button>
         <Button variant="contained" color="success" onClick={() => console.log(battleState)}>
           got state
@@ -92,7 +88,7 @@ const Analyzer = (): React.JSX.Element => {
               </div>
             )}
             <p>
-              先手 / 後手：<strong>{battleState.playOrder === 'first' ? '先手' : '後手'}</strong>
+              先攻 / 後攻：<strong>{battleState.playOrder === 'first' ? '先攻' : '後攻'}</strong>
             </p>
             <p>
               對方職業： <strong>{battleState.enemyClass}</strong>

@@ -1,25 +1,35 @@
 import { ipcMain } from 'electron'
-import { PrismaClient } from '@prisma/client'
+import { ClassName, Prisma, PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
 // count handler：接受 filterMy, filterOppo
 ipcMain.handle('matches:count', async (_e, filterMy = '', filterOppo = '') => {
-  return prisma.match.count({
-    where: {
-      my_class: { contains: filterMy },
-      oppo_class: { contains: filterOppo }
-    }
-  })
+  const where: Prisma.MatchWhereInput = {}
+
+  if (filterMy) {
+    where.my_class = { equals: filterMy as ClassName }
+  }
+
+  if (filterOppo) {
+    where.oppo_class = { equals: filterOppo as ClassName }
+  }
+
+  return prisma.match.count({ where })
 })
 
 // getAll handler：接受篩選，並套用 cursor-based pagination
 ipcMain.handle(
   'matches:getAll',
   async (_e, take: number, cursorId?: number | null, filterMy = '', filterOppo = '') => {
-    const where = {
-      my_class: { contains: filterMy },
-      oppo_class: { contains: filterOppo }
+    const where: Prisma.MatchWhereInput = {}
+
+    if (filterMy) {
+      where.my_class = { equals: filterMy as ClassName }
+    }
+
+    if (filterOppo) {
+      where.oppo_class = { equals: filterOppo as ClassName }
     }
 
     return prisma.match.findMany({
@@ -35,6 +45,7 @@ ipcMain.handle(
     })
   }
 )
+
 interface MatchDTO {
   result: 1 | 0 | null
   play_order: 'first' | 'second'

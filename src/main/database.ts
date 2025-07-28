@@ -1,4 +1,4 @@
-import { PrismaClient, Deck, Match } from '@prisma/client'
+import { PrismaClient, Deck, Match, ClassName, PlayOrder, GameMode } from '@prisma/client'
 export const prisma = new PrismaClient({
   datasources: {
     db: {
@@ -31,21 +31,55 @@ export const fetchMatchesCursor = (take: number, cursorId?: number): Promise<Mat
 }
 
 export const addMatch = (
-  my_class: string,
-  oppo_class: string,
-  play_order: string
-): Promise<Match> =>
-  prisma.match.create({
-    data: { result: null, play_order, my_class, oppo_class, my_deckId: null, oppo_deckId: null }
+  my_class: ClassName,
+  oppo_class: ClassName,
+  play_order: PlayOrder
+): Promise<Match> => {
+  // 1. 取現在時間
+  const now = new Date()
+  // 2. 拆成三個欄位
+  const year = now.getFullYear() // e.g. 2025
+  const month = now.getMonth() + 1 // JS 的 month 從 0–11，所以 +1
+  const day = now.getDate() // 1–31
+
+  // 3. 存到資料庫
+  return prisma.match.create({
+    data: {
+      result: null,
+      play_order,
+      my_class,
+      oppo_class,
+      my_deckId: null,
+      oppo_deckId: null,
+      year,
+      month,
+      day
+    }
+  })
+}
+
+export const modifyMatchResult = async (result: boolean, mode: GameMode): Promise<Match> => {
+  const latest = await prisma.match.findFirstOrThrow({
+    orderBy: { playedAt: 'desc' }
   })
 
-export const modifyMatchResult = async (result: boolean): Promise<Match> => {
+  const now = new Date()
+  const durationMs = now.getTime() - latest.playedAt.getTime()
+  const durationSecs = Math.floor(durationMs / 1000)
+
+  return prisma.match.update({
+    where: { id: latest.id },
+    data: { result, endedAt: now, durationTime: durationSecs, mode }
+  })
+}
+
+export const gainBP = async (bp: number | null): Promise<Match> => {
   const latest = await prisma.match.findFirstOrThrow({
     orderBy: { playedAt: 'desc' }
   })
 
   return prisma.match.update({
     where: { id: latest.id },
-    data: { result, endedAt: new Date() }
+    data: { bp }
   })
 }

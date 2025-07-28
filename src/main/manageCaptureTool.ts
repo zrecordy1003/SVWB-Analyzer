@@ -20,19 +20,30 @@ const execAsync = promisify(exec)
  */
 async function checkCapture(): Promise<void> {
   try {
-    // /NH 不印表頭，篩選映像檔名稱 eq
-    const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq svwb-capture-tool.exe" /NH')
+    // 用 CSV 格式更好 parse
+    const { stdout } = await execAsync(
+      'tasklist /FI "IMAGENAME eq svwb-capture-tool.exe" /FO CSV /NH'
+    )
 
-    // 如果有任何非空輸出就表示至少有一個在跑
-    if (stdout.trim()) {
+    // 拆成多行、過濾空行
+    const lines = stdout.trim().split(/\r?\n/).filter(Boolean)
+
+    // CSV 會長這樣：
+    // "svwb-capture-tool.exe","1234","Console","1","10,240 K"
+    // 如果沒有執行個體，lines 可能只含那行「資訊: …」，或根本是空陣列
+    const procs = lines
+      .map((line) => line.split('","')[0].replace(/"/g, '').toLowerCase())
+      .filter((name) => name === 'svwb-capture-tool.exe')
+
+    if (procs.length > 0) {
       console.log('svwb-capture-tool.exe is running, terminating...')
-      // /F 強制，/T 同時結束子程序
       await execAsync('taskkill /F /T /IM svwb-capture-tool.exe')
       console.log('All svwb-capture-tool.exe processes have been terminated.')
     } else {
       console.log('svwb-capture-tool.exe is not running.')
     }
   } catch (err) {
+    // 只攔截真正的錯誤，像是 taskkill 執行失敗
     console.error('Error checking/killing capture tool:', err)
   }
 }

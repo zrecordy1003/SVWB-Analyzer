@@ -12,9 +12,10 @@ import {
   TextField,
   Autocomplete
 } from '@mui/material'
-import { classes, classesMap } from '@renderer/map/classMap'
 import LooksOneTwoToneIcon from '@mui/icons-material/LooksOneTwoTone'
 import LooksTwoTwoToneIcon from '@mui/icons-material/LooksTwoTwoTone'
+
+import { classes, classesMap } from '@renderer/map/classMap'
 
 interface Match {
   id: number
@@ -126,9 +127,9 @@ const MatchList = (): React.JSX.Element => {
       )
     }
 
-    window.electron.ipcRenderer.on('matches:needRefetch', handler)
+    const unsubscribeRefetch = window.electron.ipcRenderer.on('matches:needRefetch', handler)
     return () => {
-      window.electron.ipcRenderer.removeListener('matches:needRefetch', handler)
+      unsubscribeRefetch()
     }
   }, [])
 
@@ -151,7 +152,7 @@ const MatchList = (): React.JSX.Element => {
             setFilterMy(newVal?.name ?? '')
           }}
           renderInput={(params) => (
-            <TextField {...params} label="我的職業" size="small" variant="outlined" />
+            <TextField {...params} label="我方職業" size="small" variant="outlined" />
           )}
           sx={{ width: 200 }}
         />
@@ -166,7 +167,7 @@ const MatchList = (): React.JSX.Element => {
             setFilterOppo(newVal?.name ?? '')
           }}
           renderInput={(params) => (
-            <TextField {...params} label="對手職業" size="small" variant="outlined" />
+            <TextField {...params} label="對方職業" size="small" variant="outlined" />
           )}
           sx={{ width: 200 }}
         />
@@ -181,6 +182,8 @@ const MatchList = (): React.JSX.Element => {
               <TableCell sx={{ textAlign: 'right' }}>對方職業</TableCell>
               <TableCell sx={{ textAlign: 'right' }}>先 / 後攻</TableCell>
               <TableCell sx={{ textAlign: 'right' }}>勝 / 敗</TableCell>
+              <TableCell sx={{ textAlign: 'right' }}>模式</TableCell>
+              <TableCell sx={{ textAlign: 'right' }}>BP</TableCell>
               <TableCell sx={{ textAlign: 'right' }}>遊戲時長</TableCell>
               <TableCell sx={{ textAlign: 'right' }}>開始時間</TableCell>
               {/* <TableCell>結束時間</TableCell> */}
@@ -218,18 +221,33 @@ const MatchList = (): React.JSX.Element => {
                 >
                   {m.result === true ? '勝利' : m.result === false ? '戰敗' : '尚未結束'}
                 </TableCell>
+                <TableCell
+                  sx={{
+                    textAlign: 'right'
+                  }}
+                >
+                  {m.mode ? m.mode : '-'}
+                </TableCell>
+                <TableCell
+                  sx={{
+                    textAlign: 'right'
+                  }}
+                >
+                  {m.bp ? m.bp : '-'}
+                </TableCell>
                 <TableCell sx={{ textAlign: 'right', fontFamily: 'monospace' }}>
                   {m.endedAt
                     ? (() => {
                         const diffMs = m.endedAt - m.playedAt
                         const minutes = Math.floor(diffMs / 60000)
                         const seconds = Math.floor((diffMs % 60000) / 1000)
-                        return `${minutes}:${seconds}`
+                        const secStr = seconds.toString().padStart(2, '0')
+                        return `${minutes}:${secStr}`
                       })()
                     : '進行中...'}
                 </TableCell>
                 <TableCell
-                  sx={{ textAlign: 'right' }}
+                  sx={{ textAlign: 'right', fontFamily: 'monospace' }}
                   title={String(new Date(m.playedAt).toLocaleString())}
                 >
                   {(() => {
@@ -258,7 +276,7 @@ const MatchList = (): React.JSX.Element => {
             ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} align="center">
+                <TableCell colSpan={8} align="center">
                   無符合資料
                 </TableCell>
               </TableRow>
