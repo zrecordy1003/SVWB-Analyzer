@@ -3,13 +3,11 @@ import forkPath from './forkedImageAnalyzer?modulePath'
 import path from 'path'
 
 export function startAnalyzer(mainWindow: BrowserWindow): void {
-  // console.log(path.join(process.resourcesPath, 'opencv', 'include'))
   console.log('[Main] analyze-image triggered')
 
   const imagePath = app.isPackaged
     ? path.join(process.resourcesPath, 'tools', 'svwb.png')
     : path.join(__dirname, '../../tools', 'svwb.png')
-  // ? path.join(process.resourcesPath, 'templates', 'test.png')
 
   const { port1, port2 } = new MessageChannelMain()
   const child = utilityProcess.fork(forkPath)
@@ -34,8 +32,22 @@ export function startAnalyzer(mainWindow: BrowserWindow): void {
         mainWindow.webContents.send('matches:needRefetch')
 
         // 顯示一次性通知
-        const { title, body } = notification
-        new Notification({ title, body }).show()
+        if (notification) {
+          const { title, body } = notification
+          new Notification({ title, body }).show()
+        }
+        break
+      }
+
+      case 'modifyMode': {
+        // 重新獲取資料
+        mainWindow.webContents.send('matches:needRefetch')
+
+        // 顯示一次性通知
+        if (notification) {
+          const { title, body } = notification
+          new Notification({ title, body }).show()
+        }
         break
       }
 

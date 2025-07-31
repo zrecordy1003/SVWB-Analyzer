@@ -29,7 +29,7 @@ const Analyzer = (): React.JSX.Element => {
   const [classAssets, setClassAssets] = useState<Record<string, Class>>({})
 
   useEffect(() => {
-    window.electron.ipcRenderer.on('battle:status', (_e, msg: BattleState) => {
+    const unsubStatus = window.electron.ipcRenderer.on('battle:status', (_e, msg: BattleState) => {
       setBattleState(msg)
       const matchedClasss = classes.filter(
         (Class) => Class.name === msg.ownClass || Class.name === msg.enemyClass
@@ -40,7 +40,7 @@ const Analyzer = (): React.JSX.Element => {
     })
 
     return () => {
-      window.electron.ipcRenderer.removeAllListeners('battle:status')
+      unsubStatus()
     }
   }, [])
 

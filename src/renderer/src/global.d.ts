@@ -7,6 +7,8 @@ declare global {
     electronAPI: {
       openLink: (url: string) => void
     }
-    electron: { ipcRenderer: IpcRenderer }
+    electron: {
+      ipcRenderer: IpcRenderer
+    }
   }
 }

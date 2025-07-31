@@ -7,3 +7,4 @@ onlyBuiltDependencies:
   - extract-file-icon
   - node-window-manager
   - prisma
+  - tesseract.js

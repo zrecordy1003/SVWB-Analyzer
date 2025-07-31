@@ -72,7 +72,11 @@ type PageKey = 'Home' | 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings'
 function App(): React.JSX.Element {
   // theme mode
   const [mode, setMode] = useState<'light' | 'dark'>('dark')
-  const toggleTheme = (): void => setMode((m) => (m === 'light' ? 'dark' : 'light'))
+  const toggleTheme = (): void => {
+    const nextMode = mode === 'light' ? 'dark' : 'light'
+    window.settings.set('theme', nextMode)
+    setMode(nextMode)
+  }
 
   // drawer open?
   const [open, setOpen] = useState(false)

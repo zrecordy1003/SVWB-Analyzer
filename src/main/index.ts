@@ -1,5 +1,5 @@
 import './ipc/matches'
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -11,6 +11,9 @@ import { isSvwbRunning } from './svwbDetector'
 import { spawnCapture, stopCapture } from './manageCaptureTool'
 import { startAnalyzer } from './analyzer'
 
+// import Store from 'electron-store'
+
+// set env for opencv
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
 process.env.OPENCV_INCLUDE_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'include')
@@ -38,11 +41,20 @@ if (!gotTheLock) {
 
   function clearCaptureImage(): void {
     const imagePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'tools', 'svwb-1.png')
-      : path.join(__dirname, '../../tools', 'svwb-1.png')
+      ? path.join(process.resourcesPath, 'tools', 'svwb.png')
+      : path.join(__dirname, '../../tools', 'svwb.png')
+
+    const tmpImagePath = app.isPackaged
+      ? path.join(process.resourcesPath, 'tools', 'svwb.png.tmp.png')
+      : path.join(__dirname, '../../tools', 'svwb.png.tmp.png')
+
     if (fs.existsSync(imagePath)) {
       fs.unlinkSync(imagePath)
       console.log('deleted svwb.png')
+    }
+    if (fs.existsSync(tmpImagePath)) {
+      fs.unlinkSync(tmpImagePath)
+      console.log('deleted svwb.png.tmp.png')
     }
   }
 
@@ -62,8 +74,15 @@ if (!gotTheLock) {
       }
     })
 
+    mainWindow.removeMenu()
+
+    // const store = new Store()
+    // store.set(theme:'se','ss')
+
     mainWindow.on('ready-to-show', () => {
       mainWindow.show()
+      clearCaptureImage()
+      startAnalyzer(mainWindow)
     })
 
     mainWindow.on('close', () => {
@@ -82,16 +101,16 @@ if (!gotTheLock) {
     } else {
       mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     }
-    startAnalyzer(mainWindow)
+
+    mainWindow.webContents.openDevTools()
   }
 
   // This method will be called when Electron has finished
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
   app.whenReady().then(() => {
-    clearCaptureImage()
     // Set app user model id for windows
-    electronApp.setAppUserModelId('app.electron.svwb-tool')
+    electronApp.setAppUserModelId('app.electron.svwb-analyzer')
 
     // Default open or close DevTools by F12 in development
     // and ignore CommandOrControl + R in production.
@@ -103,11 +122,13 @@ if (!gotTheLock) {
     ipcMain.handle('decks:getAll', () => getDecks())
     ipcMain.handle('decks:add', (_e, name, svClass) => addDeck(name, svClass))
 
+    // ipcMain.handle('store:set', (_e, name, svClass) => addDeck(name, svClass))
     // IPC test
     // ipcMain.on('ping', () => console.log('pong'))
 
     let isCapturing = false
-    let isFirst = true
+    let isFirstStart = true
+    let isSentMinimizedInfo = false
 
     setInterval(() => {
       const svwbStatus = isSvwbRunning()
@@ -115,17 +136,34 @@ if (!gotTheLock) {
 
       const isGameRunning = svwbStatus.running
 
-      if (win?.webContents) {
+      if (win?.webContents && svwbStatus) {
         win.webContents.postMessage('svwb:status', svwbStatus)
+        if (
+          isSentMinimizedInfo &&
+          (svwbStatus.bound?.x !== -32000 || svwbStatus.bound?.y !== -32000)
+        ) {
+          isSentMinimizedInfo = false
+        }
+        if (
+          !isSentMinimizedInfo &&
+          svwbStatus.bound?.x === -32000 &&
+          svwbStatus.bound?.y === -32000
+        ) {
+          isSentMinimizedInfo = true
+          new Notification({
+            title: '［提醒］遊戲最小化執行中！',
+            body: '對戰資訊紀錄已停止...'
+          }).show()
+        }
       }
 
       try {
         if (isGameRunning) {
           if (!isCapturing) {
-            spawnCapture(isFirst)
+            spawnCapture(isFirstStart)
             isCapturing = true
             win.webContents.send('capture:status', true)
-            if (isFirst) isFirst = false
+            if (isFirstStart) isFirstStart = false
           }
         } else {
           if (isCapturing) {
@@ -153,7 +191,7 @@ if (!gotTheLock) {
     })
 
     app.on('will-quit', () => {
-      clearCaptureImage()
+      // clearCaptureImage()
     })
 
     app.on('before-quit', () => {

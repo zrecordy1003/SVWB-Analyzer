@@ -36,10 +36,11 @@ enum ClassName {
 }
 
 enum GameMode {
-  promotion
   ranked
+  unranked
   cpu
-  other
+  plaza
+  custom
 }
 
 model Match {

@@ -14,8 +14,12 @@ export const addDeck = (name: string, svClass: string): Promise<Deck> =>
 
 export const fetchMatchCount = (): Promise<number> => prisma.match.count()
 
-export const fetchLastMatch = (): Promise<Match | null> =>
-  prisma.match.findFirst({ orderBy: { playedAt: 'desc' } })
+export const fetchLastMatch = async (): Promise<Match | null> => {
+  const latest = await prisma.match.findFirstOrThrow({
+    orderBy: { playedAt: 'desc' }
+  })
+  return latest
+}
 
 export const fetchMatchesCursor = (take: number, cursorId?: number): Promise<Match[]> => {
   return prisma.match.findMany({
@@ -58,7 +62,7 @@ export const addMatch = (
   })
 }
 
-export const modifyMatchResult = async (result: boolean, mode: GameMode): Promise<Match> => {
+export const modifyMatchResult = async (result: boolean): Promise<Match> => {
   const latest = await prisma.match.findFirstOrThrow({
     orderBy: { playedAt: 'desc' }
   })
@@ -69,11 +73,22 @@ export const modifyMatchResult = async (result: boolean, mode: GameMode): Promis
 
   return prisma.match.update({
     where: { id: latest.id },
-    data: { result, endedAt: now, durationTime: durationSecs, mode }
+    data: { result, endedAt: now, durationTime: durationSecs }
   })
 }
 
-export const gainBP = async (bp: number | null): Promise<Match> => {
+export const modifyMatchMode = async (mode: GameMode | null): Promise<Match> => {
+  const latest = await prisma.match.findFirstOrThrow({
+    orderBy: { playedAt: 'desc' }
+  })
+
+  return prisma.match.update({
+    where: { id: latest.id },
+    data: { mode }
+  })
+}
+
+export const modifyMatchBP = async (bp: number | null): Promise<Match> => {
   const latest = await prisma.match.findFirstOrThrow({
     orderBy: { playedAt: 'desc' }
   })
