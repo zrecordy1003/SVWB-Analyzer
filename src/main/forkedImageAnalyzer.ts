@@ -25,6 +25,10 @@ let original: {
   modesRanked: Array<{ name: string; image: Mat }>
   cursor: Array<{ name: string; image: Mat }>
   custom: Array<{ name: string; image: Mat }>
+<<<<<<< HEAD
+  customWin: Array<{ name: string; image: Mat }>
+=======
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
 }
 
 async function recognizeBPGain(imgPath: string): Promise<string | undefined> {
@@ -150,7 +154,12 @@ process.parentPort.on('message', (e) => {
       modesCPU: loadTemplates(path.join(base, 'modes_cpu')),
       modesRanked: loadTemplates(path.join(base, 'modes_ranked')),
       cursor: loadTemplates(path.join(base, 'cursor')),
+<<<<<<< HEAD
+      custom: loadTemplates(path.join(base, 'custom')),
+      customWin: loadTemplates(path.join(base, 'custom-win'))
+=======
       custom: loadTemplates(path.join(base, 'custom'))
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
     }
 
     // 啟動分析迴圈
@@ -246,6 +255,10 @@ interface ScaledTemplates {
   modesRanked: Template[]
   cursor: Template[]
   custom: Template[]
+<<<<<<< HEAD
+  customWin: Template[]
+=======
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
 }
 
 // 這個函式負責：
@@ -305,6 +318,13 @@ function prepareScaledTemplates(fullGray: Mat): ScaledTemplates {
     custom: original.custom.map(({ name, image }) => ({
       name,
       image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+<<<<<<< HEAD
+    })),
+    customWin: original.customWin.map(({ name, image }) => ({
+      name,
+      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+=======
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
     }))
   }
   return scaled
@@ -370,11 +390,19 @@ const THRESHOLD = {
   class: 0.7,
   emblem: 0.7,
   playOrder: 0.6,
+<<<<<<< HEAD
+  ranked: 0.8,
+  result: 0.7
+}
+
+let shouldRecordNewMatch = false
+=======
   ranked: 0.7,
   result: 0.7
 }
 
 let justmeetanotherbattle = false
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
 
 let customBattleActive = false // whether a custom-room battle is ongoing
 let normalBattleActive = false // whether a normal battle is ongoing
@@ -440,7 +468,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       customBattleActive = false
       normalBattleActive = false
       lastRowId = -1
+<<<<<<< HEAD
+      shouldRecordNewMatch = false
+=======
       justmeetanotherbattle = false
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
 
       console.log('[Analyzer] History detected → cooling down for 15s')
       return scheduleNext(port)
@@ -450,7 +482,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const rankDetect = matchTemplate(topRightArea, tmpls.modesRanked)
 
     // 階級模式判斷：BP修改
+<<<<<<< HEAD
+    if (rankDetect.score > THRESHOLD.ranked && !isModifyBP && lastRowId > -1) {
+=======
     if (rankDetect.score > 0.8 && !isModifyBP && lastRowId > -1) {
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
       let bp: number | null = null
       console.log(rankDetect)
 
@@ -469,7 +505,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     }
 
     // 階級模式判斷：模式修改
+<<<<<<< HEAD
+    if (rankDetect.score > THRESHOLD.ranked && !isModifyMode && lastRowId > -1) {
+=======
     if (rankDetect.score > 0.7 && !isModifyMode && lastRowId > -1) {
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
       isModifyMode = true
       mode = 'ranked'
       modifyMatchMode(mode)
@@ -493,6 +533,19 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     // 檢測到房間這個事件(檢測到房間，但是沒有開始對戰，而是解散出來打別的模式)
     // 辨別的節點為，是否有偵測到win/lose
     // TODO:尚未完成！
+<<<<<<< HEAD
+
+    const ownCustomWinDetect = matchTemplate(leftArea, tmpls.customWin)
+    const enemyCustomWinDetect = matchTemplate(rightArea, tmpls.customWin)
+    if (ownCustomWinDetect.score > 0.7) {
+      console.log('ownCustomWin', ownCustomWinDetect)
+    }
+    if (enemyCustomWinDetect.score > 0.7) {
+      console.log('enemyCustomWin', enemyCustomWinDetect)
+    }
+
+=======
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
     const roomDetect = matchTemplate(gray, tmpls.custom) // 假設 indicators 裡含 "host" 與 "guest" 模板
     if (
       roomDetect.score > THRESHOLD.ranked &&
@@ -503,11 +556,19 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         // start custom battle
         customBattleActive = true
         normalBattleActive = false
+<<<<<<< HEAD
+        // port.postMessage({ type: 'inBattle', data: { custom: true } })
+      } else {
+        // end custom battle
+        customBattleActive = false
+        // port.postMessage({ type: 'matchResult', data: { custom: true } })
+=======
         port.postMessage({ type: 'inBattle', data: { custom: true } })
       } else {
         // end custom battle
         customBattleActive = false
         port.postMessage({ type: 'matchResult', data: { custom: true } })
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
       }
       return scheduleNext(port)
     }
@@ -527,6 +588,23 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       ownPlayOrder.score > THRESHOLD.playOrder || enemyPlayOrder.score > THRESHOLD.playOrder
     inBattle = myValid && oppoValid && turnValid
 
+<<<<<<< HEAD
+    // 處理對戰無結束的判斷節點，導致無法開始記錄下一把
+    if (isMatchRecord && !inBattle) {
+      shouldRecordNewMatch = true
+    }
+
+    // 戰鬥開始：首次紀錄 DB
+    if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
+      isMatchRecord = true
+      isModifyBP = false
+      isModifyMode = false
+      shouldRecordNewMatch = false
+
+      if (lastRowId > -1) {
+        if (mode !== null) {
+          if (customBattleActive) modifyMatchMode('custom')
+=======
     if (isMatchRecord && !inBattle) {
       justmeetanotherbattle = true
     }
@@ -540,6 +618,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
       if (lastRowId > -1) {
         if (mode !== null) {
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
           mode = null
         } else {
           modifyMatchMode('unranked')

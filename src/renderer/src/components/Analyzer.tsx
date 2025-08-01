@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { classes } from '@renderer/map/classMap'
-import { Box, Button } from '@mui/material'
+import { Box } from '@mui/material'
 
 interface Class {
   id: number
@@ -18,7 +18,7 @@ interface BattleState {
 }
 
 const Analyzer = (): React.JSX.Element => {
-  const [isRecognizing, setIsRecognizing] = useState<boolean>(false)
+  const [isRecognizing, setIsRecognizing] = useState<boolean>(true)
   const [battleState, setBattleState] = useState<BattleState>({
     inBattle: false,
     ownClass: null,
@@ -47,20 +47,20 @@ const Analyzer = (): React.JSX.Element => {
   return (
     <Box marginTop={1}>
       <Box display={'flex'} gap={2}>
-        <Button
+        {/* <Button
           variant="contained"
           color="success"
           // onClick={() => analyze()}
           disabled={isRecognizing}
         >
-          {isRecognizing ? '分析中' : '未在分析...'}
-        </Button>
-        <Button variant="contained" color="success" onClick={() => console.log(battleState)}>
+          {isRecognizing ? '分析中...' : '未在分析...'}
+        </Button> */}
+        {/* <Button variant="contained" color="success" onClick={() => console.log(battleState)}>
           got state
         </Button>
         <Button variant="contained" color="success" onClick={() => console.log(classAssets)}>
           got statessss
-        </Button>
+        </Button> */}
       </Box>
       {isRecognizing ? (
         battleState.inBattle ? (
@@ -68,7 +68,8 @@ const Analyzer = (): React.JSX.Element => {
             <h2>🟢 對戰中</h2>
             <div>
               <p>
-                我方職業：<strong>{battleState.ownClass}</strong>
+                我方職業：
+                <strong>{battleState.ownClass && classAssets[battleState.ownClass].label}</strong>
               </p>
             </div>
             {battleState.ownClass && (
@@ -91,7 +92,8 @@ const Analyzer = (): React.JSX.Element => {
               先攻 / 後攻：<strong>{battleState.playOrder === 'first' ? '先攻' : '後攻'}</strong>
             </p>
             <p>
-              對方職業： <strong>{battleState.enemyClass}</strong>
+              對方職業：
+              <strong>{battleState.enemyClass && classAssets[battleState.enemyClass].label}</strong>
             </p>
             {battleState.enemyClass && (
               <div>

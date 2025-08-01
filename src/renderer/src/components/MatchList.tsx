@@ -15,17 +15,8 @@ import {
 import LooksOneTwoToneIcon from '@mui/icons-material/LooksOneTwoTone'
 import LooksTwoTwoToneIcon from '@mui/icons-material/LooksTwoTwoTone'
 
-import { classes, classesMap } from '@renderer/map/classMap'
-
-interface Match {
-  id: number
-  result: boolean
-  my_class: string
-  oppo_class: string
-  play_order: string | null
-  playedAt: number
-  endedAt?: number
-}
+import { classes, classesMap, modes } from '@renderer/map/classMap'
+import { Match } from '@prisma/client'
 
 type ClassType = (typeof classes)[number]
 
@@ -37,12 +28,14 @@ const MatchList = (): React.JSX.Element => {
   const [totalCount, setTotalCount] = useState<number>(0)
   const [filterMy, setFilterMy] = useState<string>('')
   const [filterOppo, setFilterOppo] = useState<string>('')
+  const [filterModes, setFilterModes] = useState<string>('ranked')
   const [page, setPage] = useState<number>(0)
   const [rowsPerPage, setRowsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0])
   const [cursorMap, setCursorMap] = useState<Record<number, number>>({})
 
   const filterMyRef = useRef(filterMy)
   const filterOppoRef = useRef(filterOppo)
+  const filterModesRef = useRef(filterModes)
 
   useEffect(() => {
     filterMyRef.current = filterMy
@@ -61,12 +54,17 @@ const MatchList = (): React.JSX.Element => {
   }, [rowsPerPage])
 
   // 從後端取得 filter 過後的總筆數
-  const fetchFilteredCount = async (myFilter: string, oppoFilter: string): Promise<void> => {
+  const fetchFilteredCount = async (
+    myFilter: string,
+    oppoFilter: string,
+    filterModes: string
+  ): Promise<void> => {
     try {
       const count: number = await window.electron.ipcRenderer.invoke(
         'matches:count',
         myFilter,
-        oppoFilter
+        oppoFilter,
+        filterModes
       )
       setTotalCount(count)
     } catch (err) {
@@ -79,7 +77,8 @@ const MatchList = (): React.JSX.Element => {
     pageIndex: number,
     pageSize: number,
     myFilter: string,
-    oppoFilter: string
+    oppoFilter: string,
+    filterModes: string
   ): Promise<void> => {
     try {
       const cursorId = pageIndex > 0 ? cursorMap[pageIndex] : undefined
@@ -88,7 +87,8 @@ const MatchList = (): React.JSX.Element => {
         pageSize,
         cursorId,
         myFilter,
-        oppoFilter
+        oppoFilter,
+        filterModes
       )
       setRows(data)
       // 更新下一頁 cursor
@@ -106,13 +106,13 @@ const MatchList = (): React.JSX.Element => {
   // 當 filter 或 rowsPerPage 改變時：重設 page、fetch count & 第一頁資料
   useEffect(() => {
     setPage(0)
-    fetchFilteredCount(filterMy, filterOppo)
-    fetchCursorPage(0, rowsPerPage, filterMy, filterOppo)
-  }, [filterMy, filterOppo, rowsPerPage])
+    fetchFilteredCount(filterMy, filterOppo, filterModes)
+    fetchCursorPage(0, rowsPerPage, filterMy, filterOppo, filterModes)
+  }, [filterMy, filterOppo, filterModes, rowsPerPage])
 
   // page 改變時：fetch 對應頁資料
   useEffect(() => {
-    fetchCursorPage(page, rowsPerPage, filterMy, filterOppo)
+    fetchCursorPage(page, rowsPerPage, filterMy, filterOppo, filterModes)
   }, [page])
 
   // 單次註冊的 IPC listener，用於外部觸發重抓
@@ -123,7 +123,8 @@ const MatchList = (): React.JSX.Element => {
         pageRef.current,
         rowsPerPageRef.current,
         filterMyRef.current,
-        filterOppoRef.current
+        filterOppoRef.current,
+        filterModesRef.current
       )
     }
 
@@ -171,6 +172,21 @@ const MatchList = (): React.JSX.Element => {
           )}
           sx={{ width: 200 }}
         />
+
+        {/* 模式 */}
+        <Autocomplete
+          options={modes}
+          getOptionLabel={(option) => option}
+          isOptionEqualToValue={(opt, val) => opt === val}
+          value={modes.find((c) => c === filterModes) || null}
+          onChange={(_, newVal) => {
+            setFilterModes(newVal ?? '')
+          }}
+          renderInput={(params) => (
+            <TextField {...params} label="模式" size="small" variant="outlined" />
+          )}
+          sx={{ width: 200 }}
+        />
       </Box>
 
       {/* 資料表格 */}
@@ -190,90 +206,104 @@ const MatchList = (): React.JSX.Element => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {rows.map((m) => (
-              <TableRow
-                key={m.id}
-                sx={{
-                  borderLeft: m.result === true ? '5px solid #00ff664f' : '5px solid #c81f3daf'
-                  // backgroundColor: m.result === true ? '#00ff664f' : '#df7488ef'
-                }}
-              >
-                <TableCell sx={{ textAlign: 'right' }}>{classesMap[m.my_class]?.label}</TableCell>
-                <TableCell sx={{ textAlign: 'right' }}>{classesMap[m.oppo_class]?.label}</TableCell>
-                <TableCell sx={{ textAlign: 'right' }}>
-                  {m.play_order === 'first' ? (
-                    <Box display={'flex'} alignItems={'center'} justifyContent={'end'}>
-                      <LooksOneTwoToneIcon fontSize="small" sx={{ mr: 0.5 }} color="primary" />
-                      先攻
-                    </Box>
-                  ) : (
-                    <Box display={'flex'} alignItems={'center'} justifyContent={'end'}>
-                      <LooksTwoTwoToneIcon fontSize="small" sx={{ mr: 0.5 }} color="secondary" />
-                      後攻
-                    </Box>
-                  )}
-                </TableCell>
-                <TableCell
+            {rows &&
+              rows.map((m) => (
+                <TableRow
+                  key={m.id}
                   sx={{
-                    textAlign: 'right',
-                    color: m.result === null ? 'gray' : null
+                    borderLeft:
+                      m.result === null
+                        ? '5px solid #f5faf64f'
+                        : m.result === true
+                          ? '5px solid #00ff664f'
+                          : '5px solid #c81f3daf'
+                    // backgroundColor: m.result === true ? '#00ff664f' : '#df7488ef'
                   }}
                 >
-                  {m.result === true ? '勝利' : m.result === false ? '戰敗' : '尚未結束'}
-                </TableCell>
-                <TableCell
-                  sx={{
-                    textAlign: 'right'
-                  }}
-                >
-                  {m.mode ? m.mode : '-'}
-                </TableCell>
-                <TableCell
-                  sx={{
-                    textAlign: 'right'
-                  }}
-                >
-                  {m.bp ? m.bp : '-'}
-                </TableCell>
-                <TableCell sx={{ textAlign: 'right', fontFamily: 'monospace' }}>
-                  {m.endedAt
-                    ? (() => {
-                        const diffMs = m.endedAt - m.playedAt
-                        const minutes = Math.floor(diffMs / 60000)
-                        const seconds = Math.floor((diffMs % 60000) / 1000)
-                        const secStr = seconds.toString().padStart(2, '0')
-                        return `${minutes}:${secStr}`
-                      })()
-                    : '進行中...'}
-                </TableCell>
-                <TableCell
-                  sx={{ textAlign: 'right', fontFamily: 'monospace' }}
-                  title={String(new Date(m.playedAt).toLocaleString())}
-                >
-                  {(() => {
-                    const dt = new Date(m.playedAt)
-                    const parts = new Intl.DateTimeFormat('zh-TW', {
-                      month: 'numeric',
-                      day: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      hour12: true
-                    }).formatToParts(dt)
+                  <TableCell sx={{ textAlign: 'right' }}>{classesMap[m.my_class]?.label}</TableCell>
+                  <TableCell sx={{ textAlign: 'right' }}>
+                    {classesMap[m.oppo_class]?.label}
+                  </TableCell>
+                  <TableCell sx={{ textAlign: 'right' }}>
+                    {m.play_order === 'first' ? (
+                      <Box display={'flex'} alignItems={'center'} justifyContent={'end'}>
+                        <LooksOneTwoToneIcon fontSize="small" sx={{ mr: 0.5 }} color="primary" />
+                        先攻
+                      </Box>
+                    ) : (
+                      <Box display={'flex'} alignItems={'center'} justifyContent={'end'}>
+                        <LooksTwoTwoToneIcon fontSize="small" sx={{ mr: 0.5 }} color="secondary" />
+                        後攻
+                      </Box>
+                    )}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      textAlign: 'right',
+                      color: m.result === null ? 'gray' : null
+                    }}
+                  >
+                    {m.result === true ? '勝利' : m.result === false ? '' : '未紀錄'}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      textAlign: 'right'
+                    }}
+                  >
+                    {m.mode ? m.mode : '-'}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      textAlign: 'right'
+                    }}
+                  >
+                    {m.bp ? m.bp : '-'}
+                  </TableCell>
+                  <TableCell
+                    sx={{
+                      textAlign: 'right',
+                      fontFamily: 'monospace',
+                      color: m.durationTime === null ? 'gray' : null
+                    }}
+                  >
+                    {m.durationTime
+                      ? (() => {
+                          const durationTime = m.durationTime
+                          const minutes = Math.floor(durationTime / 60)
+                          const seconds = Math.floor(durationTime % 60)
+                          const secStr = seconds.toString().padStart(2, '0')
+                          return `${minutes}:${secStr}`
+                        })()
+                      : '無法統計'}
+                  </TableCell>
+                  <TableCell
+                    sx={{ textAlign: 'right', fontFamily: 'monospace' }}
+                    title={String(new Date(m.playedAt).toLocaleString())}
+                  >
+                    {(() => {
+                      const dt = new Date(m.playedAt)
+                      const parts = new Intl.DateTimeFormat('zh-TW', {
+                        month: 'numeric',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      }).formatToParts(dt)
 
-                    // 從 parts 裡各別抓值
-                    const month = parts.find((p) => p.type === 'month')?.value
-                    const day = parts.find((p) => p.type === 'day')?.value
-                    const period = parts.find((p) => p.type === 'dayPeriod')?.value // 上午/下午
-                    const hour = parts.find((p) => p.type === 'hour')?.value
-                    const minute = parts.find((p) => p.type === 'minute')?.value
+                      // 從 parts 裡各別抓值
+                      const month = parts.find((p) => p.type === 'month')?.value
+                      const day = parts.find((p) => p.type === 'day')?.value
+                      const period = parts.find((p) => p.type === 'dayPeriod')?.value // 上午/下午
+                      const hour = parts.find((p) => p.type === 'hour')?.value
+                      const minute = parts.find((p) => p.type === 'minute')?.value
 
-                    // 組合字串
-                    return `${month}月${day}日 ${period} ${hour}:${minute}`
-                  })()}
-                </TableCell>
-                {/* <TableCell>{m.endedAt ? new Date(m.endedAt).toLocaleString() : '-'}</TableCell> */}
-              </TableRow>
-            ))}
+                      // 組合字串
+                      return `${month}月${day}日 ${period} ${hour}:${minute}`
+                    })()}
+                  </TableCell>
+                  {/* <TableCell>{m.endedAt ? new Date(m.endedAt).toLocaleString() : '-'}</TableCell> */}
+                </TableRow>
+              ))}
             {rows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={8} align="center">

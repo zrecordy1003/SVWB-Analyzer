@@ -4,7 +4,7 @@
   "description": "A tool for Shadowverse: Worlds Beyond, recording and analyzing games data.",
   "main": "./out/main/index.js",
   "author": "zrecordy1003",
-  "homepage": "https://github.com/zrecordy1003/svwb-tool",
+  "homepage": "https://github.com/zrecordy1003/SVWB-Analyzer",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
@@ -72,8 +72,8 @@
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
     "@mui/icons-material": "^7.2.0",
-    "@mui/lab": "7.0.0-beta.14",
     "@mui/material": "^7.2.0",
+    "@mui/x-date-pickers": "^8.9.2",
     "@prisma/client": "^6.11.1",
     "@u4/opencv4nodejs": "^7.1.2",
     "chart.js": "^4.5.0",

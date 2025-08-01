@@ -16,4 +16,6 @@ export const classes = [
   { id: 7, name: 'nemesis', label: '復仇者', code: 'Digit7', src: Dreizehn }
 ]
 
+export const modes = ['ranked', 'unranked', 'cpu', 'plaza']
+
 export const classesMap = Object.fromEntries(classes.map((c) => [c.name, c] as [string, typeof c]))

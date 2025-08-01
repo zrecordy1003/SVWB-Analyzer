@@ -82,10 +82,24 @@ export const modifyMatchMode = async (mode: GameMode | null): Promise<Match> => 
     orderBy: { playedAt: 'desc' }
   })
 
+<<<<<<< HEAD
+  if (latest.endedAt === null) {
+    return prisma.match.update({
+      where: { id: latest.id },
+      data: { mode, endedAt: new Date() }
+    })
+  } else {
+    return prisma.match.update({
+      where: { id: latest.id },
+      data: { mode }
+    })
+  }
+=======
   return prisma.match.update({
     where: { id: latest.id },
     data: { mode }
   })
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
 }
 
 export const modifyMatchBP = async (bp: number | null): Promise<Match> => {

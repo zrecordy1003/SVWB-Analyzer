@@ -30,10 +30,11 @@ import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 
 import Disclaimer from './components/Disclaimer'
-import ClassSelector from './components/ClassSelector'
+import GameStatus from './components/GameStatus'
 import Analyzer from './components/Analyzer'
 import MatchList from './components/MatchList'
 import MatchAnalytics from './components/MatchAnalytics/MatchAnalytics'
+import { ChartBuilder } from './components/Test/ChartBuilder'
 // import Statistics from './components/Statistics' // 你可以自己拆新畫面
 
 const shakeAnimation = keyframes`
@@ -74,7 +75,11 @@ function App(): React.JSX.Element {
   const [mode, setMode] = useState<'light' | 'dark'>('dark')
   const toggleTheme = (): void => {
     const nextMode = mode === 'light' ? 'dark' : 'light'
+<<<<<<< HEAD
+    // window.settings.set('theme', nextMode)
+=======
     window.settings.set('theme', nextMode)
+>>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
     setMode(nextMode)
   }
 
@@ -258,7 +263,7 @@ function App(): React.JSX.Element {
         <Toolbar />
         {currentPage === 'Home' && (
           <Box>
-            <ClassSelector />
+            <GameStatus />
             <Analyzer />
             <MatchList />
           </Box>
@@ -266,7 +271,7 @@ function App(): React.JSX.Element {
         {/* {currentPage === 'Analyzer' && <Analyzer />} */}
         {currentPage === 'MatchList' && <MatchList />}
         {currentPage === 'MatchAnalytics' && <MatchAnalytics />}
-        {currentPage === 'Settings' && <Typography>這裡放你的設定頁面</Typography>}
+        {currentPage === 'Settings' && <ChartBuilder />}
 
         {/* Footer */}
         <Box component="footer" sx={{ textAlign: 'center', mt: 4, mb: 2 }}>
