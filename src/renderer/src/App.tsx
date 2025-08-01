@@ -75,11 +75,7 @@ function App(): React.JSX.Element {
   const [mode, setMode] = useState<'light' | 'dark'>('dark')
   const toggleTheme = (): void => {
     const nextMode = mode === 'light' ? 'dark' : 'light'
-<<<<<<< HEAD
     // window.settings.set('theme', nextMode)
-=======
-    window.settings.set('theme', nextMode)
->>>>>>> 726fd188b9b862aede68e4f8e8b874213e109561
     setMode(nextMode)
   }
 
