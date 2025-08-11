@@ -1,4 +1,4 @@
-// src/renderer/src/components/UpdatePrompt.tsx
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Dialog,
@@ -14,7 +14,7 @@ import {
 
 type Phase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'none' | 'error'
 
-export default function UpdatePrompt() {
+const UpdatePrompt = (): React.JSX.Element => {
   const [phase, setPhase] = useState<Phase>('idle')
   const [open, setOpen] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -80,7 +80,7 @@ export default function UpdatePrompt() {
     }
   }, [phase])
 
-  const onCheck = async () => {
+  const onCheck = async (): Promise<void> => {
     setError(null)
     const r = await window.updates.check()
     if (!r.ok) {
@@ -90,7 +90,7 @@ export default function UpdatePrompt() {
     } else setOpen(true)
   }
 
-  const onDownload = async () => {
+  const onDownload = async (): Promise<void> => {
     setError(null)
     setPhase('downloading')
     setProgress(0)
@@ -101,7 +101,7 @@ export default function UpdatePrompt() {
     }
   }
 
-  const onInstall = async () => {
+  const onInstall = async (): Promise<void> => {
     await window.updates.install()
   }
 
@@ -199,3 +199,5 @@ export default function UpdatePrompt() {
     </>
   )
 }
+
+export default UpdatePrompt
