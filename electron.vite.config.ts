@@ -43,14 +43,15 @@ export default defineConfig({
       target: 'chrome134',
       rollupOptions: {
         output: {
-          manualChunks(id) {
-            if (id.includes('node_modules')) {
-              if (id.includes('chart.js')) return 'chart'
-              if (id.includes('@mui')) return 'mui'
-              if (id.includes('tesseract.js')) return 'ocr'
-              return 'vendor'
-            }
-            return 'app'
+          manualChunks: {
+            'vendor-chart': ['chart.js', 'react-chartjs-2'],
+            'vendor-mui': [
+              '@mui/material',
+              '@mui/icons-material',
+              '@emotion/react',
+              '@emotion/styled'
+            ],
+            'vendor-ocr': ['tesseract.js']
           }
         }
       }

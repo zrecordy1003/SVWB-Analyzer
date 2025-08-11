@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useMemo, useState } from 'react'
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { ThemeProvider, createTheme, keyframes, styled } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
@@ -162,6 +162,12 @@ function App(): React.JSX.Element {
       }
     }
   }
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      window.electron.ipcRenderer.send?.('renderer:ready')
+    })
+  }, [])
 
   return (
     <ThemeProvider theme={theme}>

@@ -23,3 +23,29 @@ contextBridge.exposeInMainWorld('settings', {
   has: (key: string) => ipcRenderer.invoke('settings:has', key),
   getAll: () => ipcRenderer.invoke('settings:getAll')
 })
+
+function wrapOn<T = any>(channel: string, map?: (a: any[]) => T) {
+  return (cb: (payload: T) => void) => {
+    const listener = (_e: unknown, ...args: any[]) => cb(map ? map(args) : (args[0] as T))
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('updates', {
+  setAutoDownload: (v: boolean) => ipcRenderer.invoke('update:setAutoDownload', v),
+  check: () => ipcRenderer.invoke('update:check'),
+  download: () => ipcRenderer.invoke('update:download'),
+  install: () => ipcRenderer.invoke('update:install'),
+  onChecking: wrapOn('update:checking'),
+  onAvailable: wrapOn('update:available'),
+  onNone: wrapOn('update:none'),
+  onError: wrapOn<string>('update:error'),
+  onProgress: wrapOn<{
+    percent: number
+    transferred: number
+    total: number
+    bytesPerSecond: number
+  }>('update:progress'),
+  onDownloaded: wrapOn('update:downloaded')
+})

@@ -4,17 +4,20 @@ import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-
 import fs from 'fs'
-import { getDecks, addDeck } from './database.js'
-
-import { isShadowverseRunning } from './svwbDetector.js'
-import { spawnCapture, stopCapture } from './manageCaptureTool.js'
-import { startAnalyzer, getBattleStatus } from './analyzer.js'
-
 import Store from 'electron-store'
 
-// set env for opencv
+// 輕依賴先載（重依賴延遲到用到才 import）
+import { isShadowverseRunning } from './svwbDetector.js'
+import { spawnCapture, stopCapture } from './manageCaptureTool.js'
+
+// DB 與更新延後：只載入 helper，初始化放到事件之後
+import { initDatabase } from './db/initDb.js'
+import { setupAutoUpdates } from './updates.js'
+import type { BattleStatus } from './analyzer.js'
+// 若你要把 DB 完全 on-demand，可改寫為 ensure 函式
+
+// OpenCV env（保持：只是設定 env 不會很重）
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
 process.env.OPENCV_INCLUDE_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'include')
@@ -26,142 +29,162 @@ process.env.OPENCV_BIN_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'bin')
   : path.join(__dirname, '../../resources/opencv/bin')
 
+// --- 單例鎖 ---
 const gotTheLock = app.requestSingleInstanceLock()
-
 if (!gotTheLock) {
   app.quit()
-} else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore()
-      mainWindow.focus()
+}
+
+const MIN_SPLASH_MS = 800
+let splashShownAt = 0
+
+let mainWindow: BrowserWindow | null = null
+let splash: BrowserWindow | null = null
+
+// --- Analyzer 動態載入（避免冷啟動拉重模組） ---
+type GetBattleStatusFn = () => BattleStatus | Promise<BattleStatus>
+type StartAnalyzerFn = (win: BrowserWindow) => void | Promise<void>
+
+let _getBattleStatus: GetBattleStatusFn | null = null
+let _startAnalyzer: StartAnalyzerFn | null = null
+
+async function ensureAnalyzer(): Promise<void> {
+  if (_getBattleStatus && _startAnalyzer) return
+  const mod = (await import('./analyzer.js')) as {
+    getBattleStatus: GetBattleStatusFn
+    startAnalyzer: StartAnalyzerFn
+  }
+  _getBattleStatus = mod.getBattleStatus
+  _startAnalyzer = mod.startAnalyzer
+}
+
+// --- DB on-demand（第一次用到才 init） ---
+let dbReady = false
+async function ensureDbReady(): Promise<void> {
+  if (!dbReady) {
+    await initDatabase()
+    dbReady = true
+  }
+}
+
+// --- 輕量清理函式 ---
+function clearCaptureImage(): void {
+  const imagePath = app.isPackaged
+    ? path.join(process.resourcesPath, 'tools', 'svwb.png')
+    : path.join(__dirname, '../../tools', 'svwb.png')
+
+  const tmpImagePath = app.isPackaged
+    ? path.join(process.resourcesPath, 'tools', 'svwb.png.tmp.png')
+    : path.join(__dirname, '../../tools', 'svwb.png.tmp.png')
+
+  if (fs.existsSync(imagePath)) {
+    fs.unlinkSync(imagePath)
+    console.log('deleted svwb.png')
+  }
+  if (fs.existsSync(tmpImagePath)) {
+    fs.unlinkSync(tmpImagePath)
+    console.log('deleted svwb.png.tmp.png')
+  }
+}
+
+// --- 視窗建立 ---
+function createSplash(): void {
+  splash = new BrowserWindow({
+    width: 360,
+    height: 420,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    show: true,
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/splash-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   })
 
-  let mainWindow: BrowserWindow
+  splashShownAt = Date.now()
+  const splashPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'splash.html')
+    : path.join(__dirname, '../../resources/splash.html')
 
-  // clear image
-  function clearCaptureImage(): void {
-    const imagePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-      : path.join(__dirname, '../../tools', 'svwb.png')
+  splash.loadFile(splashPath)
+}
 
-    const tmpImagePath = app.isPackaged
-      ? path.join(process.resourcesPath, 'tools', 'svwb.png.tmp.png')
-      : path.join(__dirname, '../../tools', 'svwb.png.tmp.png')
-
-    if (fs.existsSync(imagePath)) {
-      fs.unlinkSync(imagePath)
-      console.log('deleted svwb.png')
+function createWindow(): void {
+  mainWindow = new BrowserWindow({
+    width: 1200,
+    height: 760,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#111318',
+    ...(process.platform === 'linux' ? { icon } : { icon }),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.mjs'),
+      sandbox: false, // 若可相容，建議 true
+      contextIsolation: true,
+      nodeIntegration: false
     }
-    if (fs.existsSync(tmpImagePath)) {
-      fs.unlinkSync(tmpImagePath)
-      console.log('deleted svwb.png.tmp.png')
-    }
-  }
+  })
 
-  function createWindow(): void {
-    // Create the browser window.
-    mainWindow = new BrowserWindow({
-      width: 1200,
-      height: 760,
-      show: false,
-      autoHideMenuBar: true,
-      ...(process.platform === 'linux' ? { icon } : { icon }),
-      webPreferences: {
-        preload: join(__dirname, '../preload/index.mjs'),
-        sandbox: false,
-        contextIsolation: true,
-        nodeIntegration: false
+  mainWindow.removeMenu()
+
+  ipcMain.once('renderer:ready', () => {
+    const elapsed = Date.now() - splashShownAt
+    const wait = Math.max(0, MIN_SPLASH_MS - elapsed)
+    setTimeout(async () => {
+      if (splash && !splash.isDestroyed()) {
+        splash.close()
+        splash = null
       }
-    })
-
-    mainWindow.removeMenu()
-
-    // const store = new Store()
-    // store.set(theme:'se','ss')
-
-    mainWindow.on('ready-to-show', () => {
-      mainWindow.show()
+      mainWindow!.show()
+      // 這裡再啟動較重的初始化
+      // 首繪後才做重初始化
       clearCaptureImage()
-      startAnalyzer(mainWindow)
-    })
+      // 背景準備（非阻塞 UI）
+      // 1) Analyzer 延遲載入＋啟動
+      await ensureAnalyzer()
+      _startAnalyzer?.(mainWindow!)
+      // 2) DB: 若你希望冷啟動就準備，這裡做；否則交給 IPC on-demand
+      // await ensureDbReady()
+      // 3) 自動更新檢查（稍微再延遲，避免佔用 CPU）
+      setupAutoUpdates(mainWindow!)
+      // 4) 啟動輪詢（顯示後再開始，不阻塞 boot）
+      startPollingForGame()
+    }, wait)
+  })
 
-    mainWindow.on('close', () => {
-      stopCapture()
-    })
+  mainWindow.on('close', () => {
+    stopCapture()
+  })
 
-    mainWindow.webContents.setWindowOpenHandler((details) => {
-      shell.openExternal(details.url)
-      return { action: 'deny' }
-    })
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
 
-    // HMR for renderer base on electron-vite cli.
-    // Load the remote URL for development or the local html file for production.
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-      mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-    } else {
-      mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-    }
-
-    mainWindow.webContents.openDevTools()
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // This method will be called when Electron has finished
-  // initialization and is ready to create browser windows.
-  // Some APIs can only be used after this event occurs.
-  app.whenReady().then(() => {
-    // Set app user model id for windows
-    electronApp.setAppUserModelId('app.electron.svwb-analyzer')
+  // 開發時自動開 DevTools；正式版不要開
+  if (is.dev) mainWindow.webContents.openDevTools()
+}
 
-    // Default open or close DevTools by F12 in development
-    // and ignore CommandOrControl + R in production.
-    // see https://github.com/alex8088/electron-toolkit/tree/master/packages/utils
-    app.on('browser-window-created', (_, window) => {
-      optimizer.watchWindowShortcuts(window)
-    })
+// --- 遊戲狀態輪詢（延後到 UI 顯示後才開始） ---
+function startPollingForGame(): void {
+  let isCapturing = false
+  let isFirstStart = true
+  let isSentMinimizedInfo = false
 
-    ipcMain.handle('battle:getStatus', async () => getBattleStatus())
-
-    ipcMain.handle('decks:getAll', () => getDecks())
-    ipcMain.handle('decks:add', (_e, name, svClass) => addDeck(name, svClass))
-
-    // store 的方法
-    const store = new Store()
-
-    ipcMain.handle('settings:get', (_event, key: string) => store.get(key))
-    ipcMain.handle('settings:set', (_event, key: string, value: any) => store.set(key, value))
-    ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key))
-    ipcMain.handle('settings:clear', () => store.clear())
-    ipcMain.handle('settings:has', (_event, key: string) => store.has(key))
-    ipcMain.handle('settings:getAll', () => store.store)
-
-    // try {
-    //   Store.initRenderer()
-    // } catch (error) {
-    //   console.log('eeeee', error)
-    // }
-
-    // ipcMain.handle('store:set', (_e, key, value) => {
-    //   store.set(key, value)
-    // })
-
-    // ipcMain.handle('store:get', (_e, key) => {
-    //   return store.get(key)
-    // })
-
-    // IPC test
-    // ipcMain.on('ping', () => console.log('pong'))
-
-    let isCapturing = false
-    let isFirstStart = true
-    let isSentMinimizedInfo = false
-
-    setInterval(async () => {
+  const timer = setInterval(async () => {
+    try {
       const svwbStatus = await isShadowverseRunning()
-      const win = BrowserWindow.getAllWindows()[0]
-
-      const isGameRunning = svwbStatus.running
+      const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
+      const isGameRunning = !!svwbStatus?.running
 
       if (win?.webContents && svwbStatus) {
         win.webContents.postMessage('svwb:status', svwbStatus)
@@ -184,59 +207,86 @@ if (!gotTheLock) {
         }
       }
 
-      try {
-        if (isGameRunning === true) {
-          win.webContents.send('battle:recog', true)
-          if (!isCapturing) {
-            spawnCapture(isFirstStart)
-            isCapturing = true
-            win.webContents.send('capture:status', true)
-            if (isFirstStart) isFirstStart = false
-          }
-        } else {
-          win.webContents.send('battle:recog', false)
-          if (isCapturing) {
-            stopCapture()
-            isCapturing = false
-            win.webContents.send('capture:status', false)
-          }
+      if (isGameRunning) {
+        win?.webContents.send('battle:recog', true)
+        if (!isCapturing) {
+          spawnCapture(isFirstStart)
+          isCapturing = true
+          win?.webContents.send('capture:status', true)
+          if (isFirstStart) isFirstStart = false
         }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error(`Error while ${isGameRunning ? 'running' : 'not running'}:`, msg)
+      } else {
+        win?.webContents.send('battle:recog', false)
+        if (isCapturing) {
+          stopCapture()
+          isCapturing = false
+          win?.webContents.send('capture:status', false)
+        }
       }
-    }, 1000)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      console.error('Polling error:', msg)
+    }
+  }, 1000)
 
-    ipcMain.on('stop-capture', () => {
-      stopCapture()
-    })
+  app.on('before-quit', () => clearInterval(timer))
+}
 
-    createWindow()
+// --- App lifecycle ---
+app.whenReady().then(() => {
+  electronApp.setAppUserModelId('app.electron.svwb-analyzer')
 
-    app.on('activate', function () {
-      // On macOS it's common to re-create a window in the app when the
-      // dock icon is clicked and there are no other windows open.
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
-    })
-
-    app.on('will-quit', () => {
-      // clearCaptureImage()
-    })
-
-    app.on('before-quit', () => {
-      stopCapture()
-    })
+  app.on('browser-window-created', (_e, window) => {
+    optimizer.watchWindowShortcuts(window)
   })
 
-  // Quit when all windows are closed, except on macOS. There, it's common
-  // for applications and their menu bar to stay active until the user quits
-  // explicitly with Cmd + Q.
-  app.on('window-all-closed', () => {
-    stopCapture()
-    if (process.platform !== 'darwin') {
-      app.quit()
+  // IPC（與 DB 相關的用 ensureDbReady 包起來）
+  const store = new Store()
+  ipcMain.handle('battle:getStatus', async () => {
+    await ensureAnalyzer()
+    return _getBattleStatus?.()
+  })
+
+  // Decks：先確保 DB 準備好再操作
+  ipcMain.handle('decks:getAll', async () => {
+    await ensureDbReady()
+    const { getDecks } = await import('./database.js')
+    return getDecks()
+  })
+  ipcMain.handle('decks:add', async (_e, name: string, svClass: string) => {
+    await ensureDbReady()
+    const { addDeck } = await import('./database.js')
+    return addDeck(name, svClass)
+  })
+
+  // settings（不需要 DB）
+  ipcMain.handle('settings:get', (_event, key: string) => store.get(key))
+  ipcMain.handle('settings:set', (_event, key: string, value: any) => store.set(key, value))
+  ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key))
+  ipcMain.handle('settings:clear', () => store.clear())
+  ipcMain.handle('settings:has', (_event, key: string) => store.has(key))
+  ipcMain.handle('settings:getAll', () => store.store)
+
+  // 停止 capture
+  ipcMain.on('stop-capture', () => stopCapture())
+
+  // 視窗
+  createSplash()
+  createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createSplash()
+      createWindow()
     }
   })
-}
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
+})
+
+app.on('window-all-closed', () => {
+  stopCapture()
+  if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', () => {
+  stopCapture()
+})

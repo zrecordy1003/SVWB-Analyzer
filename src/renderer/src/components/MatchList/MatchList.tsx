@@ -30,8 +30,8 @@ import { classes, classesMap, modes } from '@renderer/map/classMap'
 import { Match } from '@prisma/client'
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
-import { zhTW as dfZhTW } from 'date-fns/locale'
 import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
+import { zhTW as dfZhTW } from 'date-fns/locale'
 
 type ClassType = (typeof classes)[number]
 

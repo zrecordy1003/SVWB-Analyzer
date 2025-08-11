@@ -3,7 +3,7 @@ import forkPath from './forkedImageAnalyzer?modulePath'
 import path from 'path'
 import { ClassName, PlayOrder } from '@prisma/client'
 
-interface BattleStatus {
+export interface BattleStatus {
   inBattle: boolean
   ownClass: ClassName | null
   enemyClass: ClassName | null

@@ -21,7 +21,8 @@
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
     "electron-rebuild": "build-opencv --electron --version 35.1.5 build",
-    "wegood": "opencv-build-npm"
+    "wegood": "opencv-build-npm",
+    "publish:win": "dotenv -e .env -- pnpm exec electron-builder --win --publish always"
   },
   "build": {
     "appId": "app.electron.svwb-analyzer",
@@ -34,14 +35,19 @@
     },
     "win": {
       "target": "NSIS",
-      "icon": "build/icon.ico",
-      "fileDescription": "SVWB Analyzer"
+      "icon": "build/icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "runAfterFinish": false
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "zrecordy1003",
+      "repo": "SVWB-Analyzer",
+      "releaseType": "prerelease"
     },
     "files": [
       "out/**",
@@ -104,6 +110,7 @@
     "@types/react": "^19.1.1",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "dotenv-cli": "^10.0.0",
     "electron": "^35.1.5",
     "electron-builder": "^25.1.8",
     "electron-vite": "^3.1.0",
