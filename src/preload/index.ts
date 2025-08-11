@@ -26,7 +26,7 @@ contextBridge.exposeInMainWorld('settings', {
 
 function wrapOn<T = any>(channel: string, map?: (a: any[]) => T) {
   return (cb: (payload: T) => void) => {
-    const listener = (_e: unknown, ...args: any[]) => cb(map ? map(args) : (args[0] as T))
+    const listener = (_e: unknown, ...args: any[]): void => cb(map ? map(args) : (args[0] as T))
     ipcRenderer.on(channel, listener)
     return () => ipcRenderer.removeListener(channel, listener)
   }
@@ -48,4 +48,8 @@ contextBridge.exposeInMainWorld('updates', {
     bytesPerSecond: number
   }>('update:progress'),
   onDownloaded: wrapOn('update:downloaded')
+})
+
+contextBridge.exposeInMainWorld('appInfo', {
+  getVersion: () => ipcRenderer.invoke('app:getVersion')
 })

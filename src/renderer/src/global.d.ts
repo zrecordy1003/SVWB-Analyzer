@@ -21,6 +21,7 @@ declare global {
       ipcRenderer: IpcRenderer
     }
     settings: SettingsAPI
+    appInfo: { getVersion(): Promise<string> }
     updates: {
       setAutoDownload(v: boolean): Promise<void>
       check(): Promise<{ ok: boolean; info?: any; error?: string }>

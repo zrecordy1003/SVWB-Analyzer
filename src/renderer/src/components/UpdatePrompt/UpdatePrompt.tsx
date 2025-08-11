@@ -9,7 +9,6 @@ import {
   LinearProgress,
   Stack,
   Typography,
-  Snackbar,
   Alert
 } from '@mui/material'
 
@@ -21,6 +20,12 @@ export default function UpdatePrompt() {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [info, setInfo] = useState<any | null>(null)
+  const [appVersion, setAppVersion] = useState<string>('')
+
+  useEffect(() => {
+    // 抓一次當前 app 版號
+    window.appInfo?.getVersion?.().then((v) => setAppVersion(v ?? ''))
+  }, [])
 
   // 訂閱 updater 事件
   useEffect(() => {
@@ -33,9 +38,10 @@ export default function UpdatePrompt() {
       setPhase('available')
       setOpen(true)
     })
-    const off3 = window.updates.onNone((_i) => {
+    const off3 = window.updates.onNone((i) => {
+      setInfo(i)
       setPhase('none')
-      setOpen(false)
+      setOpen(true)
     })
     const off4 = window.updates.onError((err) => {
       setError(err)
@@ -65,6 +71,8 @@ export default function UpdatePrompt() {
         return 'Downloading update…'
       case 'downloaded':
         return 'Update ready to install'
+      case 'none':
+        return 'You’re up to date'
       case 'error':
         return 'Update error'
       default:
@@ -94,10 +102,11 @@ export default function UpdatePrompt() {
   }
 
   const onInstall = async () => {
-    await window.updates.install() // app will quit and restart
+    await window.updates.install()
   }
 
-  // 也可以把這個元件放到設定頁；我這邊加一個快捷按鈕方便人工觸發
+  const releaseDate = info?.releaseDate ? new Date(info.releaseDate).toLocaleString() : null
+
   return (
     <>
       <Button variant="outlined" size="small" onClick={onCheck}>
@@ -138,6 +147,23 @@ export default function UpdatePrompt() {
             </Typography>
           )}
 
+          {phase === 'none' && (
+            <Stack spacing={0.5}>
+              <Typography variant="body2">Current version: v{appVersion}</Typography>
+              {info?.version && (
+                <Typography variant="body2">Latest release: v{info.version}</Typography>
+              )}
+              {releaseDate && (
+                <Typography variant="body2" color="text.secondary">
+                  Released on: {releaseDate}
+                </Typography>
+              )}
+              <Typography sx={{ mt: 0.5 }} variant="body2">
+                You already have the latest version.
+              </Typography>
+            </Stack>
+          )}
+
           {phase === 'error' && (
             <Alert severity="error" variant="outlined">
               {error}
@@ -154,13 +180,7 @@ export default function UpdatePrompt() {
               </Button>
             </>
           )}
-
-          {phase === 'downloading' && (
-            <>
-              <Button disabled>Downloading…</Button>
-            </>
-          )}
-
+          {phase === 'downloading' && <Button disabled>Downloading…</Button>}
           {phase === 'downloaded' && (
             <>
               <Button onClick={() => setOpen(false)}>Later</Button>
@@ -169,19 +189,13 @@ export default function UpdatePrompt() {
               </Button>
             </>
           )}
-
-          {phase === 'error' && <Button onClick={() => setOpen(false)}>Close</Button>}
-
-          {phase === 'checking' && <Button disabled>Checking…</Button>}
+          {(phase === 'none' || phase === 'error' || phase === 'checking') && (
+            <Button onClick={() => setOpen(false)} autoFocus>
+              Close
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
-
-      <Snackbar
-        open={phase === 'none'}
-        autoHideDuration={2500}
-        onClose={() => setPhase('idle')}
-        message="You're up to date"
-      />
     </>
   )
 }

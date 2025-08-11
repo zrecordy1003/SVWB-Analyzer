@@ -240,6 +240,8 @@ app.whenReady().then(() => {
     optimizer.watchWindowShortcuts(window)
   })
 
+  ipcMain.handle('app:getVersion', () => app.getVersion())
+
   // IPC（與 DB 相關的用 ensureDbReady 包起來）
   const store = new Store()
   ipcMain.handle('battle:getStatus', async () => {
