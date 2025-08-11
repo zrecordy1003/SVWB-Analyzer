@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import './ipc/matches'
 import { app, shell, BrowserWindow, ipcMain, Notification } from 'electron'
 import path, { join } from 'path'
@@ -5,13 +6,13 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 
 import fs from 'fs'
-import { getDecks, addDeck } from './database'
+import { getDecks, addDeck } from './database.js'
 
-import { isSvwbRunning } from './svwbDetector'
-import { spawnCapture, stopCapture } from './manageCaptureTool'
-import { startAnalyzer } from './analyzer'
+import { isShadowverseRunning } from './svwbDetector.js'
+import { spawnCapture, stopCapture } from './manageCaptureTool.js'
+import { startAnalyzer, getBattleStatus } from './analyzer.js'
 
-// import Store from 'electron-store'
+import Store from 'electron-store'
 
 // set env for opencv
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
@@ -39,6 +40,7 @@ if (!gotTheLock) {
 
   let mainWindow: BrowserWindow
 
+  // clear image
   function clearCaptureImage(): void {
     const imagePath = app.isPackaged
       ? path.join(process.resourcesPath, 'tools', 'svwb.png')
@@ -61,13 +63,13 @@ if (!gotTheLock) {
   function createWindow(): void {
     // Create the browser window.
     mainWindow = new BrowserWindow({
-      width: 900,
-      height: 670,
+      width: 1200,
+      height: 760,
       show: false,
       autoHideMenuBar: true,
-      ...(process.platform === 'linux' ? { icon } : {}),
+      ...(process.platform === 'linux' ? { icon } : { icon }),
       webPreferences: {
-        preload: join(__dirname, '../preload/index.js'),
+        preload: join(__dirname, '../preload/index.mjs'),
         sandbox: false,
         contextIsolation: true,
         nodeIntegration: false
@@ -119,10 +121,35 @@ if (!gotTheLock) {
       optimizer.watchWindowShortcuts(window)
     })
 
+    ipcMain.handle('battle:getStatus', async () => getBattleStatus())
+
     ipcMain.handle('decks:getAll', () => getDecks())
     ipcMain.handle('decks:add', (_e, name, svClass) => addDeck(name, svClass))
 
-    // ipcMain.handle('store:set', (_e, name, svClass) => addDeck(name, svClass))
+    // store 的方法
+    const store = new Store()
+
+    ipcMain.handle('settings:get', (_event, key: string) => store.get(key))
+    ipcMain.handle('settings:set', (_event, key: string, value: any) => store.set(key, value))
+    ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key))
+    ipcMain.handle('settings:clear', () => store.clear())
+    ipcMain.handle('settings:has', (_event, key: string) => store.has(key))
+    ipcMain.handle('settings:getAll', () => store.store)
+
+    // try {
+    //   Store.initRenderer()
+    // } catch (error) {
+    //   console.log('eeeee', error)
+    // }
+
+    // ipcMain.handle('store:set', (_e, key, value) => {
+    //   store.set(key, value)
+    // })
+
+    // ipcMain.handle('store:get', (_e, key) => {
+    //   return store.get(key)
+    // })
+
     // IPC test
     // ipcMain.on('ping', () => console.log('pong'))
 
@@ -130,8 +157,8 @@ if (!gotTheLock) {
     let isFirstStart = true
     let isSentMinimizedInfo = false
 
-    setInterval(() => {
-      const svwbStatus = isSvwbRunning()
+    setInterval(async () => {
+      const svwbStatus = await isShadowverseRunning()
       const win = BrowserWindow.getAllWindows()[0]
 
       const isGameRunning = svwbStatus.running
@@ -140,14 +167,14 @@ if (!gotTheLock) {
         win.webContents.postMessage('svwb:status', svwbStatus)
         if (
           isSentMinimizedInfo &&
-          (svwbStatus.bound?.x !== -32000 || svwbStatus.bound?.y !== -32000)
+          (svwbStatus.bounds?.x !== -32000 || svwbStatus.bounds?.y !== -32000)
         ) {
           isSentMinimizedInfo = false
         }
         if (
           !isSentMinimizedInfo &&
-          svwbStatus.bound?.x === -32000 &&
-          svwbStatus.bound?.y === -32000
+          svwbStatus.bounds?.x === -32000 &&
+          svwbStatus.bounds?.y === -32000
         ) {
           isSentMinimizedInfo = true
           new Notification({
@@ -158,7 +185,8 @@ if (!gotTheLock) {
       }
 
       try {
-        if (isGameRunning) {
+        if (isGameRunning === true) {
+          win.webContents.send('battle:recog', true)
           if (!isCapturing) {
             spawnCapture(isFirstStart)
             isCapturing = true
@@ -166,6 +194,7 @@ if (!gotTheLock) {
             if (isFirstStart) isFirstStart = false
           }
         } else {
+          win.webContents.send('battle:recog', false)
           if (isCapturing) {
             stopCapture()
             isCapturing = false

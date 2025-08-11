@@ -1,0 +1,313 @@
+import { useEffect, useState } from 'react'
+import { classesMap } from '@renderer/map/classMap'
+import { Box, Typography, Card, CardContent, Stack, Chip } from '@mui/material'
+
+import { PauseCircle, Radar, SportsMma } from '@mui/icons-material'
+import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined'
+
+interface BattleState {
+  inBattle: boolean
+  ownClass: string | null
+  enemyClass: string | null
+  playOrder: string | null
+}
+
+interface StatusHeaderProps {
+  inBattle: boolean
+  recognizing: boolean
+}
+
+const BattleStatus = (): React.JSX.Element => {
+  const [isRecognizing, setIsRecognizing] = useState<boolean>(false)
+  const [battleState, setBattleState] = useState<BattleState>({
+    inBattle: false,
+    ownClass: null,
+    enemyClass: null,
+    playOrder: null
+  })
+
+  const rippleSx = {
+    position: 'relative',
+    '&::before': {
+      content: '""',
+      position: 'absolute',
+      inset: -6,
+      borderRadius: '50%',
+      border: '2px solid rgba(76,175,80,0.35)', // 可換主題色
+      animation: 'ripple 1.8s infinite ease-out'
+    },
+    '@keyframes ripple': {
+      '0%': { transform: 'scale(0.85)', opacity: 0.8 },
+      '70%': { transform: 'scale(1.4)', opacity: 0.15 },
+      '100%': { transform: 'scale(1.55)', opacity: 0 }
+    }
+  }
+
+  // const pulseSx = {
+  //   animation: 'pulse 1.7s',
+  //   '@keyframes pulse': {
+  //     '0%': { transform: 'scale(1)', filter: 'drop-shadow(0 0 0px rgba(255,255,255,0))' },
+  //     '50%': { transform: 'scale(1.06)', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.35))' },
+  //     '100%': { transform: 'scale(1)', filter: 'drop-shadow(0 0 0px rgba(255,255,255,0))' }
+  //   }
+  // }
+
+  useEffect(() => {
+    const unsubBattleInfo = window.electron?.ipcRenderer.on(
+      'battle:status',
+      (_e, msg: BattleState) => {
+        setBattleState(msg)
+      }
+    )
+
+    const unsubRecognizeInfo = window.electron?.ipcRenderer.on(
+      'battle:recog',
+      (_e, msg: boolean) => {
+        setIsRecognizing(msg)
+      }
+    )
+
+    return () => {
+      unsubBattleInfo()
+      unsubRecognizeInfo()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isRecognizing) {
+      window.electron?.ipcRenderer.invoke('battle:getStatus').then((state: BattleState) => {
+        setBattleState(state)
+      })
+    }
+  }, [isRecognizing])
+
+  const StatusHeader: React.FC<StatusHeaderProps> = ({
+    inBattle,
+    recognizing
+  }: StatusHeaderProps) => {
+    if (recognizing === false) {
+      return (
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <PauseCircle fontSize="large" />
+          <Typography variant="h6">辨識暫停</Typography>
+        </Stack>
+      )
+    }
+
+    if (!inBattle) {
+      return (
+        <Stack direction="row" spacing={1.5} alignItems="center">
+          <Box sx={rippleSx}>
+            <Radar fontSize="large" />
+          </Box>
+          <Typography variant="h6">偵測中</Typography>
+        </Stack>
+      )
+    }
+
+    return (
+      <Stack direction="row" spacing={1.5} alignItems="center">
+        <Box>
+          <SportsMma fontSize="large" />
+        </Box>
+        <Typography variant="h6">對戰進行中</Typography>
+      </Stack>
+    )
+  }
+
+  const renderBattleInfo = (): React.JSX.Element => {
+    if (isRecognizing === false) {
+      return (
+        <Stack direction="row" spacing={2} alignItems="center" height={'3rem'}>
+          <Box display={'flex'}>
+            <SearchOffOutlinedIcon fontSize="large" color="error" sx={{ opacity: 0.9 }} />
+          </Box>
+          <Typography variant="h6" sx={{ color: 'grey.500', fontWeight: 600 }}>
+            偵測暫停中
+          </Typography>
+        </Stack>
+      )
+    }
+
+    if (isRecognizing === true && !battleState.inBattle) {
+      return (
+        <Stack direction="row" spacing={2} alignItems="center" height={'3rem'}>
+          <Box sx={rippleSx} display={'flex'}>
+            <Radar fontSize="large" />
+          </Box>
+          <Typography variant="h6">偵測中</Typography>
+        </Stack>
+      )
+    }
+
+    const TurnOrder = ({ order }: { order: 'first' | 'second' }): React.JSX.Element => {
+      return (
+        <Stack>
+          {/* <Typography variant="caption" color="text.secondary">
+            順序
+          </Typography> */}
+          {order === 'first' ? (
+            <Chip
+              sx={{ p: 1 }}
+              variant="filled"
+              label="先攻"
+              // color="info"
+            />
+          ) : (
+            // <Typography>我方先攻</Typography>
+            <Chip
+              sx={{ p: 1 }}
+              variant="filled"
+              label="後攻"
+              // color="info"
+            />
+            // <Typography>我方後攻</Typography>
+          )}
+        </Stack>
+      )
+    }
+
+    return (
+      <Card>
+        <CardContent>
+          <StatusHeader inBattle={battleState.inBattle} recognizing={isRecognizing} />
+          {battleState.inBattle && (
+            <Box
+              display="flex"
+              flexDirection="column"
+              alignItems="center"
+              justifyContent="center"
+              mt={1}
+              gap={2}
+            >
+              <TurnOrder order={battleState.playOrder === 'first' ? 'first' : 'second'} />
+              <Box display="flex">
+                <Box
+                  position={'relative'}
+                  display={'flex'}
+                  justifyContent={'center'}
+                  alignItems={'center'}
+                  width={'200px'}
+                  height={'100px'}
+                  bgcolor={
+                    battleState.ownClass ? classesMap[battleState.ownClass]?.bgColor : 'null'
+                  }
+                  sx={{
+                    clipPath: 'polygon(0 0, 100% 0, 75% 100%, 0% 100%)',
+                    borderRadius: '5px'
+                  }}
+                >
+                  <Typography
+                    marginRight={'20px'}
+                    variant="h6"
+                    color={battleState.ownClass ? classesMap[battleState.ownClass]?.color : 'null'}
+                  >
+                    {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
+                  </Typography>
+                </Box>
+
+                <Box
+                  display={'flex'}
+                  justifyContent={'center'}
+                  alignItems={'center'}
+                  width={'200px'}
+                  height={'100px'}
+                  bgcolor={
+                    battleState.enemyClass ? classesMap[battleState.enemyClass]?.bgColor : 'null'
+                  }
+                  sx={{
+                    clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0% 100%)',
+                    ml: '-40px',
+                    borderRadius: '5px'
+                  }}
+                >
+                  <Typography
+                    marginLeft={'20px'}
+                    variant="h6"
+                    color={
+                      battleState.enemyClass ? classesMap[battleState.enemyClass]?.color : 'null'
+                    }
+                  >
+                    {battleState.enemyClass
+                      ? (classesMap[battleState.enemyClass]?.label ?? '')
+                      : null}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
+
+  // const classNames = ['elf', 'royal', 'witch', 'dragon', 'bishop', 'nightmare', 'nemesis']
+  // const playOrders = ['first', 'second']
+
+  return (
+    <Box mb={2}>
+      {/* <Stack direction="row" spacing={2} mb={2}>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={() => {
+            // 隨機選自己和對手（不重複）
+            const ownClass = classNames[Math.floor(Math.random() * classNames.length)]
+            const enemyClass = classNames[Math.floor(Math.random() * classNames.length)]
+
+            // 隨機選先攻後攻
+            const playOrder = playOrders[Math.floor(Math.random() * playOrders.length)]
+
+            setBattleState({
+              inBattle: true,
+              ownClass,
+              enemyClass,
+              playOrder
+            })
+          }}
+        >
+          隨機測試資料
+        </Button>
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={() =>
+            setBattleState({
+              inBattle: true,
+              ownClass: 'elf',
+              enemyClass: 'nemesis',
+              playOrder: 'first'
+            })
+          }
+        >
+          測試資料
+        </Button>
+        <Button
+          variant="outlined"
+          color="secondary"
+          onClick={() =>
+            setBattleState({
+              inBattle: false,
+              ownClass: null,
+              enemyClass: null,
+              playOrder: null
+            })
+          }
+        >
+          清空資料
+        </Button>
+
+        <Button variant="outlined" color="secondary" onClick={() => setIsRecognizing(true)}>
+          開始辨識
+        </Button>
+        <Button variant="outlined" color="secondary" onClick={() => setIsRecognizing(false)}>
+          暫停辨識
+        </Button>
+      </Stack> */}
+
+      {renderBattleInfo()}
+    </Box>
+  )
+}
+
+export default BattleStatus

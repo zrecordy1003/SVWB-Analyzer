@@ -1,6 +1,6 @@
-import { contextBridge, shell } from 'electron'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { contextBridge, ipcRenderer, shell } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-// import Store from 'electron-store'
 
 // Custom APIs for renderer
 const api = {}
@@ -15,13 +15,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openLink: (url: string) => shell.openExternal(url)
 })
 
-// const a = new Store({
-//   name: 'aaa'
-// })
-// const store = new Store({
-//   name: 'aaa'
-// })
-// contextBridge.exposeInMainWorld('settings', {
-//   get: (key) => store.get(key),
-//   set: (key, value) => store.set(key, value)
-// })
+contextBridge.exposeInMainWorld('settings', {
+  get: (key: string) => ipcRenderer.invoke('settings:get', key),
+  set: (key: string, value: any) => ipcRenderer.invoke('settings:set', key, value),
+  delete: (key: string) => ipcRenderer.invoke('settings:delete', key),
+  clear: () => ipcRenderer.invoke('settings:clear'),
+  has: (key: string) => ipcRenderer.invoke('settings:has', key),
+  getAll: () => ipcRenderer.invoke('settings:getAll')
+})

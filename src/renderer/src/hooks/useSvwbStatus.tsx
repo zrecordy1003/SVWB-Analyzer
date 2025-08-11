@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-interface bound {
+interface bounds {
   x?: number
   y?: number
   width?: number
@@ -10,14 +10,14 @@ interface bound {
 interface svwbStatus {
   running: boolean
   hwnd: number | null
-  bound?: bound
+  bounds?: bounds
 }
 
 export const useSvwbStatus = (): svwbStatus | undefined => {
   const [running, setRunning] = useState<svwbStatus>()
 
   useEffect(() => {
-    const unsubStatus = window.electron.ipcRenderer.on('svwb:status', (_event, status) => {
+    const unsubStatus = window.electron?.ipcRenderer.on('svwb:status', (_event, status) => {
       setRunning(status)
     })
 

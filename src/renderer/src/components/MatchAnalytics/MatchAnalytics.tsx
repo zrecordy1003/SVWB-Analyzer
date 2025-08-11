@@ -52,7 +52,7 @@ const MatchAnalytics: React.FC = () => {
   useEffect(() => {
     async function load(): Promise<void> {
       try {
-        const data = await window.electron.ipcRenderer.invoke('matches:fetchAll')
+        const data = await window.electron?.ipcRenderer.invoke('matches:fetchAll')
         setMatches(data)
       } catch (err) {
         console.error('Load matches failed', err)

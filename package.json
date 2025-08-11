@@ -2,6 +2,7 @@
   "name": "svwb-analyzer",
   "version": "1.0.0",
   "description": "A tool for Shadowverse: Worlds Beyond, recording and analyzing games data.",
+  "type": "module",
   "main": "./out/main/index.js",
   "author": "zrecordy1003",
   "homepage": "https://github.com/zrecordy1003/SVWB-Analyzer",
@@ -33,7 +34,14 @@
     },
     "win": {
       "target": "NSIS",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "fileDescription": "SVWB Analyzer"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "runAfterFinish": false
     },
     "files": [
       "out/**",
@@ -83,6 +91,8 @@
     "node-window-manager": "^2.2.4",
     "pngjs": "^7.0.0",
     "react-chartjs-2": "^5.3.0",
+    "react-date-range": "^2.0.1",
+    "react-transition-group": "^4.4.5",
     "tesseract.js": "^6.0.1",
     "tree-kill": "^1.2.2"
   },
@@ -106,7 +116,8 @@
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
-    "vite": "^6.2.6"
+    "vite": "^6.2.6",
+    "vite-plugin-compression": "^0.5.1"
   },
   "opencv4nodejs": {
     "disableAutoBuild": "1"

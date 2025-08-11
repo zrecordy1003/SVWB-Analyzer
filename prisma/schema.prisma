@@ -41,30 +41,38 @@ enum GameMode {
   cpu
   plaza
   custom
+  twoPick
 }
 
 model Match {
-  id          Int       @id @default(autoincrement())
-  result      Boolean? // true=win, false=lose, null=ongoing
-  play_order  PlayOrder
-  my_class    ClassName
-  oppo_class  ClassName
-  my_deckId   Int?
-  oppo_deckId Int?
-  mode        GameMode?
-
+  id           Int       @id @default(autoincrement())
+  result       Boolean?
+  play_order   PlayOrder
+  my_class     ClassName
+  oppo_class   ClassName
+  my_deckId    Int?
+  oppo_deckId  Int?
+  mode         GameMode?
   bp           Int?
   durationTime Int?
-  year         Int?
-  month        Int?
-  day          Int?
 
   playedAt DateTime  @default(now())
   endedAt  DateTime?
 
-  my_deck   Deck? @relation("MatchMyDeck", fields: [my_deckId], references: [id])
-  oppo_deck Deck? @relation("MatchOppoDeck", fields: [oppo_deckId], references: [id])
+  // 為了查詢效率保留，務必由 playedAt 派生
+  year  Int?
+  month Int?
+  day   Int?
 
-  @@index([playedAt])
-  @@index([year, month, day])
+  my_deck   Deck? @relation("MatchMyDeck", fields: [my_deckId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  oppo_deck Deck? @relation("MatchOppoDeck", fields: [oppo_deckId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // 若常用「mode + ymd」再加（觀察後再決定）
+  // @@index([mode, year, month, day, id], map: "idx_match_mode_ymd_id")
+
+  @@index([playedAt, id], map: "idx_match_playedAt_id") // 穩定排序
+  @@index([year, month, day, id], map: "idx_match_ymd_id") // 依日查詢+分頁
+  @@index([mode], map: "idx_match_mode") // 獨立 mode 篩選
+  @@index([my_class], map: "idx_match_my_class")
+  @@index([oppo_class], map: "idx_match_oppo_class")
 }

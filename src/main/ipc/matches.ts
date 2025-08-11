@@ -3,63 +3,93 @@ import { ClassName, GameMode, Prisma, PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-// count handler：接受 filterMy, filterOppo
-ipcMain.handle('matches:count', async (_e, filterMy = '', filterOppo = '', filterModes = '') => {
+// 共用 where 條件
+function buildMatchWhere(
+  filterMy: ClassName[] = [],
+  filterOppo: ClassName[] = [],
+  filterModes: string = '',
+  startDate: Date | null = null,
+  endDate: Date | null = null
+): Prisma.MatchWhereInput {
   const where: Prisma.MatchWhereInput = {}
 
-  if (filterMy) {
-    where.my_class = { equals: filterMy as ClassName }
+  if (Array.isArray(filterMy) && filterMy.length > 0) {
+    where.my_class = { in: filterMy }
   }
-
-  if (filterOppo) {
-    where.oppo_class = { equals: filterOppo as ClassName }
+  if (Array.isArray(filterOppo) && filterOppo.length > 0) {
+    where.oppo_class = { in: filterOppo }
   }
   if (filterModes) {
     where.mode = { equals: filterModes as GameMode }
   }
 
-  return prisma.match.count({ where })
-})
+  // 正規化日期（含括 end-of-day）
+  let start: Date | undefined
+  let end: Date | undefined
+  if (startDate instanceof Date && !isNaN(startDate.getTime())) {
+    start = new Date(startDate)
+  }
+  if (endDate instanceof Date && !isNaN(endDate.getTime())) {
+    const e = new Date(endDate)
+    // 若來的是純日期 00:00，補到當天最後一毫秒
+    if (
+      e.getHours() === 0 &&
+      e.getMinutes() === 0 &&
+      e.getSeconds() === 0 &&
+      e.getMilliseconds() === 0
+    ) {
+      e.setHours(23, 59, 59, 999)
+    }
+    end = e
+  }
 
-// getAll handler：接受篩選，並套用 cursor-based pagination
+  if (start && end) {
+    where.playedAt = { gte: start, lte: end }
+  } else if (start) {
+    where.playedAt = { gte: start }
+  } else if (end) {
+    where.playedAt = { lte: end }
+  }
+
+  return where
+}
+
 ipcMain.handle(
-  'matches:getAll',
+  'matches:count',
   async (
     _e,
-    take: number,
-    cursorId?: number | null,
-    filterMy = '',
-    filterOppo = '',
-    filterModes = ''
+    filterMy: ClassName[] = [],
+    filterOppo: ClassName[] = [],
+    filterModes: string = '',
+    startDate: Date | null = null,
+    endDate: Date | null = null
   ) => {
-    const where: Prisma.MatchWhereInput = {}
-
-    if (filterMy) {
-      where.my_class = { equals: filterMy as ClassName }
-    }
-
-    if (filterOppo) {
-      where.oppo_class = { equals: filterOppo as ClassName }
-    }
-
-    if (filterModes) {
-      where.mode = { equals: filterModes as GameMode }
-    }
-
-    return prisma.match.findMany({
-      where,
-      orderBy: { playedAt: 'desc' },
-      take,
-      ...(cursorId
-        ? {
-            cursor: { id: cursorId },
-            skip: 1
-          }
-        : {})
-    })
+    const where = buildMatchWhere(filterMy, filterOppo, filterModes, startDate, endDate)
+    return prisma.match.count({ where })
   }
 )
 
+ipcMain.handle(
+  'matches:getPage',
+  async (
+    _e,
+    pageIndex: number,
+    pageSize: number,
+    filterMy: ClassName[] = [],
+    filterOppo: ClassName[] = [],
+    filterModes: string = '',
+    startDate: Date | null = null,
+    endDate: Date | null = null
+  ) => {
+    const where = buildMatchWhere(filterMy, filterOppo, filterModes, startDate, endDate)
+    return prisma.match.findMany({
+      where,
+      orderBy: [{ playedAt: 'desc' }, { id: 'desc' }], // stable ordering for pagination
+      skip: pageIndex * pageSize,
+      take: pageSize
+    })
+  }
+)
 /**
  * matches:fetchAll
  *  - 不帶參數時回傳全部

@@ -1,13 +1,29 @@
 import { app, BrowserWindow, MessageChannelMain, Notification, utilityProcess } from 'electron'
 import forkPath from './forkedImageAnalyzer?modulePath'
 import path from 'path'
+import { ClassName, PlayOrder } from '@prisma/client'
+
+interface BattleStatus {
+  inBattle: boolean
+  ownClass: ClassName | null
+  enemyClass: ClassName | null
+  playOrder: PlayOrder | null
+}
+
+let battleStatus: BattleStatus = {
+  inBattle: false,
+  ownClass: null,
+  enemyClass: null,
+  playOrder: null
+}
 
 export function startAnalyzer(mainWindow: BrowserWindow): void {
   console.log('[Main] analyze-image triggered')
 
   const imagePath = app.isPackaged
     ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-    : path.join(__dirname, '../../tools', 'svwb.png')
+    : // : path.join(__dirname, '../../resources', 'test.png')
+      path.join(__dirname, '../../tools', 'svwb.png')
 
   const { port1, port2 } = new MessageChannelMain()
   const child = utilityProcess.fork(forkPath)
@@ -24,11 +40,13 @@ export function startAnalyzer(mainWindow: BrowserWindow): void {
       case 'inBattle':
         // 戰鬥中，不需要通知，只更新狀態
         mainWindow.webContents.send('battle:status', data)
+        setBattleStatus(data)
         break
 
       case 'matchResult': {
         // 更新戰鬥回歸空狀態
         mainWindow.webContents.send('battle:status', data)
+        setBattleStatus(data)
         mainWindow.webContents.send('matches:needRefetch')
 
         // 顯示一次性通知
@@ -57,4 +75,12 @@ export function startAnalyzer(mainWindow: BrowserWindow): void {
   })
 
   port2.start()
+}
+
+function setBattleStatus(status: BattleStatus): void {
+  battleStatus = status
+}
+
+export function getBattleStatus(): BattleStatus {
+  return battleStatus
 }

@@ -83,9 +83,13 @@ export const modifyMatchMode = async (mode: GameMode | null): Promise<Match> => 
   })
 
   if (latest.endedAt === null) {
+    const now = new Date()
+    const durationMs = now.getTime() - latest.playedAt.getTime()
+    const durationSecs = Math.floor(durationMs / 1000)
+
     return prisma.match.update({
       where: { id: latest.id },
-      data: { mode, endedAt: new Date() }
+      data: { mode, endedAt: now, durationTime: durationSecs }
     })
   } else {
     return prisma.match.update({
