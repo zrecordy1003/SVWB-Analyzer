@@ -110,7 +110,7 @@ const UpdatePrompt = (): React.JSX.Element => {
   return (
     <>
       <Button variant="outlined" size="small" onClick={onCheck}>
-        Check for Updates
+        檢查更新
       </Button>
 
       <Dialog

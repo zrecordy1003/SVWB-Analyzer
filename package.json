@@ -71,12 +71,12 @@
         "to": "templates"
       },
       {
-        "from": "resources/test.png",
-        "to": "templates/test.png"
+        "from": "resources/migrations",
+        "to": "migrations"
       },
       {
-        "from": "resources/test2.png",
-        "to": "templates/test2.png"
+        "from": "resources/splash.html",
+        "to": "splash.html"
       }
     ]
   },
