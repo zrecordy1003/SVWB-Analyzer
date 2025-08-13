@@ -62,13 +62,13 @@ async function ensureAnalyzer(): Promise<void> {
 }
 
 // --- DB on-demand（第一次用到才 init） ---
-let dbReady = false
-async function ensureDbReady(): Promise<void> {
-  if (!dbReady) {
-    await initDatabase()
-    dbReady = true
-  }
-}
+// let dbReady = false
+// async function ensureDbReady(): Promise<void> {
+//   if (!dbReady) {
+//     await initDatabase()
+//     dbReady = true
+//   }
+// }
 
 // --- 輕量清理函式 ---
 function clearCaptureImage(): void {
@@ -147,7 +147,7 @@ function createWindow(): void {
       clearCaptureImage()
       // 背景準備（非阻塞 UI）
       // 1) DB: 若你希望冷啟動就準備，這裡做；否則交給 IPC on-demand
-      await ensureDbReady()
+      // await ensureDbReady()
       // 2) Analyzer 延遲載入＋啟動
       await ensureAnalyzer()
       _startAnalyzer?.(mainWindow!)
@@ -243,8 +243,13 @@ function startPollingForGame(): void {
 }
 
 // --- App lifecycle ---
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('app.electron.svwb-analyzer')
+
+  await initDatabase()
+
+  const { registerMatchesIpc } = await import('./ipc/matches.js')
+  registerMatchesIpc()
 
   app.on('browser-window-created', (_e, window) => {
     optimizer.watchWindowShortcuts(window)
