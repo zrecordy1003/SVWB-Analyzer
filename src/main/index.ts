@@ -146,11 +146,11 @@ function createWindow(): void {
       // 首繪後才做重初始化
       clearCaptureImage()
       // 背景準備（非阻塞 UI）
-      // 1) Analyzer 延遲載入＋啟動
+      // 1) DB: 若你希望冷啟動就準備，這裡做；否則交給 IPC on-demand
+      await ensureDbReady()
+      // 2) Analyzer 延遲載入＋啟動
       await ensureAnalyzer()
       _startAnalyzer?.(mainWindow!)
-      // 2) DB: 若你希望冷啟動就準備，這裡做；否則交給 IPC on-demand
-      await ensureDbReady()
       // 3) 自動更新檢查（稍微再延遲，避免佔用 CPU）
       setupAutoUpdates(mainWindow!)
       // 4) 啟動輪詢（顯示後再開始，不阻塞 boot）
