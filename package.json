@@ -47,7 +47,7 @@
       "provider": "github",
       "owner": "zrecordy1003",
       "repo": "SVWB-Analyzer",
-      "releaseType": "prerelease"
+      "releaseType": "release"
     },
     "files": [
       "out/**",
