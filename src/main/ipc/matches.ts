@@ -1,7 +1,9 @@
-import { ipcMain } from 'electron'
-import { ClassName, GameMode, Prisma, PrismaClient } from '@prisma/client'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { ipcMain, BrowserWindow } from 'electron'
+import { ClassName, GameMode, Prisma } from '@prisma/client'
+import { getPrisma } from '../db/prismaClient.js'
 
-const prisma = new PrismaClient()
+const prisma = getPrisma()
 
 // 共用 where 條件
 function buildMatchWhere(
@@ -204,3 +206,16 @@ ipcMain.handle('get-chart-data', async (_event, params) => {
 
   return { labels, datasets }
 })
+
+ipcMain.handle('matches:fetchRecent', async (_e, n: number = 5) => {
+  return prisma.match.findMany({
+    where: { mode: 'ranked' },
+    orderBy: { playedAt: 'desc' },
+    take: n
+  })
+})
+
+export function broadcastNewMatch(win?: BrowserWindow, match?: any): void {
+  // 對 HUD 與主視窗都可以發
+  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('matches:new', match))
+}

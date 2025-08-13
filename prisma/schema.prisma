@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 model Deck {
@@ -39,7 +39,7 @@ enum GameMode {
   ranked
   unranked
   cpu
-  plaza
+  weekendPlaza
   custom
   twoPick
 }

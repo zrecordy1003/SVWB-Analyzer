@@ -15,6 +15,8 @@ import { spawnCapture, stopCapture } from './manageCaptureTool.js'
 import { initDatabase } from './db/initDb.js'
 import { setupAutoUpdates } from './updates.js'
 import type { BattleStatus } from './analyzer.js'
+import { disableAutoLaunch, enableAutoLaunch } from './startOnBoot/startOnBoot.js'
+import { createHudWindow } from './hud.js'
 // 若你要把 DB 完全 on-demand，可改寫為 ensure 函式
 
 // OpenCV env（保持：只是設定 env 不會很重）
@@ -39,6 +41,7 @@ const MIN_SPLASH_MS = 800
 let splashShownAt = 0
 
 let mainWindow: BrowserWindow | null = null
+let hudWindow: BrowserWindow | null = null
 let splash: BrowserWindow | null = null
 
 // --- Analyzer 動態載入（避免冷啟動拉重模組） ---
@@ -122,7 +125,7 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : { icon }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
-      sandbox: false, // 若可相容，建議 true
+      sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
     }
@@ -147,7 +150,7 @@ function createWindow(): void {
       await ensureAnalyzer()
       _startAnalyzer?.(mainWindow!)
       // 2) DB: 若你希望冷啟動就準備，這裡做；否則交給 IPC on-demand
-      // await ensureDbReady()
+      await ensureDbReady()
       // 3) 自動更新檢查（稍微再延遲，避免佔用 CPU）
       setupAutoUpdates(mainWindow!)
       // 4) 啟動輪詢（顯示後再開始，不阻塞 boot）
@@ -172,6 +175,13 @@ function createWindow(): void {
 
   // 開發時自動開 DevTools；正式版不要開
   if (is.dev) mainWindow.webContents.openDevTools()
+  hudWindow = createHudWindow()
+  mainWindow.on('closed', () => {
+    if (hudWindow && !hudWindow.isDestroyed()) {
+      hudWindow.close()
+    }
+    hudWindow = null
+  })
 }
 
 // --- 遊戲狀態輪詢（延後到 UI 顯示後才開始） ---
@@ -242,6 +252,14 @@ app.whenReady().then(() => {
 
   ipcMain.handle('app:getVersion', () => app.getVersion())
 
+  ipcMain.on('settings:startOnBoot', (_event, enable) => {
+    if (enable) {
+      enableAutoLaunch()
+    } else {
+      disableAutoLaunch()
+    }
+  })
+
   // IPC（與 DB 相關的用 ensureDbReady 包起來）
   const store = new Store()
   ipcMain.handle('battle:getStatus', async () => {
@@ -251,12 +269,10 @@ app.whenReady().then(() => {
 
   // Decks：先確保 DB 準備好再操作
   ipcMain.handle('decks:getAll', async () => {
-    await ensureDbReady()
     const { getDecks } = await import('./database.js')
     return getDecks()
   })
   ipcMain.handle('decks:add', async (_e, name: string, svClass: string) => {
-    await ensureDbReady()
     const { addDeck } = await import('./database.js')
     return addDeck(name, svClass)
   })

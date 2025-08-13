@@ -53,6 +53,10 @@ export default defineConfig({
             ],
             'vendor-ocr': ['tesseract.js']
           }
+        },
+        input: {
+          main: resolve('src/renderer/index.html'),
+          hud: resolve('src/renderer/hud.html')
         }
       }
     }

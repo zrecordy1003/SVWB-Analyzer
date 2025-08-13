@@ -1,11 +1,7 @@
-import { PrismaClient, Deck, Match, ClassName, PlayOrder, GameMode } from '@prisma/client'
-export const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: 'file:./dev.db'
-    }
-  }
-})
+import { Deck, Match, ClassName, PlayOrder, GameMode } from '@prisma/client'
+import { getPrisma } from './db/prismaClient.js'
+
+const prisma = getPrisma()
 
 export const getDecks = (): Promise<Deck[]> => prisma.deck.findMany()
 

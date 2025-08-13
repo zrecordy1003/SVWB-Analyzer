@@ -473,7 +473,7 @@ const MatchList = (): React.JSX.Element => {
       {/* 分頁控制 */}
       <Box display={'flex'} alignItems={'center'} justifyContent={'space-between'}>
         <Typography variant="button">
-          頁數 {totalCount > 0 ? page + 1 : 0} / {totalPages}
+          頁數 {totalCount > 0 ? page + 1 : 0} / {totalCount > 0 ? totalPages : 0}
         </Typography>
         <TablePagination
           component="div"

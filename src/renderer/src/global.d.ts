@@ -41,5 +41,16 @@ declare global {
       ): () => void
       onDownloaded(cb: (info: any) => void): () => void
     }
+    hud?: {
+      show(): Promise<void>
+      hide(): Promise<void>
+      setOpacity(v: number): Promise<number>
+      setPinned(p: boolean): Promise<boolean>
+      setClickThrough?(b: boolean): Promise<boolean>
+    }
+    matches?: {
+      fetchRecent(n: number): Promise<any[]>
+      onNewMatch(cb: (m: any) => void): () => void
+    }
   }
 }

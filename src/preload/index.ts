@@ -53,3 +53,20 @@ contextBridge.exposeInMainWorld('updates', {
 contextBridge.exposeInMainWorld('appInfo', {
   getVersion: () => ipcRenderer.invoke('app:getVersion')
 })
+
+contextBridge.exposeInMainWorld('hud', {
+  show: () => ipcRenderer.invoke('hud:show'),
+  hide: () => ipcRenderer.invoke('hud:hide'),
+  setOpacity: (v: number) => ipcRenderer.invoke('hud:setOpacity', v),
+  setPinned: (p: boolean) => ipcRenderer.invoke('hud:setPinned', p),
+  setClickThrough: (b: boolean) => ipcRenderer.invoke('hud:setClickThrough', b)
+})
+
+contextBridge.exposeInMainWorld('matches', {
+  fetchRecent: (n: number) => ipcRenderer.invoke('matches:fetchRecent', n),
+  onNewMatch: (cb: (m: any) => void) => {
+    const handler = (_e, m): void => cb(m)
+    ipcRenderer.on('matches:new', handler)
+    return () => ipcRenderer.removeListener('matches:new', handler)
+  }
+})

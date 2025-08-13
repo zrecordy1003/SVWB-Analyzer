@@ -1,4 +1,4 @@
-// src/main/updates.ts
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, BrowserWindow, ipcMain } from 'electron'
 
 let wired = false
@@ -47,7 +47,7 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
   })
 
   // ---- 事件 → Renderer ----
-  const send = (ch: string, payload?: any) => {
+  const send = (ch: string, payload?: any): void => {
     if (!win.isDestroyed()) win.webContents.send(ch, payload)
   }
 
@@ -69,6 +69,8 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
   setTimeout(() => {
     try {
       autoUpdater.checkForUpdates()
-    } catch {}
+    } catch (e) {
+      console.log('updates.ts: ', e)
+    }
   }, 3000)
 }

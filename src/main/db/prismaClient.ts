@@ -1,16 +1,15 @@
-// src/main/db/prismaClient.ts
 import { PrismaClient } from '@prisma/client'
-import path from 'path'
-import { app } from 'electron'
 
-function getDbUrl(): string {
-  // 如果 initDatabase() 已設定，直接用環境變數；否則兜 userData 路徑
-  const url = process.env.DATABASE_URL
-  if (url) return url
-  const dbPath = path.join(app.getPath('userData'), 'db', 'app.db')
-  return `file:${dbPath.replace(/\\/g, '/')}`
+let _prisma: PrismaClient | null = null
+
+export function getPrisma(): PrismaClient {
+  if (!_prisma) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error('DATABASE_URL is not set. Call initDatabase() first.')
+    }
+    _prisma = new PrismaClient({
+      datasources: { db: { url: process.env.DATABASE_URL! } }
+    })
+  }
+  return _prisma
 }
-
-export const prisma = new PrismaClient({
-  datasources: { db: { url: getDbUrl() } }
-})

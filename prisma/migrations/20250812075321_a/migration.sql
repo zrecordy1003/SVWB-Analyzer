@@ -18,17 +18,26 @@ CREATE TABLE "Match" (
     "mode" TEXT,
     "bp" INTEGER,
     "durationTime" INTEGER,
+    "playedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endedAt" DATETIME,
     "year" INTEGER,
     "month" INTEGER,
     "day" INTEGER,
-    "playedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "endedAt" DATETIME,
     CONSTRAINT "Match_my_deckId_fkey" FOREIGN KEY ("my_deckId") REFERENCES "Deck" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
     CONSTRAINT "Match_oppo_deckId_fkey" FOREIGN KEY ("oppo_deckId") REFERENCES "Deck" ("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 -- CreateIndex
-CREATE INDEX "Match_playedAt_idx" ON "Match"("playedAt");
+CREATE INDEX "idx_match_playedAt_id" ON "Match"("playedAt", "id");
 
 -- CreateIndex
-CREATE INDEX "Match_year_month_day_idx" ON "Match"("year", "month", "day");
+CREATE INDEX "idx_match_ymd_id" ON "Match"("year", "month", "day", "id");
+
+-- CreateIndex
+CREATE INDEX "idx_match_mode" ON "Match"("mode");
+
+-- CreateIndex
+CREATE INDEX "idx_match_my_class" ON "Match"("my_class");
+
+-- CreateIndex
+CREATE INDEX "idx_match_oppo_class" ON "Match"("oppo_class");

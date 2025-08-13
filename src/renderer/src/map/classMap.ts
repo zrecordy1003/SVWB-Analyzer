@@ -20,11 +20,11 @@ export interface ModeOption {
 
 export const modes: ModeOption[] = [
   { value: 'ranked', label: '階級對戰', color: 'info' },
+  { value: 'twoPick', label: '2Pick', color: 'error' },
+  { value: 'weekendPlaza', label: '週末廣場賽', color: 'secondary' },
   { value: 'unranked', label: '自由對戰', color: 'primary' },
   { value: 'cpu', label: '練習模式', color: 'success' },
-  { value: 'plaza', label: '廣場賽', color: 'secondary' },
-  { value: 'custom', label: '自訂對戰', color: 'warning' },
-  { value: 'twoPick', label: '2Pick', color: 'error' }
+  { value: 'custom', label: '自訂對戰', color: 'warning' }
 ]
 
 export const classesMap = Object.fromEntries(classes.map((c) => [c.name, c] as [string, typeof c]))

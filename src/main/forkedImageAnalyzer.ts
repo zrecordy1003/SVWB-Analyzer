@@ -1,3 +1,4 @@
+/* eslint-disable prefer-const */
 import { type MessagePortMain } from 'electron'
 import fs from 'fs'
 import path from 'path'
@@ -20,10 +21,12 @@ let original: {
   emblems: Array<{ name: string; image: Mat }>
   playOrder: Array<{ name: string; image: Mat }>
   result: Array<{ name: string; image: Mat }>
+  resultMid: Array<{ name: string; image: Mat }>
   indicators: Array<{ name: string; image: Mat }>
   modesCPU: Array<{ name: string; image: Mat }>
   modesRanked: Array<{ name: string; image: Mat }>
   modes2Pick: Array<{ name: string; image: Mat }>
+  modesPlaza: Array<{ name: string; image: Mat }>
   cursor: Array<{ name: string; image: Mat }>
   custom: Array<{ name: string; image: Mat }>
   history: Array<{ name: string; image: Mat }>
@@ -50,15 +53,15 @@ async function recognizeBPGain(
     console.warn('[OCR] Can not read pixel')
     return
   }
-  let cols: number, rows: number
+  // let cols: number, rows: number
   // 計算 BP ROI 與 游標 ROI
-  if (mat.cols === 1282 && mat.rows === 752) {
-    cols = mat.cols - 2
-    rows = mat.rows - 32
-  } else {
-    cols = mat.cols
-    rows = mat.rows
-  }
+  // if (mat.cols === 1282 && mat.rows === 752) {
+  //   cols = mat.cols - 2
+  //   rows = mat.rows - 32
+  // } else {
+  //   cols = mat.cols
+  //   rows = mat.rows
+  // }
   let x: number, y: number, w: number, h: number
   let cursor_roi_x: number, cursor_roi_y: number, cursor_roi_w: number, cursor_roi_h: number
 
@@ -183,10 +186,12 @@ process.parentPort.on('message', (e) => {
       emblems: loadTemplates(path.join(base, 'emblems')),
       playOrder: loadTemplates(path.join(base, 'play_order')),
       result: loadTemplates(path.join(base, 'result')),
+      resultMid: loadTemplates(path.join(base, 'result_mid')),
       indicators: loadTemplates(path.join(base, 'indicators')),
       modesCPU: loadTemplates(path.join(base, 'modes_cpu')),
       modesRanked: loadTemplates(path.join(base, 'modes_ranked')),
       modes2Pick: loadTemplates(path.join(base, 'modes_2pick')),
+      modesPlaza: loadTemplates(path.join(base, 'modes_plaza')),
       cursor: loadTemplates(path.join(base, 'cursor')),
       custom: loadTemplates(path.join(base, 'custom')),
       history: loadTemplates(path.join(base, 'history'))
@@ -280,10 +285,12 @@ interface ScaledTemplates {
   emblems: Template[]
   playOrder: Template[]
   result: Template[]
+  resultMid: Template[]
   indicators: Template[]
   modesCPU: Template[]
   modesRanked: Template[]
   modes2Pick: Template[]
+  modesPlaza: Template[]
   cursor: Template[]
   custom: Template[]
   history: Template[]
@@ -328,6 +335,10 @@ function prepareScaledTemplates(fullGray: Mat): ScaledTemplates {
       name,
       image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
     })),
+    resultMid: original.resultMid.map(({ name, image }) => ({
+      name,
+      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+    })),
     indicators: original.indicators.map(({ name, image }) => ({
       name,
       image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
@@ -341,6 +352,10 @@ function prepareScaledTemplates(fullGray: Mat): ScaledTemplates {
       image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
     })),
     modes2Pick: original.modes2Pick.map(({ name, image }) => ({
+      name,
+      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+    })),
+    modesPlaza: original.modesPlaza.map(({ name, image }) => ({
       name,
       image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
     })),
@@ -494,6 +509,9 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       return scheduleNext(port)
     }
 
+    const resultMidDetect = matchTemplate(gray, tmpls.resultMid)
+    if (resultMidDetect.score > 0.3) console.log(resultMidDetect)
+
     // 階級模式：模板配對
     const rankDetect = matchTemplate(topRightArea, tmpls.modesRanked)
 
@@ -571,6 +589,19 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         port.postMessage({ type: 'modifyMode' })
       })
       console.log(cpuDetect)
+    }
+
+    // 廣場賽模式：模板配對
+    const plazaDetect = matchTemplate(topRightArea, tmpls.modesPlaza)
+
+    // 廣場賽模式判斷：模式修改
+    if (plazaDetect.score > 0.7 && !isModifyMode && lastRowId > -1) {
+      isModifyMode = true
+      mode = 'weekendPlaza'
+      modifyMatchMode(mode).then(() => {
+        port.postMessage({ type: 'modifyMode' })
+      })
+      console.log(plazaDetect)
     }
 
     // 自訂房檢測 (室長 / 訪客)

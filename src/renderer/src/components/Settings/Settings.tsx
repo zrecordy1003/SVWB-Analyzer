@@ -1,5 +1,6 @@
-import { Box, Switch, FormControlLabel, Select, MenuItem } from '@mui/material'
+import { Box, Switch, FormControlLabel, Select, MenuItem, Divider, Typography } from '@mui/material'
 import React, { useEffect, useState } from 'react'
+import UpdatePrompt from '../UpdatePrompt/UpdatePrompt'
 
 type OnCloseBehavior = 'minimize' | 'exit'
 type ThemeType = 'system' | 'light' | 'dark'
@@ -11,6 +12,7 @@ interface AppSettings {
   startOnBoot: boolean
   reduceAnimations: boolean
   autoCheckUpdates: boolean
+  autoInstallUpdates: boolean
   theme: ThemeType
 }
 
@@ -21,7 +23,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   askBeforeExit: true,
   startOnBoot: false,
   reduceAnimations: false,
-  autoCheckUpdates: true,
+  autoCheckUpdates: false,
+  autoInstallUpdates: false,
   theme: 'system'
 }
 
@@ -51,8 +54,9 @@ const Settings: React.FC = () => {
 
   return (
     <Box>
-      <h2 style={{ marginTop: 0 }}>General</h2>
-      <FormControlLabel
+      {/* <h2 style={{ marginTop: 0 }}>一般</h2> */}
+
+      {/* <FormControlLabel
         control={
           <Switch
             checked={settings.reduceAnimations}
@@ -60,8 +64,9 @@ const Settings: React.FC = () => {
           />
         }
         label="Reduce Animations"
-      />
-      <Box mt={1}>
+      /> */}
+
+      {/* <Box mt={1}>
         <label>Theme: </label>
         <Select
           value={settings.theme}
@@ -72,60 +77,85 @@ const Settings: React.FC = () => {
           <MenuItem value="light">Light</MenuItem>
           <MenuItem value="dark">Dark</MenuItem>
         </Select>
+      </Box> */}
+
+      {/* <Divider /> */}
+      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
+        <Typography variant="h5">通知</Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={settings.enableNotifications}
+              onChange={(_, checked) => handleChange('enableNotifications', checked)}
+            />
+          }
+          label="開啟應用通知"
+        />
       </Box>
 
-      <h2>Notifications</h2>
-      <FormControlLabel
-        control={
-          <Switch
-            checked={settings.enableNotifications}
-            onChange={(_, checked) => handleChange('enableNotifications', checked)}
-          />
-        }
-        label="Enable Notifications"
-      />
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
+        <Typography variant="h5">啟動與關閉</Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={settings.startOnBoot}
+              onChange={(_, checked) => {
+                handleChange('startOnBoot', checked)
+                window.electron.ipcRenderer.send('settings:startOnBoot', checked)
+              }}
+            />
+          }
+          label="開機時自動啟動"
+        />
 
-      <h2>Startup & Exit</h2>
-      <FormControlLabel
-        control={
-          <Switch
-            checked={settings.startOnBoot}
-            onChange={(_, checked) => handleChange('startOnBoot', checked)}
-          />
-        }
-        label="Start at System Boot"
-      />
-      <Box mt={1}>
-        <label>On Close: </label>
-        <Select
-          value={settings.onCloseBehavior}
-          onChange={(e) => handleChange('onCloseBehavior', e.target.value as OnCloseBehavior)}
-          size="small"
-        >
-          <MenuItem value="minimize">Minimize to Tray</MenuItem>
-          <MenuItem value="exit">Exit App</MenuItem>
-        </Select>
+        <Box>
+          <label>應用關閉時動作: </label>
+          <Select
+            value={settings.onCloseBehavior}
+            onChange={(e) => handleChange('onCloseBehavior', e.target.value as OnCloseBehavior)}
+            size="small"
+          >
+            <MenuItem value="minimize">最小化至系統匣</MenuItem>
+            <MenuItem value="exit">關閉應用</MenuItem>
+          </Select>
+        </Box>
+
+        <FormControlLabel
+          control={
+            <Switch
+              checked={settings.askBeforeExit}
+              onChange={(_, checked) => handleChange('askBeforeExit', checked)}
+            />
+          }
+          label="關閉應用前詢問"
+        />
       </Box>
-      <FormControlLabel
-        control={
-          <Switch
-            checked={settings.askBeforeExit}
-            onChange={(_, checked) => handleChange('askBeforeExit', checked)}
-          />
-        }
-        label="Ask Before Exit"
-      />
 
-      <h2>Updates</h2>
-      <FormControlLabel
-        control={
-          <Switch
-            checked={settings.autoCheckUpdates}
-            onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
-          />
-        }
-        label="Auto Check for Updates"
-      />
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
+        <Typography variant="h5">更新</Typography>
+        <UpdatePrompt />
+        <FormControlLabel
+          control={
+            <Switch
+              checked={settings.autoCheckUpdates}
+              onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
+            />
+          }
+          label="自動檢查更新"
+        />
+        <FormControlLabel
+          control={
+            <Switch
+              checked={settings.autoInstallUpdates}
+              onChange={(_, checked) => handleChange('autoInstallUpdates', checked)}
+            />
+          }
+          label="自動安裝更新"
+        />
+      </Box>
     </Box>
   )
 }
