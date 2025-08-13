@@ -138,7 +138,7 @@ async function recognizeBPGain(
     console.log('[OCR] BP Gain:', trimmed)
 
     // Debug 圖檔存檔
-    if (trimmed) {
+    if (trimmed && !isPackaged) {
       const debugDir = path.join(__dirname, 'bp_debug')
       fs.mkdirSync(debugDir, { recursive: true })
       const filename = `bp_debug_${trimmed}_${Date.now()}.png`
@@ -684,7 +684,8 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         lastRowId = record.id
         console.log('lastRowId', lastRowId)
       } else {
-        console.warn('Can not find last record')
+        lastRowId = 1
+        console.log('New Database set lastRowId = 1')
       }
 
       console.log('----- In Battle! -----')

@@ -1,48 +1,55 @@
 import { Deck, Match, ClassName, PlayOrder, GameMode } from '@prisma/client'
 import { getPrisma } from './db/prismaClient.js'
 
-const prisma = getPrisma()
-
-export const getDecks = (): Promise<Deck[]> => prisma.deck.findMany()
-
-export const addDeck = (name: string, svClass: string): Promise<Deck> =>
-  prisma.deck.create({ data: { name, class: svClass } })
-
-export const fetchMatchCount = (): Promise<number> => prisma.match.count()
-
-export const fetchLastMatch = async (): Promise<Match | null> => {
-  const latest = await prisma.match.findFirstOrThrow({
-    orderBy: { playedAt: 'desc' }
-  })
-  return latest
+export async function getDecks(): Promise<Deck[]> {
+  const prisma = getPrisma()
+  return prisma.deck.findMany()
 }
 
-export const fetchMatchesCursor = (take: number, cursorId?: number): Promise<Match[]> => {
+export async function addDeck(name: string, svClass: string): Promise<Deck> {
+  const prisma = getPrisma()
+  return prisma.deck.create({ data: { name, class: svClass } })
+}
+
+export async function fetchMatchCount(): Promise<number> {
+  const prisma = getPrisma()
+  return prisma.match.count()
+}
+
+export async function fetchLastMatch(): Promise<Match | null> {
+  const prisma = getPrisma()
+  const latest = await prisma.match.findFirst({
+    orderBy: { playedAt: 'desc' }
+  })
+  return latest ?? null
+}
+
+export async function fetchMatchesCursor(take: number, cursorId?: number): Promise<Match[]> {
+  const prisma = getPrisma()
   return prisma.match.findMany({
     where: { result: { not: null } },
     orderBy: { playedAt: 'desc' },
-    take, // 取幾筆
-    ...(cursorId && {
-      // 如果提供 cursorId，就從那筆之後再取
-      cursor: { id: cursorId },
-      skip: 1 // 跳過 cursor 本身
-    })
+    take,
+    ...(cursorId
+      ? {
+          cursor: { id: cursorId },
+          skip: 1
+        }
+      : {})
   })
 }
 
-export const addMatch = (
+export async function addMatch(
   my_class: ClassName,
   oppo_class: ClassName,
   play_order: PlayOrder
-): Promise<Match> => {
-  // 1. 取現在時間
+): Promise<Match> {
+  const prisma = getPrisma()
   const now = new Date()
-  // 2. 拆成三個欄位
-  const year = now.getFullYear() // e.g. 2025
-  const month = now.getMonth() + 1 // JS 的 month 從 0–11，所以 +1
-  const day = now.getDate() // 1–31
+  const year = now.getFullYear()
+  const month = now.getMonth() + 1
+  const day = now.getDate()
 
-  // 3. 存到資料庫
   return prisma.match.create({
     data: {
       result: null,
@@ -58,14 +65,18 @@ export const addMatch = (
   })
 }
 
-export const modifyMatchResult = async (result: boolean): Promise<Match> => {
-  const latest = await prisma.match.findFirstOrThrow({
+export async function modifyMatchResult(result: boolean): Promise<Match> {
+  const prisma = getPrisma()
+  const latest = await prisma.match.findFirst({
     orderBy: { playedAt: 'desc' }
   })
+  if (!latest) {
+    // 視需求：回傳錯、忽略、或直接建立一筆
+    throw new Error('No match to update result.')
+  }
 
   const now = new Date()
-  const durationMs = now.getTime() - latest.playedAt.getTime()
-  const durationSecs = Math.floor(durationMs / 1000)
+  const durationSecs = Math.floor((now.getTime() - latest.playedAt.getTime()) / 1000)
 
   return prisma.match.update({
     where: { id: latest.id },
@@ -73,32 +84,30 @@ export const modifyMatchResult = async (result: boolean): Promise<Match> => {
   })
 }
 
-export const modifyMatchMode = async (mode: GameMode | null): Promise<Match> => {
-  const latest = await prisma.match.findFirstOrThrow({
+export async function modifyMatchMode(mode: GameMode | null): Promise<Match> {
+  const prisma = getPrisma()
+  const latest = await prisma.match.findFirst({
     orderBy: { playedAt: 'desc' }
   })
+  if (!latest) throw new Error('No match to update mode.')
 
   if (latest.endedAt === null) {
     const now = new Date()
-    const durationMs = now.getTime() - latest.playedAt.getTime()
-    const durationSecs = Math.floor(durationMs / 1000)
-
+    const durationSecs = Math.floor((now.getTime() - latest.playedAt.getTime()) / 1000)
     return prisma.match.update({
       where: { id: latest.id },
       data: { mode, endedAt: now, durationTime: durationSecs }
     })
-  } else {
-    return prisma.match.update({
-      where: { id: latest.id },
-      data: { mode }
-    })
   }
+  return prisma.match.update({ where: { id: latest.id }, data: { mode } })
 }
 
-export const modifyMatchBP = async (bp: number | null): Promise<Match> => {
-  const latest = await prisma.match.findFirstOrThrow({
+export async function modifyMatchBP(bp: number | null): Promise<Match> {
+  const prisma = getPrisma()
+  const latest = await prisma.match.findFirst({
     orderBy: { playedAt: 'desc' }
   })
+  if (!latest) throw new Error('No match to update BP.')
 
   return prisma.match.update({
     where: { id: latest.id },
