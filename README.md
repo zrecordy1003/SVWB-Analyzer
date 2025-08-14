@@ -1,5 +1,9 @@
 # ShadowverseWB Analyzer
 
+[![GitHub Downloads (all releases)](https://img.shields.io/github/downloads/OWNER/SVWB-Analyzer/total)](https://github.com/OWNER/SVWB-Analyzer/releases)
+[![GitHub Downloads (latest release)](https://img.shields.io/github/downloads/OWNER/SVWB-Analyzer/latest/total)](https://github.com/OWNER/SVWB-Analyzer/releases/latest)
+[!GitHub Release (latest)](https://img.shields.io/github/v/release/OWNER/SVWB-Analyzer)
+
 <!-- 英文版放這裡 -->
 
 ## English
