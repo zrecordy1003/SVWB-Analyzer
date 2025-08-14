@@ -2,7 +2,7 @@
 
 [![GitHub Downloads (all releases)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/total)](https://github.com/zrecordy1003/SVWB-Analyzer/releases)
 [![GitHub Downloads (latest release)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/latest/total)](https://github.com/zrecordy1003/SVWB-Analyzer/releases/latest)
-![GitHub Release (latest)](https://img.shields.io/github/v/release/zrecordy1003/SVWB-Analyzer)
+[![GitHub Release (latest)](https://img.shields.io/github/v/release/zrecordy1003/SVWB-Analyzer)](https://github.com/zrecordy1003/SVWB-Analyzer/releases/latest)
 
 <!-- 英文版放這裡 -->
 
