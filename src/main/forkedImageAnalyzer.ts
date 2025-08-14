@@ -12,7 +12,6 @@ import {
   modifyMatchResult
 } from './database.js'
 import { ClassName, GameMode, PlayOrder } from '@prisma/client'
-import { cwd } from 'process'
 
 const BASE_WIDTH = 1280
 const BASE_HEIGHT = 720
@@ -189,30 +188,28 @@ async function recognizeBPGain(
     const trimmed = text.trim()
     console.log('[OCR] BP Gain:', trimmed)
 
-    // Debug 圖檔存檔
-    // Debug 圖檔存檔
-    if (trimmed) {
-      // 嚴格門檻：必須「不在 asar 內」且「環境為 dev」
-      const inAsar = __dirname.includes('.asar')
-      const canSaveDebug = !inAsar && !isPackaged
+    // // Debug 圖檔存檔
+    // if (trimmed) {
+    //   // 嚴格門檻：必須「不在 asar 內」且「環境為 dev」
+    //   const inAsar = __dirname.includes('.asar')
+    //   const canSaveDebug = !inAsar && !isPackaged
 
-      if (canSaveDebug) {
-        try {
-          const baseWritable = cwd()
-          const debugDir = path.join(baseWritable, 'bp_debug') // ✅ 總是 asar 外
-          fs.mkdirSync(debugDir, { recursive: true })
-          const filename = `bp_debug_${trimmed}_${Date.now()}.png`
-          fs.writeFileSync(path.join(debugDir, filename), buf)
-          console.log(`[OCR] file saved: ${path.join(debugDir, filename)}`)
-        } catch (err) {
-          console.warn('[OCR] save debug file failed:', err)
-        }
-      } else {
-        console.debug('[OCR] skip debug save')
-      }
-    } else {
-      console.warn('[OCR] result invalid, skip file save')
-    }
+    //   if (canSaveDebug) {
+    //     try {
+    //       const debugDir = path.join(__dirname, 'bp_debug')
+    //       fs.mkdirSync(debugDir, { recursive: true })
+    //       const filename = `bp_debug_${trimmed}_${Date.now()}.png`
+    //       fs.writeFileSync(path.join(debugDir, filename), buf)
+    //       console.log(`[OCR] file saved: ${path.join(debugDir, filename)}`)
+    //     } catch (err) {
+    //       console.warn('[OCR] save debug file failed:', err)
+    //     }
+    //   } else {
+    //     console.debug('[OCR] skip debug save')
+    //   }
+    // } else {
+    //   console.warn('[OCR] result invalid, skip file save')
+    // }
 
     // 結束
     await worker.terminate()
