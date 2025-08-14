@@ -1,8 +1,8 @@
 # ShadowverseWB Analyzer
 
-[![GitHub Downloads (all releases)](https://img.shields.io/github/downloads/OWNER/SVWB-Analyzer/total)](https://github.com/OWNER/SVWB-Analyzer/releases)
-[![GitHub Downloads (latest release)](https://img.shields.io/github/downloads/OWNER/SVWB-Analyzer/latest/total)](https://github.com/OWNER/SVWB-Analyzer/releases/latest)
-[!GitHub Release (latest)](https://img.shields.io/github/v/release/OWNER/SVWB-Analyzer)
+[![GitHub Downloads (all releases)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/total)](https://github.com/OWNER/SVWB-Analyzer/releases)
+[![GitHub Downloads (latest release)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/latest/total)](https://github.com/OWNER/SVWB-Analyzer/releases/latest)
+![GitHub Release (latest)](https://img.shields.io/github/v/release/zrecordy1003/SVWB-Analyzer)
 
 <!-- 英文版放這裡 -->
 
