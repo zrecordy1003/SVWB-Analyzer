@@ -77,6 +77,10 @@
       {
         "from": "resources/splash.html",
         "to": "splash.html"
+      },
+      {
+        "from": "eng.traineddata.gz",
+        "to": "tessdata/eng.traineddata.gz"
       }
     ]
   },

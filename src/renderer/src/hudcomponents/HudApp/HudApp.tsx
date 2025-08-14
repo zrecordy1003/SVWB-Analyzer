@@ -3,10 +3,10 @@ import { Box, IconButton, Slider, Typography, Card, Tooltip, Divider } from '@mu
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import OpacityIcon from '@mui/icons-material/Opacity'
-import RefreshIcon from '@mui/icons-material/Refresh'
 import CategorySwitch, { ViewMode } from '../CategorySwitch/CategorySwitch'
 import { classesMap } from '@renderer/map/classMap'
 import { Match } from '@prisma/client'
+import { Close } from '@mui/icons-material'
 
 const HudApp: React.FC = () => {
   const [mode, setMode] = useState<ViewMode>('recent')
@@ -36,14 +36,6 @@ const HudApp: React.FC = () => {
     setMatches(data)
   }, [])
 
-  useEffect(() => {
-    loadMatches()
-    const unsubscribe = window.matches?.onNewMatch(() => {
-      loadMatches()
-    })
-    return unsubscribe
-  }, [loadMatches])
-
   const handleOpacityChange = async (_: Event, value: number | number[]): Promise<void> => {
     const val = Array.isArray(value) ? value[0] : value
     setOpacity(val)
@@ -54,6 +46,14 @@ const HudApp: React.FC = () => {
     const newPinned = !pinned
     setPinned(await window.hud?.setPinned(newPinned))
   }
+
+  useEffect(() => {
+    loadMatches()
+    const unsubscribeRefetch = window.electron?.ipcRenderer.on('matches:needRefetch', loadMatches)
+    return () => {
+      unsubscribeRefetch()
+    }
+  }, [])
 
   return (
     <Box
@@ -81,7 +81,7 @@ const HudApp: React.FC = () => {
           數據分析
         </Typography>
 
-        <Tooltip title={pinned ? '取消釘選' : '釘選'}>
+        <Tooltip title={pinned ? '取消釘選' : '釘選'} placement="left" sx={{ margin: 0 }}>
           <IconButton
             size="small"
             onClick={togglePinned}
@@ -92,7 +92,27 @@ const HudApp: React.FC = () => {
           </IconButton>
         </Tooltip>
 
-        <Tooltip title="Reload Matches" placement="bottom-start">
+        <IconButton
+          size="small"
+          onClick={() => console.log('ss')}
+          sx={{
+            WebkitAppRegion: 'no-drag',
+            '& svg': {
+              transform: 'rotate(0deg)',
+              transition: 'transform .3s ease'
+            },
+            '&:hover svg, &:focus-visible svg': {
+              transform: 'rotate(90deg)'
+            },
+            '@media (prefers-reduced-motion: reduce)': {
+              '& svg': { transition: 'none' }
+            }
+          }}
+          color="primary"
+        >
+          <Close />
+        </IconButton>
+        {/* <Tooltip title="Reload Matches" placement="bottom-start">
           <IconButton
             size="small"
             onClick={loadMatches}
@@ -101,7 +121,7 @@ const HudApp: React.FC = () => {
           >
             <RefreshIcon />
           </IconButton>
-        </Tooltip>
+        </Tooltip> */}
       </Box>
 
       {/* 透明度控制 - 整個控制列 no-drag */}

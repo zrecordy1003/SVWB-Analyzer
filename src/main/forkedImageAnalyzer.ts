@@ -3,7 +3,7 @@ import { type MessagePortMain } from 'electron'
 import fs from 'fs'
 import path from 'path'
 import cv, { Mat } from '@u4/opencv4nodejs'
-import { createWorker, PSM } from 'tesseract.js'
+import { createWorker, OEM, PSM } from 'tesseract.js'
 import {
   addMatch,
   fetchLastMatch,
@@ -35,6 +35,7 @@ let original: {
 let imagePath = ''
 let isPackaged = false
 let resourcesPath = ''
+let cacheDir = ''
 
 // 處理父程序訊息
 process.parentPort.on('message', (e) => {
@@ -44,6 +45,7 @@ process.parentPort.on('message', (e) => {
     imagePath = e.data.imagePath
     isPackaged = e.data.isPackaged
     resourcesPath = e.data.resourcesPath
+    cacheDir = path.join(resourcesPath, 'cacheDir')
 
     // 載入 templates
     const base = isPackaged
@@ -171,9 +173,10 @@ async function recognizeBPGain(
 
   try {
     // 建立 Worker（語言放第一個參數，options 放第二
-    const worker = await createWorker(
-      ['eng'] // 直接在這裡指定語言
-    )
+    const worker = await createWorker(['eng'], OEM.DEFAULT, {
+      cachePath: cacheDir,
+      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
+    })
 
     // 設定 whitelist 與 PSM（單行模式）提升辨識率
     await worker.setParameters({

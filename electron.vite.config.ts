@@ -18,7 +18,14 @@ export default defineConfig({
     build: {
       sourcemap: false,
       minify: true,
-      target: 'node22'
+      target: 'node22',
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/preload/index.ts'),
+          exitConfirm: resolve(__dirname, 'src/preload/exit-confirm.ts'),
+          exitChoice: resolve(__dirname, 'src/preload/exit-choice.ts')
+        }
+      }
     }
   },
 

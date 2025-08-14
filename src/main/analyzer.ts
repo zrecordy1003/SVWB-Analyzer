@@ -2,6 +2,7 @@ import { app, BrowserWindow, MessageChannelMain, Notification, utilityProcess } 
 import forkPath from './forkedImageAnalyzer?modulePath'
 import path from 'path'
 import { ClassName, PlayOrder } from '@prisma/client'
+import { broadcast } from './utils/broadcast.js'
 
 export interface BattleStatus {
   inBattle: boolean
@@ -17,7 +18,8 @@ let battleStatus: BattleStatus = {
   playOrder: null
 }
 
-export function startAnalyzer(mainWindow: BrowserWindow): void {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function startAnalyzer(_mainWindow: BrowserWindow): void {
   console.log('[Main] analyze-image triggered')
 
   const imagePath = app.isPackaged
@@ -39,15 +41,16 @@ export function startAnalyzer(mainWindow: BrowserWindow): void {
     switch (type) {
       case 'inBattle':
         // 戰鬥中，不需要通知，只更新狀態
-        mainWindow.webContents.send('battle:status', data)
+        broadcast('battle:status', data)
+
         setBattleStatus(data)
         break
 
       case 'matchResult': {
         // 更新戰鬥回歸空狀態
-        mainWindow.webContents.send('battle:status', data)
+        broadcast('battle:status', data)
         setBattleStatus(data)
-        mainWindow.webContents.send('matches:needRefetch')
+        broadcast('matches:needRefetch')
 
         // 顯示一次性通知
         if (notification) {
@@ -59,7 +62,7 @@ export function startAnalyzer(mainWindow: BrowserWindow): void {
 
       case 'modifyMode': {
         // 重新獲取資料
-        mainWindow.webContents.send('matches:needRefetch')
+        broadcast('matches:needRefetch')
 
         // 顯示一次性通知
         if (notification) {
