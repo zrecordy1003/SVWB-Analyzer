@@ -1,5 +1,4 @@
 # ShadowverseWB Analyzer
-
 ---
 
 [![GitHub Downloads (all releases)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/total)](https://github.com/zrecordy1003/SVWB-Analyzer/releases)
