@@ -32,6 +32,57 @@ let original: {
   history: Array<{ name: string; image: Mat }>
 }
 
+let imagePath = ''
+let isPackaged = false
+let resourcesPath = ''
+
+// 處理父程序訊息
+process.parentPort.on('message', (e) => {
+  const [port] = e.ports
+  // 第一個訊息：帶入初始化參數
+  if (e.data && e.data.type === 'init') {
+    imagePath = e.data.imagePath
+    isPackaged = e.data.isPackaged
+    resourcesPath = e.data.resourcesPath
+
+    // 載入 templates
+    const base = isPackaged
+      ? path.join(resourcesPath, 'templates')
+      : path.join(__dirname, '../../resources/templates')
+
+    // emblemsTemplates = loadTemplates(path.join(base, 'emblems'))
+    // classesTemplates = loadTemplates(path.join(base, 'classes'))
+    // playOrderTemplates = loadTemplates(path.join(base, 'play_order'))
+    // resultTemplates = loadTemplates(path.join(base, 'result'))
+    // indicatorsTemplates = loadTemplates(path.join(base, 'indicators'))
+
+    original = {
+      classes: loadTemplates(path.join(base, 'classes')),
+      emblems: loadTemplates(path.join(base, 'emblems')),
+      playOrder: loadTemplates(path.join(base, 'play_order')),
+      result: loadTemplates(path.join(base, 'result')),
+      resultMid: loadTemplates(path.join(base, 'result_mid')),
+      indicators: loadTemplates(path.join(base, 'indicators')),
+      modesCPU: loadTemplates(path.join(base, 'modes_cpu')),
+      modesRanked: loadTemplates(path.join(base, 'modes_ranked')),
+      modes2Pick: loadTemplates(path.join(base, 'modes_2pick')),
+      modesPlaza: loadTemplates(path.join(base, 'modes_plaza')),
+      cursor: loadTemplates(path.join(base, 'cursor')),
+      custom: loadTemplates(path.join(base, 'custom')),
+      history: loadTemplates(path.join(base, 'history'))
+    }
+
+    // 啟動分析迴圈
+    analyzeOnce(port)
+  }
+
+  // 如果父程序要停止 worker
+  if (e.data && e.data.type === 'stop') {
+    if (timer) clearTimeout(timer)
+    process.exit(0)
+  }
+})
+
 async function recognizeBPGain(
   imgPath: string,
   mode?: '2pick' | 'ranked'
@@ -156,57 +207,6 @@ async function recognizeBPGain(
     return ''
   }
 }
-
-let imagePath = ''
-let isPackaged = false
-let resourcesPath = ''
-
-// 處理父程序訊息
-process.parentPort.on('message', (e) => {
-  const [port] = e.ports
-  // 第一個訊息：帶入初始化參數
-  if (e.data && e.data.type === 'init') {
-    imagePath = e.data.imagePath
-    isPackaged = e.data.isPackaged
-    resourcesPath = e.data.resourcesPath
-
-    // 載入 templates
-    const base = isPackaged
-      ? path.join(resourcesPath, 'templates')
-      : path.join(__dirname, '../../resources/templates')
-
-    // emblemsTemplates = loadTemplates(path.join(base, 'emblems'))
-    // classesTemplates = loadTemplates(path.join(base, 'classes'))
-    // playOrderTemplates = loadTemplates(path.join(base, 'play_order'))
-    // resultTemplates = loadTemplates(path.join(base, 'result'))
-    // indicatorsTemplates = loadTemplates(path.join(base, 'indicators'))
-
-    original = {
-      classes: loadTemplates(path.join(base, 'classes')),
-      emblems: loadTemplates(path.join(base, 'emblems')),
-      playOrder: loadTemplates(path.join(base, 'play_order')),
-      result: loadTemplates(path.join(base, 'result')),
-      resultMid: loadTemplates(path.join(base, 'result_mid')),
-      indicators: loadTemplates(path.join(base, 'indicators')),
-      modesCPU: loadTemplates(path.join(base, 'modes_cpu')),
-      modesRanked: loadTemplates(path.join(base, 'modes_ranked')),
-      modes2Pick: loadTemplates(path.join(base, 'modes_2pick')),
-      modesPlaza: loadTemplates(path.join(base, 'modes_plaza')),
-      cursor: loadTemplates(path.join(base, 'cursor')),
-      custom: loadTemplates(path.join(base, 'custom')),
-      history: loadTemplates(path.join(base, 'history'))
-    }
-
-    // 啟動分析迴圈
-    analyzeOnce(port)
-  }
-
-  // 如果父程序要停止 worker
-  if (e.data && e.data.type === 'stop') {
-    if (timer) clearTimeout(timer)
-    process.exit(0)
-  }
-})
 
 // let emblemsTemplates: { name: string; image: Mat }[] = []
 // let classesTemplates: { name: string; image: Mat }[] = []
