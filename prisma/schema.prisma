@@ -10,14 +10,53 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model DeckCategory {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  decks Deck[]
+
+  @@unique([name])
+}
+
 model Deck {
   id        Int      @id @default(autoincrement())
   name      String
   class     String
   createdAt DateTime @default(now())
 
+  // 新增分類（可為 null）
+  categoryId String?
+  category   DeckCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
   matchesAsMyDeck   Match[] @relation("MatchMyDeck")
   matchesAsOppoDeck Match[] @relation("MatchOppoDeck")
+
+  @@index([categoryId])
+  @@index([class])
+}
+
+model Tag {
+  id        Int      @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now())
+
+  matches MatchTag[]
+
+  @@unique([name])
+}
+
+model MatchTag {
+  // 多對多樞紐表
+  matchId Int
+  tagId   Int
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([matchId, tagId])
+  @@index([tagId])
 }
 
 enum PlayOrder {
@@ -64,8 +103,12 @@ model Match {
   month Int?
   day   Int?
 
+  note String?
+
   my_deck   Deck? @relation("MatchMyDeck", fields: [my_deckId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   oppo_deck Deck? @relation("MatchOppoDeck", fields: [oppo_deckId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  tags MatchTag[]
 
   // 若常用「mode + ymd」再加（觀察後再決定）
   // @@index([mode, year, month, day, id], map: "idx_match_mode_ymd_id")
@@ -75,4 +118,5 @@ model Match {
   @@index([mode], map: "idx_match_mode") // 獨立 mode 篩選
   @@index([my_class], map: "idx_match_my_class")
   @@index([oppo_class], map: "idx_match_oppo_class")
+  @@index([mode, my_class, playedAt], map: "idx_match_ranked_myclass_playedAt")
 }

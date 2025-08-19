@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { contextBridge, ipcRenderer, shell } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { ClassName } from '@prisma/client'
+import type { RankedWinrateByOpponent } from '../main/ipc/helper.js'
 
 // Custom APIs for renderer
 const api = {}
@@ -64,6 +66,12 @@ contextBridge.exposeInMainWorld('hud', {
 
 contextBridge.exposeInMainWorld('matches', {
   fetchRecent: (n: number) => ipcRenderer.invoke('matches:fetchRecent', n),
+  getRankedWinrate: (params: {
+    myClass: ClassName
+    start?: Date | number | string
+    end?: Date | number | string
+  }): Promise<RankedWinrateByOpponent> =>
+    ipcRenderer.invoke('stats:getRankedWinrateByOpponent', params),
   onNewMatch: (cb: (m: any) => void) => {
     const handler = (_e, m): void => cb(m)
     ipcRenderer.on('matches:new', handler)

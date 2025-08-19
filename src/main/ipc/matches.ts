@@ -1,7 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { ipcMain, BrowserWindow } from 'electron'
-import { ClassName, GameMode, Prisma } from '@prisma/client'
+import { ClassName, GameMode, Match, Prisma, Tag } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
+import { getRankedWinrateByOpponent } from './helper.js'
 
 export function registerMatchesIpc(): void {
   const prisma = getPrisma()
@@ -217,6 +218,100 @@ export function registerMatchesIpc(): void {
       take: n
     })
   })
+
+  ipcMain.handle(
+    'stats:getRankedWinrateByOpponent',
+    async (
+      _e,
+      args: {
+        myClass: ClassName
+        gameMode: GameMode
+        start?: string | number | Date
+        end?: string | number | Date
+      }
+    ) => {
+      return getRankedWinrateByOpponent(args)
+    }
+  )
+
+  ipcMain.handle(
+    'matches:updateBP',
+    async (_e, matchId: number, bp: number | null): Promise<Match> => {
+      // 注意：不要用 if(bp)；0 要能過
+      return prisma.match.update({
+        where: { id: matchId },
+        data: { bp },
+        include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
+      })
+    }
+  )
+
+  // 更新備註（null/空字串 => 設為 null）
+  ipcMain.handle(
+    'matches:updateNote',
+    async (_e, matchId: number, note: string | null): Promise<Match> => {
+      const clean = (note ?? '').trim()
+      return prisma.match.update({
+        where: { id: matchId },
+        data: { note: clean.length ? clean : null },
+        include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
+      })
+    }
+  )
+
+  // 設定我的牌組
+  ipcMain.handle(
+    'matches:updateMyDeck',
+    async (_e, matchId: number, deckId: number | null): Promise<Match> => {
+      return prisma.match.update({
+        where: { id: matchId },
+        data: { my_deckId: deckId },
+        include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
+      })
+    }
+  )
+
+  // 套用標籤清單（全量覆蓋）：傳入字串陣列，會 upsert Tag 並重建 MatchTag
+  ipcMain.handle(
+    'matches:setTags',
+    async (_e, matchId: number, tagNames: string[]): Promise<Match> => {
+      const names = Array.from(
+        new Set(
+          (tagNames ?? [])
+            .map((s) => (s ?? '').trim())
+            .filter(Boolean)
+            .slice(0, 20) // 限制最多 20 個，避免濫用
+        )
+      )
+
+      return await prisma.$transaction(async (tx) => {
+        // 找到/建立 tags
+        const tags: Tag[] = []
+        for (const name of names) {
+          const tag = await tx.tag.upsert({
+            where: { name },
+            update: {},
+            create: { name }
+          })
+          tags.push(tag)
+        }
+
+        // 先清掉舊的，再建立新的
+        await tx.matchTag.deleteMany({ where: { matchId } })
+        if (tags.length) {
+          await tx.matchTag.createMany({
+            data: tags.map((t) => ({ matchId, tagId: t.id }))
+          })
+        }
+
+        // 回傳含 tag 的 match
+        return tx.match.findUniqueOrThrow({
+          where: { id: matchId },
+          include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
+        })
+      })
+    }
+  )
 }
 
 export function broadcastNewMatch(win?: BrowserWindow, match?: any): void {

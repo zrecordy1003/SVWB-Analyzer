@@ -33,10 +33,12 @@ import Disclaimer from './components/Disclaimer'
 import GameStatus from './components/GameStatus'
 import HomePage from './components/HomePage/HomePage'
 import Settings from './components/Settings/Settings'
+import Analyzer from './components/Analyzer/Analyzer'
+import BattleStatus from './components/BattleStatus/BattleStatus'
 // const Analyzer = lazy(() => import('./components/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
-const ChartBuilder = lazy(() => import('./components/ChartBuilder/ChartBuilder'))
+// const ChartBuilder = lazy(() => import('./components/ChartBuilder/ChartBuilder'))
 // import Statistics from './components/Statistics'
 
 const shakeAnimation = keyframes`
@@ -140,7 +142,7 @@ function App(): React.JSX.Element {
     { key: 'Home', text: '主頁', icon: <HomeIcon /> },
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
-    { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
+    // { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> }
   ]
 
@@ -169,12 +171,14 @@ function App(): React.JSX.Element {
     })
   }, [])
 
+  const battleStatusEl = useMemo(() => <BattleStatus />, []) // 只建立一次
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
 
       <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
-        <Toolbar>
+        <Toolbar sx={{ position: 'relative' }}>
           <IconButton color="inherit" edge="start" onClick={handleDrawerToggle} sx={{ mr: 2 }}>
             {
               open ? (
@@ -187,10 +191,15 @@ function App(): React.JSX.Element {
           <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
             {titles[currentPage]}
           </Typography>
-          {/* <IconButton color="inherit" onClick={toggleTheme}>
-            {mode === 'light' ? <Moon /> : <Sun />}
-          </IconButton>
-          <Switch checked={mode === 'dark'} onChange={toggleTheme} /> */}
+          <Box
+            sx={{
+              position: 'absolute',
+              right: '10px',
+              transform: 'translateY(7px)'
+            }}
+          >
+            {battleStatusEl}
+          </Box>
         </Toolbar>
       </AppBar>
 
@@ -299,15 +308,15 @@ function App(): React.JSX.Element {
         <Toolbar />
         <Suspense fallback={<div>載入中...</div>}>
           {currentPage === 'Home' && <HomePage />}
-          {/* {currentPage === 'Analyzer' && <Analyzer />} */}
           {currentPage === 'MatchList' && <MatchList />}
-          {currentPage === 'MatchAnalytics' && <MatchAnalytics />}
+          {currentPage === 'Analyzer' && <Analyzer />}
+          {/* {currentPage === 'MatchAnalytics' && <MatchAnalytics />} */}
           {/* {currentPage === 'Settings' && <ChartBuilder />} */}
           {currentPage === 'Settings' && <Settings />}
         </Suspense>
 
         {/* Footer */}
-        <Box component="footer" sx={{ textAlign: 'center', mt: 4 }}>
+        <Box component="footer" sx={{ textAlign: 'center', mt: 2 }}>
           <Disclaimer />
         </Box>
       </Main>

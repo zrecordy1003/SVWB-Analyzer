@@ -6,7 +6,7 @@ import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
 import ListAltRoundedIcon from '@mui/icons-material/ListAltRounded'
 
-export type ViewMode = 'recent' | 'trends' | 'history'
+export type ViewMode = 'recent' | 'analyze' | 'history'
 
 export interface CategorySwitchProps {
   value: ViewMode
@@ -72,9 +72,9 @@ const CategorySwitch: React.FC<CategorySwitchProps> = ({ value, onChange, classN
           近五場
         </ToggleButton>
 
-        <ToggleButton value="trends" aria-label="Trends">
+        <ToggleButton value="analyze" aria-label="Analyze">
           <QueryStatsRoundedIcon />
-          趨勢
+          分析
         </ToggleButton>
 
         <ToggleButton value="history" aria-label="History">

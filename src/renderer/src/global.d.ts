@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { IpcRenderer } from '@electron-toolkit/preload'
+import type { ClassName, GameMode } from '@prisma/client'
 
 export {}
 
@@ -41,16 +42,23 @@ declare global {
       ): () => void
       onDownloaded(cb: (info: any) => void): () => void
     }
-    hud?: {
+    hud: {
       show(): Promise<void>
       hide(): Promise<void>
       setOpacity(v: number): Promise<number>
       setPinned(p: boolean): Promise<boolean>
       setClickThrough?(b: boolean): Promise<boolean>
     }
-    matches?: {
+    matches: {
       fetchRecent(n: number): Promise<any[]>
+      getRankedWinrate(params: {
+        myClass: ClassName
+        gameMode?: GameMode
+        start?: Date | number | string
+        end?: Date | number | string
+      }): Promise<RankedWinrateByOpponent>
       onNewMatch(cb: (m: any) => void): () => void
+      onNeedRefetch(cb: () => void): () => void
     }
   }
 }

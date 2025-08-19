@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { classesMap } from '@renderer/map/classMap'
-import { Box, Typography, Card, CardContent, Stack, Chip } from '@mui/material'
+import { Box, Typography, Stack, Chip } from '@mui/material'
 
-import { PauseCircle, Radar, SportsMma } from '@mui/icons-material'
+import RadarIcon from '@mui/icons-material/Radar'
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined'
 
 interface BattleState {
@@ -12,10 +12,10 @@ interface BattleState {
   playOrder: string | null
 }
 
-interface StatusHeaderProps {
-  inBattle: boolean
-  recognizing: boolean
-}
+// interface StatusHeaderProps {
+//   inBattle: boolean
+//   recognizing: boolean
+// }
 
 const BattleStatus = (): React.JSX.Element => {
   const [isRecognizing, setIsRecognizing] = useState<boolean>(false)
@@ -38,13 +38,13 @@ const BattleStatus = (): React.JSX.Element => {
     },
     '@keyframes ripple': {
       '0%': { transform: 'scale(0.85)', opacity: 0.8 },
-      '70%': { transform: 'scale(1.4)', opacity: 0.15 },
-      '100%': { transform: 'scale(1.55)', opacity: 0 }
+      // '0%': { transform: 'scale(1)', opacity: 0.15 },
+      '100%': { transform: 'scale(1.2)', opacity: 0 }
     }
   }
 
   // const pulseSx = {
-  //   animation: 'pulse 1.7s',
+  //   animation: 'pulse 6s infinite',
   //   '@keyframes pulse': {
   //     '0%': { transform: 'scale(1)', filter: 'drop-shadow(0 0 0px rgba(255,255,255,0))' },
   //     '50%': { transform: 'scale(1.06)', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.35))' },
@@ -81,39 +81,40 @@ const BattleStatus = (): React.JSX.Element => {
     }
   }, [isRecognizing])
 
-  const StatusHeader: React.FC<StatusHeaderProps> = ({
-    inBattle,
-    recognizing
-  }: StatusHeaderProps) => {
-    if (recognizing === false) {
-      return (
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <PauseCircle fontSize="large" />
-          <Typography variant="h6">辨識暫停</Typography>
-        </Stack>
-      )
-    }
+  // const StatusHeader: React.FC<StatusHeaderProps> = ({
+  //   inBattle,
+  //   recognizing
+  // }: StatusHeaderProps) => {
+  //   if (recognizing === false) {
+  //     return (
+  //       <Stack direction="row" spacing={1.5} alignItems="center">
+  //         <PauseCircle fontSize="large" />
+  //         <Typography variant="h6">辨識暫停</Typography>
+  //       </Stack>
+  //     )
+  //   }
 
-    if (!inBattle) {
-      return (
-        <Stack direction="row" spacing={1.5} alignItems="center">
-          <Box sx={rippleSx}>
-            <Radar fontSize="large" />
-          </Box>
-          <Typography variant="h6">偵測中</Typography>
-        </Stack>
-      )
-    }
+  //   if (!inBattle) {
+  //     return (
+  //       <Stack direction="row" spacing={1.5} alignItems="center">
+  //         <Typography variant="h6">偵測中</Typography>
+  //         <Box sx={rippleSx}>
+  //           <Radar fontSize="large" />
+  //         </Box>
+  //       </Stack>
+  //     )
+  //   }
 
-    return (
-      <Stack direction="row" spacing={1.5} alignItems="center">
-        <Box>
-          <SportsMma fontSize="large" />
-        </Box>
-        <Typography variant="h6">對戰進行中</Typography>
-      </Stack>
-    )
-  }
+  //   return (
+  //     // <Stack direction="row" spacing={1.5} alignItems="center">
+  //     //   <Box>
+  //     //     <SportsEsportsOutlinedIcon fontSize="large" />
+  //     //   </Box>
+  //     //   <Typography variant="h6">對戰進行中</Typography>
+  //     // </Stack>
+  //     <></>
+  //   )
+  // }
 
   const renderBattleInfo = (): React.JSX.Element => {
     if (isRecognizing === false) {
@@ -133,7 +134,7 @@ const BattleStatus = (): React.JSX.Element => {
       return (
         <Stack direction="row" spacing={2} alignItems="center" height={'3rem'}>
           <Box sx={rippleSx} display={'flex'}>
-            <Radar fontSize="large" />
+            <RadarIcon fontSize="large" />
           </Box>
           <Typography variant="h6">偵測中</Typography>
         </Stack>
@@ -142,7 +143,10 @@ const BattleStatus = (): React.JSX.Element => {
 
     const TurnOrder = ({ order }: { order: 'first' | 'second' }): React.JSX.Element => {
       return (
-        <Stack>
+        <Box
+          position={'absolute'}
+          sx={{ transform: 'translateX(145px) translateY(8px)', zIndex: 10 }}
+        >
           {/* <Typography variant="caption" color="text.secondary">
             順序
           </Typography> */}
@@ -163,81 +167,78 @@ const BattleStatus = (): React.JSX.Element => {
             />
             // <Typography>我方後攻</Typography>
           )}
-        </Stack>
+        </Box>
       )
     }
 
     return (
-      <Card>
-        <CardContent>
-          <StatusHeader inBattle={battleState.inBattle} recognizing={isRecognizing} />
-          {battleState.inBattle && (
-            <Box
-              display="flex"
-              flexDirection="column"
-              alignItems="center"
-              justifyContent="center"
-              mt={1}
-              gap={2}
-            >
-              <TurnOrder order={battleState.playOrder === 'first' ? 'first' : 'second'} />
-              <Box display="flex">
-                <Box
-                  position={'relative'}
-                  display={'flex'}
-                  justifyContent={'center'}
-                  alignItems={'center'}
-                  width={'200px'}
-                  height={'100px'}
-                  bgcolor={
-                    battleState.ownClass ? classesMap[battleState.ownClass]?.bgColor : 'null'
-                  }
-                  sx={{
-                    clipPath: 'polygon(0 0, 100% 0, 75% 100%, 0% 100%)',
-                    borderRadius: '5px'
-                  }}
+      <Box>
+        {battleState.inBattle && (
+          <Box
+            display="flex"
+            // flexDirection="column"
+            alignItems="center"
+            justifyContent="center"
+            // mt={1}
+            gap={2}
+          >
+            {/* <StatusHeader inBattle={battleState.inBattle} recognizing={isRecognizing} /> */}
+            <Box display="flex">
+              <Box
+                position={'relative'}
+                display={'flex'}
+                justifyContent={'center'}
+                alignItems={'center'}
+                width={'200px'}
+                height={'50px'}
+                bgcolor={battleState.ownClass ? classesMap[battleState.ownClass]?.bgColor : 'null'}
+                sx={{
+                  clipPath: 'polygon(0 0, 100% 0, 75% 100%, 0% 100%)',
+                  borderRadius: '5px'
+                }}
+              >
+                <Typography
+                  marginRight={'20px'}
+                  variant="h6"
+                  color={battleState.ownClass ? classesMap[battleState.ownClass]?.color : 'null'}
                 >
-                  <Typography
-                    marginRight={'20px'}
-                    variant="h6"
-                    color={battleState.ownClass ? classesMap[battleState.ownClass]?.color : 'null'}
-                  >
-                    {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
-                  </Typography>
-                </Box>
+                  {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
+                </Typography>
+              </Box>
 
-                <Box
-                  display={'flex'}
-                  justifyContent={'center'}
-                  alignItems={'center'}
-                  width={'200px'}
-                  height={'100px'}
-                  bgcolor={
-                    battleState.enemyClass ? classesMap[battleState.enemyClass]?.bgColor : 'null'
+              <TurnOrder order={battleState.playOrder === 'first' ? 'first' : 'second'} />
+
+              <Box
+                display={'flex'}
+                justifyContent={'center'}
+                alignItems={'center'}
+                width={'200px'}
+                height={'50px'}
+                bgcolor={
+                  battleState.enemyClass ? classesMap[battleState.enemyClass]?.bgColor : 'null'
+                }
+                sx={{
+                  clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0% 100%)',
+                  ml: '-40px',
+                  borderRadius: '5px'
+                }}
+              >
+                <Typography
+                  marginLeft={'20px'}
+                  variant="h6"
+                  color={
+                    battleState.enemyClass ? classesMap[battleState.enemyClass]?.color : 'null'
                   }
-                  sx={{
-                    clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0% 100%)',
-                    ml: '-40px',
-                    borderRadius: '5px'
-                  }}
                 >
-                  <Typography
-                    marginLeft={'20px'}
-                    variant="h6"
-                    color={
-                      battleState.enemyClass ? classesMap[battleState.enemyClass]?.color : 'null'
-                    }
-                  >
-                    {battleState.enemyClass
-                      ? (classesMap[battleState.enemyClass]?.label ?? '')
-                      : null}
-                  </Typography>
-                </Box>
+                  {battleState.enemyClass
+                    ? (classesMap[battleState.enemyClass]?.label ?? '')
+                    : null}
+                </Typography>
               </Box>
             </Box>
-          )}
-        </CardContent>
-      </Card>
+          </Box>
+        )}
+      </Box>
     )
   }
 
@@ -310,4 +311,4 @@ const BattleStatus = (): React.JSX.Element => {
   )
 }
 
-export default BattleStatus
+export default React.memo(BattleStatus)

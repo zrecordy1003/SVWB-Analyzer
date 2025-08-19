@@ -26,7 +26,7 @@ import WbTwilightIcon from '@mui/icons-material/WbTwilight'
 import BedtimeIcon from '@mui/icons-material/Bedtime'
 import SunnySnowingIcon from '@mui/icons-material/SunnySnowing'
 
-import { classes, classesMap, modes } from '@renderer/map/classMap'
+import { classes, classesMap, modes, modesMap } from '@renderer/map/classMap'
 import { Match } from '@prisma/client'
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
@@ -143,8 +143,8 @@ const MatchList = (): React.JSX.Element => {
     try {
       const count: number = await window.electron?.ipcRenderer.invoke(
         'matches:count',
-        myFilter.map((c) => c.name),
-        oppoFilter.map((c) => c.name),
+        myFilter.map((c) => c.id),
+        oppoFilter.map((c) => c.id),
         modeValue,
         start,
         end
@@ -170,8 +170,8 @@ const MatchList = (): React.JSX.Element => {
         'matches:getPage',
         pageIndex,
         pageSize,
-        myFilter.map((c) => c.name),
-        oppoFilter.map((c) => c.name),
+        myFilter.map((c) => c.id),
+        oppoFilter.map((c) => c.id),
         modeValue,
         start,
         end
@@ -247,7 +247,7 @@ const MatchList = (): React.JSX.Element => {
   )
 
   const theme = useTheme()
-  const modePaletteKey = modes.find((c) => c.value === filterModes)?.color || 'primary'
+  const modePaletteKey = modesMap[filterModes]?.color || 'primary'
   const inputColor = theme.palette[modePaletteKey].main
 
   const totalPages = Math.max(1, Math.ceil(totalCount / rowsPerPage))
@@ -263,7 +263,7 @@ const MatchList = (): React.JSX.Element => {
           disableCloseOnSelect
           options={classes}
           getOptionLabel={(option) => option.label}
-          isOptionEqualToValue={(opt, val) => opt.name === val.name}
+          isOptionEqualToValue={(opt, val) => opt.id === val.id}
           value={filterMy}
           onChange={(_, newVal) => setFilterMy(newVal)}
           renderInput={(params) => <TextField {...params} label="我方職業" variant="outlined" />}
@@ -326,7 +326,7 @@ const MatchList = (): React.JSX.Element => {
           disableCloseOnSelect
           options={classes}
           getOptionLabel={(option) => option.label}
-          isOptionEqualToValue={(opt, val) => opt.name === val.name}
+          isOptionEqualToValue={(opt, val) => opt.id === val.id}
           value={filterOppo}
           onChange={(_, newVal) => setFilterOppo(newVal)}
           renderInput={(params) => <TextField {...params} label="對方職業" variant="outlined" />}
@@ -387,9 +387,9 @@ const MatchList = (): React.JSX.Element => {
           openText=""
           options={modes}
           getOptionLabel={(opt) => opt.label}
-          isOptionEqualToValue={(opt, val) => opt.value === val.value}
-          value={modes.find((opt) => opt.value === filterModes) || null}
-          onChange={(_, newVal) => setFilterModes(newVal?.value ?? '')}
+          isOptionEqualToValue={(opt, val) => opt.id === val.id}
+          value={modes.find((opt) => opt.id === filterModes) || null}
+          onChange={(_, newVal) => setFilterModes(newVal?.id ?? '')}
           renderInput={(params) => (
             <TextField
               {...params}
@@ -558,8 +558,8 @@ const MatchList = (): React.JSX.Element => {
                       <Chip
                         variant="outlined"
                         size="small"
-                        color={modes.find((o) => o.value === m.mode)?.color}
-                        label={modes.find((o) => o.value === m.mode)?.label}
+                        color={modesMap[m.mode].color}
+                        label={modesMap[m.mode].label}
                       />
                     ) : (
                       '-'

@@ -303,6 +303,12 @@ app.whenReady().then(async () => {
   const { registerMatchesIpc } = await import('./ipc/matches.js')
   registerMatchesIpc()
 
+  const { registerDecksIpc } = await import('./ipc/decks.js')
+  registerDecksIpc()
+
+  const { registerTagsIpc } = await import('./ipc/tags.js')
+  registerTagsIpc()
+
   app.on('browser-window-created', (_e, window) => {
     optimizer.watchWindowShortcuts(window)
   })

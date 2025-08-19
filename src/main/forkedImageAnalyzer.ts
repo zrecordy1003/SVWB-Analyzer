@@ -106,21 +106,11 @@ async function recognizeBPGain(
     console.warn('[OCR] Can not read pixel')
     return
   }
-  // let cols: number, rows: number
-  // 計算 BP ROI 與 游標 ROI
-  // if (mat.cols === 1282 && mat.rows === 752) {
-  //   cols = mat.cols - 2
-  //   rows = mat.rows - 32
-  // } else {
-  //   cols = mat.cols
-  //   rows = mat.rows
-  // }
+
+  // 固定解析度 ROI（如需通用化，可恢復自動縮放版本）
   let x: number, y: number, w: number, h: number
   let cursor_roi_x: number, cursor_roi_y: number, cursor_roi_w: number, cursor_roi_h: number
 
-  // console.log(cols)
-  // console.log(rows)
-  // 固定解析度
   x = 1115
   y = mode === '2pick' ? 295 : 200
   w = 65
@@ -130,93 +120,59 @@ async function recognizeBPGain(
   cursor_roi_y = mode === '2pick' ? 245 : 150
   cursor_roi_w = 210
   cursor_roi_h = 135
-  // if (cols === 1280 && rows === 720) {
-
-  // } else {
-  //   // 自動縮放
-  //   x = Math.floor(cols * (1115 / 1280))
-  //   y = mode === '2pick' ? Math.floor(rows * (295 / 720)) : Math.floor(rows * (200 / 720))
-  //   w = Math.floor(cols * (65 / 1280))
-  //   h = Math.floor(rows * (30 / 720))
-  //   cursor_roi_x = Math.floor(cols * (1010 / 1280))
-  //   cursor_roi_y =
-  //     mode === '2pick' ? Math.floor(rows * (245 / 720)) : Math.floor(rows * (150 / 720))
-  //   cursor_roi_w = Math.floor(cols * (210 / 1280))
-  //   cursor_roi_h = Math.floor(rows * (135 / 720))
-  // }
-
-  // Clamp 保證不超出
-  // x = Math.max(0, Math.min(x, cols - 1))
-  // y = Math.max(0, Math.min(y, rows - 1))
-  // w = Math.max(1, Math.min(w, cols - x))
-  // h = Math.max(1, Math.min(h, rows - y))
-  // cursor_roi_x = Math.max(0, Math.min(cursor_roi_x, cols - 1))
-  // cursor_roi_y = Math.max(0, Math.min(cursor_roi_y, rows - 1))
-  // cursor_roi_w = Math.max(1, Math.min(cursor_roi_w, cols - cursor_roi_x))
-  // cursor_roi_h = Math.max(1, Math.min(cursor_roi_h, rows - cursor_roi_y))
 
   // 游標遮擋檢測
   const cursorRoi = mat.getRegion(
     new cv.Rect(cursor_roi_x, cursor_roi_y, cursor_roi_w, cursor_roi_h)
   )
   const cursorMatch = matchTemplate(cursorRoi, prepareScaledTemplates(mat).cursor)
-  console.log(cursorMatch)
+  console.log('[OCR] cursorMatch:', cursorMatch)
   if (cursorMatch.score > 0.6) {
     console.log('[OCR] cursor block, skip OCR, will retry...')
-    return ''
+    return '' // 保持你原有語意：讓上層略過寫入，等待下次
   }
 
   // 擷取 BP ROI 並二值化
   const bpRoi = mat.getRegion(new cv.Rect(x, y, w, h))
+  // 可視化面板背景，二值化門檻可微調（120~160）視你的畫面主題
   const bin = bpRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
 
   try {
-    // 建立 Worker（語言放第一個參數，options 放第二
     const worker = await createWorker(['eng'], OEM.DEFAULT, {
       cachePath: cacheDir,
       langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
     })
 
-    // 設定 whitelist 與 PSM（單行模式）提升辨識率
     await worker.setParameters({
       tessedit_char_whitelist: '+-0123456789',
       tessedit_pageseg_mode: PSM.SINGLE_LINE
     })
 
-    // 執行 OCR
     const {
       data: { text }
     } = await worker.recognize(buf)
-    const trimmed = text.trim()
-    console.log('[OCR] BP Gain:', trimmed)
 
-    // // Debug 圖檔存檔
-    // if (trimmed) {
-    //   // 嚴格門檻：必須「不在 asar 內」且「環境為 dev」
-    //   const inAsar = __dirname.includes('.asar')
-    //   const canSaveDebug = !inAsar && !isPackaged
-
-    //   if (canSaveDebug) {
-    //     try {
-    //       const debugDir = path.join(__dirname, 'bp_debug')
-    //       fs.mkdirSync(debugDir, { recursive: true })
-    //       const filename = `bp_debug_${trimmed}_${Date.now()}.png`
-    //       fs.writeFileSync(path.join(debugDir, filename), buf)
-    //       console.log(`[OCR] file saved: ${path.join(debugDir, filename)}`)
-    //     } catch (err) {
-    //       console.warn('[OCR] save debug file failed:', err)
-    //     }
-    //   } else {
-    //     console.debug('[OCR] skip debug save')
-    //   }
-    // } else {
-    //   console.warn('[OCR] result invalid, skip file save')
-    // }
-
-    // 結束
     await worker.terminate()
-    return trimmed
+
+    const trimmed = text.trim()
+    console.log('[OCR] raw BP Gain:', JSON.stringify(trimmed))
+
+    // ---- 正規化：把回傳值整理成「純數字字串」or 判定無效 ----
+    const normalized = trimmed
+      .replace(/[＋﹢]/g, '+')
+      .replace(/[－﹣]/g, '-')
+      .replace(/O/g, '0')
+      .replace(/o/g, '0')
+      .trim()
+
+    if (!/^[-+]?\d+$/.test(normalized)) {
+      console.warn('[OCR] invalid format after normalize:', JSON.stringify(normalized))
+      return '' // 視為本次無效，讓上層跳過
+    }
+
+    // 這裡不轉 number，維持回傳字串給呼叫端做 parse（相容現有介面）
+    return normalized
   } catch (e) {
     console.error('[OCR] recognizeBPGain failed：', e)
     return ''
@@ -422,16 +378,16 @@ function matchTemplate(
 /**
  * 如果所有 templates 都 matchScore > threshold，才回 true
  */
-// function allMatch(
-//   base: Mat,
-//   templates: { name: string; image: Mat }[],
-//   threshold: number
-// ): boolean {
-//   return templates.every((tpl) => {
-//     const { score } = matchTemplate(base, [tpl])
-//     return score > threshold
-//   })
-// }
+function allMatch(
+  base: Mat,
+  templates: { name: string; image: Mat }[],
+  threshold: number
+): boolean {
+  return templates.every((tpl) => {
+    const { score } = matchTemplate(base, [tpl])
+    return score > threshold
+  })
+}
 
 let inBattle = false
 let isMatchRecord = false
@@ -450,7 +406,7 @@ const THRESHOLD = {
   class: 0.7,
   emblem: 0.7,
   playOrder: 0.6,
-  ranked: 0.8,
+  ranked: 0.7,
   result: 0.7
 }
 
@@ -499,6 +455,9 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const rightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, rows))
     const topRightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, halfH))
 
+    const rankDetectArea = gray.getRegion(new cv.Rect(780, 205, 150, 180))
+    const twoPickDetectArea = gray.getRegion(new cv.Rect(780, 295, 180, 50))
+
     // 歷史紀錄
     const historyDetect = matchTemplate(gray, tmpls.history)
     if (historyDetect.score > 0.6) {
@@ -524,37 +483,33 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       return scheduleNext(port)
     }
 
-    const resultMidDetect = matchTemplate(gray, tmpls.resultMid)
-    if (resultMidDetect.score > 0.3) console.log(resultMidDetect)
-
     // 階級模式：模板配對
-    const rankDetect = matchTemplate(topRightArea, tmpls.modesRanked)
+    const rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
 
     // 2Pick模式判斷：模板配對
-    const twoPickDetect = matchTemplate(topRightArea, tmpls.modes2Pick)
+    const twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
 
     if (twoPickDetect.score > THRESHOLD.ranked) {
       //  2Pick模式判斷：BP修改
-      if (twoPickDetect.score > THRESHOLD.ranked && !isModifyBP && lastRowId > -1) {
-        let bp: number | null = null
+      if (!isModifyBP && lastRowId > -1) {
         console.log(twoPickDetect)
 
-        const raw = await recognizeBPGain(imagePath, '2pick') // 回傳 "+22" 或 "-15" 或 undefined
+        const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
         if (raw === '') console.log('[analyzeOnce] OCR got empty string')
         if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
-        if (raw !== '' && raw !== undefined) {
-          const n = parseInt(raw, 10)
-          if (!Number.isNaN(n)) bp = n
-          console.log(bp)
-          modifyMatchBP(bp).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+
+        const bp = parseBPGain(raw)
+        console.log('[2Pick] parsed bp =', bp)
+
+        if (bp !== null) {
+          await modifyMatchBP(bp) // 0 會被寫入
+          port.postMessage({ type: 'modifyMode' })
           isModifyBP = true
         }
       }
 
       // 2Pick模式判斷：模式修改
-      if (twoPickDetect.score > 0.7 && !isModifyMode && lastRowId > -1) {
+      if (!isModifyMode && lastRowId > -1) {
         isModifyMode = true
         mode = 'twoPick'
         modifyMatchMode(mode).then(() => {
@@ -562,28 +517,27 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         })
         console.log(twoPickDetect)
       }
-    } else if (rankDetect.score > THRESHOLD.ranked) {
+    } else if (allMatch(rankDetectArea, tmpls.modesRanked, THRESHOLD.ranked)) {
       // 階級模式判斷：BP修改
-      if (rankDetect.score > THRESHOLD.ranked && !isModifyBP && lastRowId > -1) {
-        let bp: number | null = null
+      if (!isModifyBP && lastRowId > -1) {
         console.log(rankDetect)
 
-        const raw = await recognizeBPGain(imagePath) // 回傳 "+22" 或 "-15" 或 undefined
+        const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
         if (raw === '') console.log('[analyzeOnce] OCR got empty string')
         if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
-        if (raw !== '' && raw !== undefined) {
-          const n = parseInt(raw, 10)
-          if (!Number.isNaN(n)) bp = n
-          console.log(bp)
-          modifyMatchBP(bp).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+
+        const bp = parseBPGain(raw)
+        console.log('[ranked] parsed bp =', bp)
+
+        if (bp !== null) {
+          await modifyMatchBP(bp) // 0 會被寫入
+          port.postMessage({ type: 'modifyMode' })
           isModifyBP = true
         }
       }
 
       // 階級模式判斷：模式修改
-      if (rankDetect.score > THRESHOLD.ranked && !isModifyMode && lastRowId > -1) {
+      if (!isModifyMode && lastRowId > -1) {
         isModifyMode = true
         mode = 'ranked'
         modifyMatchMode(mode).then(() => {
@@ -736,9 +690,28 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     }
 
     // 勝/敗結果檢測
-    const resultDetect = matchTemplate(gray, tmpls.result)
+    const resultMidDetect = matchTemplate(gray, tmpls.resultMid)
 
     // 戰鬥結束：識別勝敗並更新 DB
+    if (isMatchRecord && resultMidDetect.score > 0.3) {
+      console.log('----- Battle Finished -----')
+      console.log('resultMidDetect', resultMidDetect)
+      isMatchRecord = false
+      inBattle = false
+
+      const result = resultMidDetect.name === 'win'
+      modifyMatchResult(result)
+      port.postMessage({
+        type: 'matchResult',
+        data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
+        // notification: {
+        //   title: `[${mode}]對戰結果已紀錄`,
+        //   body: win ? '勝利！' : '戰敗...'
+        // }
+      })
+    }
+
+    const resultDetect = matchTemplate(gray, tmpls.result)
     if (isMatchRecord && resultDetect.score > THRESHOLD.result) {
       console.log('----- Battle Finished -----')
       console.log('resultDetect', resultDetect)
@@ -766,4 +739,22 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 // schedule 下一次分析
 function scheduleNext(port: MessagePortMain): void {
   timer = setTimeout(() => analyzeOnce(port), INTERVAL)
+}
+
+function parseBPGain(raw: string | undefined | null): number | null {
+  if (raw == null) return null
+
+  const s = raw
+    .trim()
+    .replace(/[＋﹢]/g, '+') // 全形＋
+    .replace(/[－﹣]/g, '-') // 全形－
+    .replace(/O/g, '0') // 大寫 O → 0（依你資料可調整）
+    .replace(/o/g, '0')
+
+  // 僅接受 [+|-] 整數（避免雜訊）
+  const ok = /^[-+]?\d+$/.test(s)
+  if (!ok) return null
+
+  const n = parseInt(s, 10)
+  return Number.isNaN(n) ? null : n
 }
