@@ -18,6 +18,8 @@ let battleStatus: BattleStatus = {
   playOrder: null
 }
 
+let childProcess: ReturnType<typeof utilityProcess.fork> | null = null
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function startAnalyzer(_mainWindow: BrowserWindow): void {
   console.log('[Main] analyze-image triggered')
@@ -29,6 +31,8 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
 
   const { port1, port2 } = new MessageChannelMain()
   const child = utilityProcess.fork(forkPath)
+
+  childProcess = child
 
   child.postMessage(
     { type: 'init', imagePath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath },
@@ -78,6 +82,25 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
   })
 
   port2.start()
+}
+
+export function stopAnalyzer(): void {
+  if (!childProcess) {
+    return
+  }
+
+  console.log('stop analyzer.')
+
+  try {
+    childProcess.postMessage({ type: 'stop' })
+  } catch (e) {
+    console.warn('[Main] postMessage stop failed, try kill()', e)
+    try {
+      childProcess.kill()
+    } catch (e) {
+      console.log('stopAnalyzer: ', e)
+    }
+  }
 }
 
 function setBattleStatus(status: BattleStatus): void {

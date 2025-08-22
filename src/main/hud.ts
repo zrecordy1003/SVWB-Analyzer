@@ -27,6 +27,7 @@ export function createHudWindow(): BrowserWindow {
 
   hudWin = new BrowserWindow({
     ...saved,
+    minWidth: 285,
     frame: false,
     resizable: true,
     movable: true,

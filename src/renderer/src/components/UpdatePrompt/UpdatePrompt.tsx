@@ -64,17 +64,17 @@ const UpdatePrompt = (): React.JSX.Element => {
   const title = useMemo(() => {
     switch (phase) {
       case 'checking':
-        return 'Checking for updates…'
+        return '正在檢查更新...'
       case 'available':
-        return 'Update available'
+        return '發現可用的更新'
       case 'downloading':
-        return 'Downloading update…'
+        return '更新下載中...'
       case 'downloaded':
-        return 'Update ready to install'
+        return '下載完成，安裝已就緒'
       case 'none':
-        return 'You’re up to date'
+        return '目前已是最新版本！'
       case 'error':
-        return 'Update error'
+        return '更新失敗'
       default:
         return 'Updates'
     }
@@ -124,10 +124,12 @@ const UpdatePrompt = (): React.JSX.Element => {
           {phase === 'available' && (
             <Stack spacing={1}>
               <Typography variant="body2">
-                A new version is available{info?.version ? `: v${info.version}` : ''}.
+                偵測到有新版本{info?.version ? `: v${info.version}` : ''}
+                {/* A new version is available */}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                Click “Download” to fetch the update in the background.
+                點擊更新以獲取最新版本
+                {/* Click “Download” to fetch the update in the background. */}
               </Typography>
             </Stack>
           )}
@@ -143,23 +145,24 @@ const UpdatePrompt = (): React.JSX.Element => {
 
           {phase === 'downloaded' && (
             <Typography variant="body2">
-              The update has been downloaded. Click “Install & Restart” to apply it.
+              更新已下載完成，請點擊「安裝並重啟」以套用更新。
+              {/* The update has been downloaded. Click “Install & Restart” to apply it. */}
             </Typography>
           )}
 
           {phase === 'none' && (
             <Stack spacing={0.5}>
-              <Typography variant="body2">Current version: v{appVersion}</Typography>
-              {info?.version && (
-                <Typography variant="body2">Latest release: v{info.version}</Typography>
-              )}
+              <Typography variant="body2">當前版本: v{appVersion}</Typography>
+              {info?.version && <Typography variant="body2">最新版本: v{info.version}</Typography>}
               {releaseDate && (
                 <Typography variant="body2" color="text.secondary">
-                  Released on: {releaseDate}
+                  {/* Released on:  */}
+                  發佈日期：{releaseDate}
                 </Typography>
               )}
               <Typography sx={{ mt: 0.5 }} variant="body2">
-                You already have the latest version.
+                當前已經是最新版本
+                {/* You already have the latest version. */}
               </Typography>
             </Stack>
           )}
@@ -174,24 +177,25 @@ const UpdatePrompt = (): React.JSX.Element => {
         <DialogActions>
           {phase === 'available' && (
             <>
-              <Button onClick={() => setOpen(false)}>Later</Button>
+              <Button onClick={() => setOpen(false)}>取消</Button>
               <Button onClick={onDownload} variant="contained">
-                Download
+                下載
               </Button>
             </>
           )}
-          {phase === 'downloading' && <Button disabled>Downloading…</Button>}
+          {phase === 'downloading' && <Button disabled>更新檔下載中...</Button>}
           {phase === 'downloaded' && (
             <>
-              <Button onClick={() => setOpen(false)}>Later</Button>
+              <Button onClick={() => setOpen(false)}>取消</Button>
               <Button onClick={onInstall} variant="contained">
-                Install & Restart
+                安裝並重啟
+                {/* Install & Restart */}
               </Button>
             </>
           )}
           {(phase === 'none' || phase === 'error' || phase === 'checking') && (
             <Button onClick={() => setOpen(false)} autoFocus>
-              Close
+              關閉
             </Button>
           )}
         </DialogActions>

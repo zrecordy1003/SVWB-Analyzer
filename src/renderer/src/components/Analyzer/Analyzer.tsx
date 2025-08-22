@@ -1,21 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import {
-  Box,
-  FormControlLabel,
-  Switch,
-  ToggleButton,
-  ToggleButtonGroup,
-  Typography
-} from '@mui/material'
+import { Box, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
 import { classes, classesMap, modes } from '@renderer/map/classMap'
 import LineChart from './component/LineChart'
 
 import type { ClassName, GameMode } from '@prisma/client'
-import type { RankedWinrateByOpponent } from 'src/main/ipc/helper'
+import type { RangeKey, RankedWinrateByOpponent } from 'src/main/ipc/helper'
 
 const Analyzer: React.FC = () => {
   const [analyzeData, setAnalyzeData] = useState<RankedWinrateByOpponent | null>(null)
-  const [onlyToday, setOnlyToday] = useState<boolean>(true)
+
+  const [rangeKey, setRangeKey] = useState<RangeKey>('today')
 
   const [selectedClass, setSelectedClass] = useState<ClassName>('elf')
   const [selectedGameMode, setSelectedGameMode] = useState<GameMode>('ranked')
@@ -24,17 +18,23 @@ const Analyzer: React.FC = () => {
   useEffect(() => {
     let mounted = true
     ;(async () => {
-      const [lastClass, lastMode] = await Promise.all([
+      const [lastClass, lastMode, lastRangeKey] = await Promise.all([
         window.settings.get<ClassName>('analyzerMyClass'),
-        window.settings.get<GameMode>('analyzerGameMode')
+        window.settings.get<GameMode>('analyzerGameMode'),
+        window.settings.get<RangeKey>('analyzerRangeKey')
       ])
       if (!mounted) return
 
       if (lastClass && lastClass !== selectedClass) {
         setSelectedClass(lastClass)
       }
+
       if (lastMode && lastMode !== selectedGameMode) {
         setSelectedGameMode(lastMode)
+      }
+
+      if (lastRangeKey && lastRangeKey !== rangeKey) {
+        setRangeKey(lastRangeKey)
       }
     })()
     return () => {
@@ -55,6 +55,12 @@ const Analyzer: React.FC = () => {
     })
   }, [selectedGameMode])
 
+  useEffect(() => {
+    window.settings.get<RangeKey>('analyzerRangeKey').then((v) => {
+      if (v !== rangeKey) window.settings.set('analyzerRangeKey', rangeKey).catch(() => {})
+    })
+  }, [rangeKey])
+
   const [chartHeight, setChartHeight] = useState<number>(window.innerHeight * 0.3)
 
   const updateHeight = useCallback(() => {
@@ -68,27 +74,31 @@ const Analyzer: React.FC = () => {
   }, [updateHeight])
 
   // 資料載入
-  const loadDataFor = useCallback(async (myClass: ClassName, gameMode: GameMode) => {
-    const stats = await window.matches.getRankedWinrate({
-      myClass,
-      gameMode: gameMode
-    })
-    setAnalyzeData(stats)
-  }, [])
+  const loadDataFor = useCallback(
+    async (myClass: ClassName, gameMode: GameMode, rangeKey: RangeKey) => {
+      const stats = await window.matches.getRankedWinrate({
+        myClass,
+        gameMode: gameMode,
+        rangeKey
+      })
+      setAnalyzeData(stats)
+    },
+    []
+  )
 
   // 視圖或篩選改變時載入
   useEffect(() => {
-    loadDataFor(selectedClass, selectedGameMode)
-  }, [selectedClass, selectedGameMode, loadDataFor])
+    loadDataFor(selectedClass, selectedGameMode, rangeKey)
+  }, [selectedClass, selectedGameMode, rangeKey, loadDataFor])
 
   // 供 IPC 事件要求重抓資料
   useEffect(() => {
-    const handler = (): Promise<void> => loadDataFor(selectedClass, selectedGameMode)
+    const handler = (): Promise<void> => loadDataFor(selectedClass, selectedGameMode, rangeKey)
     const unsubscribeRefetch = window.electron?.ipcRenderer.on('matches:needRefetch', handler)
     return () => {
       unsubscribeRefetch()
     }
-  }, [loadDataFor, selectedClass, selectedGameMode])
+  }, [loadDataFor, selectedClass, selectedGameMode, rangeKey])
   return (
     <Box
       sx={{
@@ -119,7 +129,7 @@ const Analyzer: React.FC = () => {
           }}
         >
           {classes.map((c) => (
-            <ToggleButton sx={{ width: '100px' }} key={c.id} value={c.id}>
+            <ToggleButton sx={{ width: '100px', minWidth: '100px' }} key={c.id} value={c.id}>
               <Typography sx={{ color: c.color }}>{c.label}</Typography>
             </ToggleButton>
           ))}
@@ -138,11 +148,26 @@ const Analyzer: React.FC = () => {
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-          <FormControlLabel
-            control={<Switch checked={onlyToday} onChange={(_, v) => setOnlyToday(v)} />}
-            label="只看今天"
-          />
         </Box>
+        <ToggleButtonGroup
+          size="small"
+          value={rangeKey}
+          exclusive
+          onChange={(_, v: RangeKey) => v && setRangeKey(v)}
+        >
+          <ToggleButton sx={{ width: '80px' }} value="today">
+            <Typography>今天</Typography>
+          </ToggleButton>
+          <ToggleButton sx={{ width: '80px' }} value="7d">
+            <Typography>7 天內</Typography>
+          </ToggleButton>
+          <ToggleButton sx={{ width: '80px' }} value="30d">
+            <Typography>30 天內</Typography>
+          </ToggleButton>
+          <ToggleButton sx={{ width: '80px' }} value="all">
+            <Typography>生涯</Typography>
+          </ToggleButton>
+        </ToggleButtonGroup>
       </Box>
       <LineChart data={analyzeData} height={chartHeight} />
     </Box>

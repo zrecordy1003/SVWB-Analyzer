@@ -119,7 +119,7 @@ const BattleStatus = (): React.JSX.Element => {
   const renderBattleInfo = (): React.JSX.Element => {
     if (isRecognizing === false) {
       return (
-        <Stack direction="row" spacing={2} alignItems="center" height={'3rem'}>
+        <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
           <Box display={'flex'}>
             <SearchOffOutlinedIcon fontSize="large" color="error" sx={{ opacity: 0.9 }} />
           </Box>
@@ -132,7 +132,7 @@ const BattleStatus = (): React.JSX.Element => {
 
     if (isRecognizing === true && !battleState.inBattle) {
       return (
-        <Stack direction="row" spacing={2} alignItems="center" height={'3rem'}>
+        <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
           <Box sx={rippleSx} display={'flex'}>
             <RadarIcon fontSize="large" />
           </Box>

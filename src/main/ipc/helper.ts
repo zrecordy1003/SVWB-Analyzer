@@ -10,53 +10,64 @@ export type RankedWinrateByOpponent = {
   byOpponent: Record<string, SideStats>
   overall: SideStats
 }
+export type RangeKey = 'today' | '7d' | '30d' | 'all'
+
+// 建議在模組層共用 PrismaClient（或你有既有單例就用你的）
+const prisma = new PrismaClient()
 
 /** 取得 ranked 對戰：指定 myClass、可選日期區間；依對手職業 × 先/後手 統計勝率 */
 export async function getRankedWinrateByOpponent(params: {
   myClass: ClassName
   gameMode?: GameMode
+  rangeKey?: RangeKey
   start?: Date | number | string // inclusive；不給=不限
   end?: Date | number | string // inclusive；不給=不限
 }): Promise<RankedWinrateByOpponent> {
-  const prisma = new PrismaClient()
+  const { myClass, rangeKey } = params
 
-  const { myClass } = params
-  const startMs = toMillisOptional(params.start)
-  const endMsExclusive = endExclusiveOptional(params.end) // < 下一天 00:00
+  // 1) 先把顧客傳入的 start/end 轉成 Date（若有）
+  let startDate = toDateOptional(params.start)
+  let endDateExclusive = endExclusiveDateOptional(params.end)
 
-  // 動態 where（沒給日期就不加 playedAt）
+  // 2) 若 start/end 都沒給，且有 rangeKey，則由 rangeKey 推導
+  if (!startDate && !endDateExclusive && rangeKey) {
+    const { start, endExclusive } = resolveRangeDates(rangeKey, new Date())
+    startDate = start
+    endDateExclusive = endExclusive
+  }
+
+  // 3) 組 where
   const whereBase: any = {
     mode: params.gameMode ? params.gameMode : GameMode.ranked,
     my_class: myClass
   }
-  if (startMs !== undefined || endMsExclusive !== undefined) {
+  if (startDate || endDateExclusive) {
     whereBase.playedAt = {}
-    if (startMs !== undefined) whereBase.playedAt.gte = startMs
-    if (endMsExclusive !== undefined) whereBase.playedAt.lt = endMsExclusive
+    if (startDate) whereBase.playedAt.gte = startDate
+    if (endDateExclusive) whereBase.playedAt.lt = endDateExclusive
   }
 
-  // 1) 各對手 × 先/後手 的總場數
+  // 4) groupBy：總場數
   const totals = await prisma.match.groupBy({
     by: ['oppo_class', 'play_order'],
     where: whereBase,
     _count: { _all: true } as const
   })
 
-  // 2) 各對手 × 先/後手 的勝場數（result: true）
+  // 5) groupBy：勝場數
   const wins = await prisma.match.groupBy({
     by: ['oppo_class', 'play_order'],
     where: { ...whereBase, result: true },
     _count: { _all: true } as const
   })
 
-  // 建 wins map：key = "oppo|side"
+  // 6) 彙整
   const winMap = new Map<string, number>()
   for (const r of wins) {
     const side = r.play_order === PlayOrder.first ? 'first' : 'second'
     winMap.set(`${r.oppo_class}|${side}`, Number((r._count as any)?._all ?? 0))
   }
 
-  // 組裝結果
   const empty: Stat = { wins: 0, total: 0, winRate: 0 }
   const byOpponent: Record<string, SideStats> = {}
   const overall: SideStats = { first: { ...empty }, second: { ...empty }, all: { ...empty } }
@@ -69,7 +80,7 @@ export async function getRankedWinrateByOpponent(params: {
 
     byOpponent[opp] ??= { first: { ...empty }, second: { ...empty }, all: { ...empty } }
 
-    // side
+    // side 統計
     const bucket = byOpponent[opp][side]
     bucket.total += total
     bucket.wins += w
@@ -94,30 +105,60 @@ export async function getRankedWinrateByOpponent(params: {
 
   return {
     myClass,
-    start: startMs ?? null,
-    end: endMsExclusive ? endMsExclusive - 1 : null, // 回傳「含當天」
+    start: startDate ? startDate.getTime() : null,
+    end: endDateExclusive ? endDateExclusive.getTime() - 1 : null, // 回傳「含當天」
     byOpponent,
     overall
   }
 }
 
 /* ---------- helpers ---------- */
-function toMillisOptional(v?: Date | number | string): number | undefined {
+
+// 將 rangeKey 轉為 Date 區間（endExclusive 為下一天 00:00）
+function resolveRangeDates(
+  rangeKey: RangeKey,
+  now: Date
+): { start: Date | undefined; endExclusive: Date | undefined } {
+  const todayStart = startOfDayDate(now)
+  const tomorrowStart = new Date(todayStart.getTime() + 86400000)
+
+  switch (rangeKey) {
+    case 'today': {
+      return { start: todayStart, endExclusive: tomorrowStart }
+    }
+    case '7d': {
+      const s = new Date(todayStart)
+      s.setDate(s.getDate() - 6) // 含今天共 7 天
+      return { start: s, endExclusive: tomorrowStart }
+    }
+    case '30d': {
+      const s = new Date(todayStart)
+      s.setDate(s.getDate() - 29) // 含今天共 30 天
+      return { start: s, endExclusive: tomorrowStart }
+    }
+    case 'all': {
+      return { start: undefined, endExclusive: undefined }
+    }
+  }
+}
+
+function toDateOptional(v?: Date | number | string): Date | undefined {
   if (v === undefined || v === null) return undefined
-  if (v instanceof Date) return v.getTime()
-  if (typeof v === 'number') return v
-  const ms = new Date(v).getTime()
-  return Number.isNaN(ms) ? undefined : ms
+  if (v instanceof Date) return v
+  if (typeof v === 'number') return new Date(v)
+  const d = new Date(v)
+  return isNaN(d.getTime()) ? undefined : d
 }
-function startOfDay(ms: number): number {
-  const d = new Date(ms)
-  d.setHours(0, 0, 0, 0)
-  return d.getTime()
+function startOfDayDate(d: Date): Date {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
 }
-function endExclusiveOptional(v?: Date | number | string): number | undefined {
-  const ms = toMillisOptional(v)
-  if (ms === undefined) return undefined
-  return startOfDay(ms) + 86400000
+function endExclusiveDateOptional(v?: Date | number | string): Date | undefined {
+  const d = toDateOptional(v)
+  if (!d) return undefined
+  const s = startOfDayDate(d)
+  return new Date(s.getTime() + 86400000) // 下一天 00:00（exclusive）
 }
 function pct(wins: number, total: number): number {
   return total === 0 ? 0 : Math.round((wins / total) * 1000) / 10 // 1 decimal

@@ -2,7 +2,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { ClassName, GameMode, Match, Prisma, Tag } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
-import { getRankedWinrateByOpponent } from './helper.js'
+import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
 
 export function registerMatchesIpc(): void {
   const prisma = getPrisma()
@@ -226,6 +226,7 @@ export function registerMatchesIpc(): void {
       args: {
         myClass: ClassName
         gameMode: GameMode
+        rangeKey?: RangeKey
         start?: string | number | Date
         end?: string | number | Date
       }

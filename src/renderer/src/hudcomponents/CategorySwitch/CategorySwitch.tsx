@@ -14,23 +14,23 @@ export interface CategorySwitchProps {
   className?: string
 }
 
-const CategorySwitch: React.FC<CategorySwitchProps> = ({ value, onChange, className }) => {
+const CategorySwitch: React.FC<CategorySwitchProps> = ({ value, onChange }) => {
   const t = useTheme()
-  const surface = alpha(t.palette.common.white, t.palette.mode === 'dark' ? 0.05 : 0.08)
+  // const surface = alpha(t.palette.common.white, t.palette.mode === 'dark' ? 0.05 : 0.08)
   const outline = alpha(t.palette.common.white, t.palette.mode === 'dark' ? 0.1 : 0.12)
-  const selectedBg = alpha(t.palette.primary.main, 0.28)
-  const selectedHover = alpha(t.palette.primary.main, 0.36)
-  const hoverBg = alpha(t.palette.primary.main, 0.1)
+
+  // const selectedHover = alpha(t.palette.primary.main, 0.36)
+  // const hoverBg = alpha(t.palette.primary.main, 0.1)
 
   return (
     <Box
-      className={className}
+      // className={className}
       sx={{
         WebkitAppRegion: 'no-drag',
         display: 'inline-flex', // 只佔內容寬
-        padding: '6px',
+        py: '3px',
         borderRadius: 12,
-        bgcolor: surface,
+        // bgcolor: surface,
         border: `1px solid ${outline}`,
         width: 'max-content',
         px: 1.5
@@ -52,17 +52,17 @@ const CategorySwitch: React.FC<CategorySwitchProps> = ({ value, onChange, classN
             borderRadius: 9,
             padding: '6px 10px',
             minWidth: 40,
-            color: t.palette.getContrastText(t.palette.primary.main),
-            backgroundColor: alpha(t.palette.common.white, 0.02),
+            // color: t.palette.getContrastText(t.palette.primary.main),
+            // backgroundColor: alpha(t.palette.common.white, 0.02),
             transition: 'all .15s ease',
-            '&:hover': { backgroundColor: hoverBg },
+            // '&:hover': { backgroundColor: hoverBg },
             '& .MuiSvgIcon-root': { fontSize: 18, opacity: 0.9 },
             '&.Mui-selected': {
-              color: t.palette.getContrastText(t.palette.primary.main),
-              backgroundColor: selectedBg,
-              outline: `1px solid ${alpha(t.palette.primary.main, 0.48)}`,
-              boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.06)',
-              '&:hover': { backgroundColor: selectedHover }
+              // color: t.palette.getContrastText(t.palette.primary.main),
+              // backgroundColor: selectedBg,
+              // outline: `1px solid ${alpha(t.palette.primary.main, 0.48)}`,
+              // boxShadow: 'inset 0 0 0 1px rgba(255,255,255,.06)',
+              // '&:hover': { backgroundColor: selectedHover }
             }
           }
         }}

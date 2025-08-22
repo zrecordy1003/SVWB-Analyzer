@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { IpcRenderer } from '@electron-toolkit/preload'
 import type { ClassName, GameMode } from '@prisma/client'
+import type { RangeKey } from 'src/main/ipc/helper'
 
 export {}
 
@@ -54,6 +55,7 @@ declare global {
       getRankedWinrate(params: {
         myClass: ClassName
         gameMode?: GameMode
+        rangeKey?: RangeKey
         start?: Date | number | string
         end?: Date | number | string
       }): Promise<RankedWinrateByOpponent>

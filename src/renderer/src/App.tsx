@@ -194,7 +194,7 @@ function App(): React.JSX.Element {
           <Box
             sx={{
               position: 'absolute',
-              right: '10px',
+              right: '25px',
               transform: 'translateY(7px)'
             }}
           >

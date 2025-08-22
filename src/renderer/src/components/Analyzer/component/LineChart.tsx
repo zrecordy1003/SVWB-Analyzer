@@ -42,18 +42,16 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 
 /** ---------- Helpers ---------- */
 const LABEL_FONT = '12px system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", sans-serif'
+const SUB_FONT = '11px system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", sans-serif'
 
-function measureMaxLabelWidth(labels: string[], font = LABEL_FONT): number {
-  if (!labels?.length) return 0
+function measureMaxLabelWidthWithFont(lines: string[], font: string): number {
+  if (!lines?.length) return 0
   const canvas = document.createElement('canvas')
   const ctx = canvas.getContext('2d')
   if (!ctx) return 0
   ctx.font = font
   let max = 0
-  for (const s of labels) {
-    const w = Math.ceil(ctx.measureText(String(s)).width)
-    if (w > max) max = w
-  }
+  for (const s of lines) max = Math.max(max, Math.ceil(ctx.measureText(String(s)).width))
   return max
 }
 
@@ -83,7 +81,7 @@ const valueLabelPlugin = {
     const margin = 6
     const padX = 6
     const padY = 3
-    const pillBg = 'rgba(0,0,0,0.35)'
+    const pillBg = 'rgba(0,0,0,0.2)'
     const textColor = 'rgba(255,255,255,0.95)'
 
     ctx.save()
@@ -91,7 +89,12 @@ const valueLabelPlugin = {
 
     data.datasets.forEach((ds: any, di: number) => {
       const meta = chart.getDatasetMeta(di)
+
+      if (meta.hidden || !chart.isDatasetVisible(di)) return
+
       meta.data.forEach((bar: any, i: number) => {
+        if (!bar || bar.skip) return
+
         // 使用 rawVals（真實%）顯示文字；data 是繪圖值（可能被最小化）
         const rawVals: Array<number | null> = ds.rawVals ?? ds.data
         const raw = rawVals?.[i]
@@ -115,7 +118,8 @@ const valueLabelPlugin = {
           x = bar.x - margin - (padX * 2 + textW)
         }
 
-        ctx.fillStyle = pillBg
+        ctx.fillStyle = willOverflowRight ? pillBg : 'rgba(255, 255, 255, 0.25)'
+
         roundRect(ctx, x, y - padY, textW + padX * 2, textH + padY * 2, 8)
         ctx.fill()
 
@@ -153,10 +157,17 @@ const coloredTicksPlugin = {
     const { ctx, scales, data } = chart
     const yScale = (scales as any).y
     if (!yScale) return
+
     const labels: string[] = (data.labels as string[]) ?? []
+    // const d: any = data
+    // const bottomLabels: string[] = d._bottomLabels ?? labels.map(() => '')
+    // const bottomColors: string[] = d._bottomColors ?? labels.map(() => 'rgba(255,255,255,0.7)')
+
+    const opts: any = (chart.options as any)?.plugins?.coloredTicks ?? {}
+    const bottomLabels: string[] = opts.bottomLabels ?? []
+    const bottomColors: string[] = opts.bottomColors ?? []
 
     ctx.save()
-    ctx.font = LABEL_FONT
     ctx.textAlign = 'right'
     ctx.textBaseline = 'middle'
 
@@ -165,10 +176,24 @@ const coloredTicksPlugin = {
         | { label: string; color?: string }
         | undefined
       const color = entry?.color ?? 'rgba(255,255,255,0.9)'
+
       const x = yScale.left - 6
       const y = yScale.getPixelForValue(i)
+
+      // 上行：職業名（原本顏色）
+      ctx.font = LABEL_FONT
       ctx.fillStyle = color
-      ctx.fillText(label, x, y)
+      ctx.fillText(label, x, y - 7)
+
+      // 下行：勝率/場數（≥50% 綠、<50% 紅）
+      const sub = bottomLabels[i] ?? ''
+
+      //   console.log(chart)
+      if (sub) {
+        ctx.font = SUB_FONT
+        ctx.fillStyle = bottomColors[i] ?? 'rgba(255,255,255,0.7)'
+        ctx.fillText(sub, x, y + 9)
+      }
     })
 
     ctx.restore()
@@ -267,13 +292,13 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
       const rawF = fTotal > 0 ? +Number(s.first.winRate ?? 0).toFixed(1) : null
       const rawS = sTotal > 0 ? +Number(s.second.winRate ?? 0).toFixed(1) : null
 
-      // 視覺渲染值：0% → 最小 1% 寬，避免完全看不到
       const renderF = rawF == null ? null : rawF === 0 ? MIN_BAR_PCT_RENDER : rawF
       const renderS = rawS == null ? null : rawS === 0 ? MIN_BAR_PCT_RENDER : rawS
 
       return {
         label,
         total: Number(s.all.total ?? 0),
+        overallWinRate: Number(s.all.winRate ?? 0),
         rawFirstVal: rawF,
         rawSecondVal: rawS,
         renderFirstVal: renderF,
@@ -281,8 +306,7 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
         firstWins: Number(s.first.wins ?? 0),
         firstTotal: fTotal,
         secondWins: Number(s.second.wins ?? 0),
-        secondTotal: sTotal,
-        overallWinRate: Number(s.all.winRate ?? 0)
+        secondTotal: sTotal
       }
     })
 
@@ -291,6 +315,13 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
     )
 
     const labels = sorted.map((r) => r.label)
+
+    // ↓ 新增：每列次行顯示字串與顏色（≥50% 綠、<50% 紅）
+    const bottomLabels = sorted.map((r) => `${r.overallWinRate.toFixed(1)}% (${r.total})`)
+    const bottomColors = sorted.map((r) => (r.overallWinRate >= 50 ? '#2e7d32' : '#c62828'))
+
+    // console.log(bottomLabels)
+    // console.log(bottomColors)
     const firstRenderVals = sorted.map((r) => r.renderFirstVal)
     const secondRenderVals = sorted.map((r) => r.renderSecondVal)
     const firstRawVals = sorted.map((r) => r.rawFirstVal)
@@ -302,11 +333,13 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
 
     return {
       labels,
+      _bottomLabels: bottomLabels, // ← 插件會用到
+      _bottomColors: bottomColors, // ← 插件會用到
       datasets: [
         {
           label: '先攻',
-          data: firstRenderVals, // 用於繪圖（含 0%→1%）
-          rawVals: firstRawVals, // 用於顯示文字（真實%）
+          data: firstRenderVals,
+          rawVals: firstRawVals,
           backgroundColor: FIRST_COLOR,
           borderRadius: 6,
           wins: firstWins,
@@ -328,9 +361,20 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
   // 依 labels 寬度動態計算左側 padding（在 React 端，不在 plugin 裡改 options）
   const leftPadding = useMemo(() => {
     const labels = (chartData.labels as string[]) ?? []
-    const maxW = measureMaxLabelWidth(labels)
-    return Math.max(40, maxW + 18)
-  }, [chartData.labels])
+    const d: any = chartData
+    const bot = (d._bottomLabels as string[]) ?? []
+
+    const wTop = measureMaxLabelWidthWithFont(labels, LABEL_FONT)
+    const wBot = measureMaxLabelWidthWithFont(bot, SUB_FONT)
+    return Math.max(40, Math.max(wTop, wBot) + 18)
+  }, [chartData.labels, (chartData as any)._bottomLabels])
+
+  const bottomStuff = useMemo(() => {
+    const dAny: any = chartData
+    const bl: string[] = (dAny?._bottomLabels as string[]) ?? []
+    const bc: string[] = (dAny?._bottomColors as string[]) ?? []
+    return { bottomLabels: bl, bottomColors: bc }
+  }, [chartData])
 
   const options = useMemo(
     () => ({
@@ -368,10 +412,14 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
               return `${ctx.dataset.label}: ${raw.toFixed(1)}% (${w}/${t})`
             }
           }
+        },
+        coloredTicks: {
+          bottomLabels: bottomStuff.bottomLabels,
+          bottomColors: bottomStuff.bottomColors
         }
       }
     }),
-    [leftPadding]
+    [leftPadding, bottomStuff.bottomLabels, bottomStuff.bottomColors]
   )
 
   const period =

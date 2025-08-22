@@ -191,6 +191,32 @@ const HudApp: React.FC = () => {
             數據分析
           </Typography>
 
+          {/* 透明度控制 */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+              WebkitAppRegion: 'no-drag',
+              '&:hover .hud-slider': { opacity: 1, width: '50px' }
+            }}
+          >
+            <OpacityIcon fontSize="small" />
+            <Slider
+              className="hud-slider"
+              size="small"
+              min={0.2}
+              max={1}
+              step={0.01}
+              value={hudOpacity}
+              onChange={handleOpacityChange}
+              sx={{
+                width: 0, // 預設收起
+                opacity: 0, // 預設隱藏
+                transition: 'all 0.3s ease'
+              }}
+            />
+          </Box>
           <Tooltip title={isPinned ? '取消釘選' : '釘選'} placement="bottom">
             <IconButton
               size="small"
@@ -201,7 +227,7 @@ const HudApp: React.FC = () => {
                 '&:hover svg, &:focus-visible svg': { transform: 'rotate(30deg)' },
                 '@media (prefers-reduced-motion: reduce)': { '& svg': { transition: 'none' } }
               }}
-              color="primary"
+              // color="primary"
             >
               {isPinned ? <PushPinIcon /> : <PushPinOutlinedIcon />}
             </IconButton>
@@ -216,32 +242,20 @@ const HudApp: React.FC = () => {
               '&:hover svg, &:focus-visible svg': { transform: 'rotate(90deg)' },
               '@media (prefers-reduced-motion: reduce)': { '& svg': { transition: 'none' } }
             }}
-            color="primary"
+            // color="primary"
           >
             <CloseIcon />
           </IconButton>
         </Box>
 
-        {/* 透明度控制 */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, WebkitAppRegion: 'no-drag' }}>
-          <OpacityIcon fontSize="small" />
-          <Slider
-            size="small"
-            min={0.2}
-            max={1}
-            step={0.01}
-            value={hudOpacity}
-            onChange={handleOpacityChange}
-            sx={{ width: '83%' }}
-          />
-        </Box>
-
         {/* 視圖切換（只控制「顯示哪一頁」） */}
         {/* <ViewSwitch value={viewTab} onChange={setViewTab} /> */}
-        <CategorySwitch value={viewTab} onChange={setViewTab} />
+        {/* <Box display={'flex'} justifyContent={'center'}>
+          <CategorySwitch value={viewTab} onChange={setViewTab} />
+        </Box> */}
 
         {/* 篩選列：職業 / 模式（影響 Analyze 的查詢） */}
-        <Box
+        {/* <Box
           sx={{
             display: 'flex',
             flexDirection: 'column',
@@ -279,13 +293,13 @@ const HudApp: React.FC = () => {
               </ToggleButton>
             ))}
           </ToggleButtonGroup>
-        </Box>
+        </Box> */}
 
         <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
 
         {/* 內容 */}
         {viewTab === 'recent' && <MatchCard fetchData={recentList} />}
-        {viewTab === 'analyze' && <Analyze data={analyzeData} height={200} sortBy="total" />}
+        {/* {viewTab === 'analyze' && <Analyze data={analyzeData} height={200} sortBy="total" />} */}
       </Box>
     </ThemeProvider>
   )
