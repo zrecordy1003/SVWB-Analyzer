@@ -6,7 +6,7 @@ import { openExitOrMinimizeDialog } from './exitChoiceDialog.js'
 export type ShouldAskExitFn = () => boolean
 export type ExitConfirmFn = () => Promise<boolean>
 
-type ClosePref = 'ask' | 'minimize' | 'exit'
+type ClosePref = 'minimize' | 'exit'
 type SmartCloseOptions = {
   shouldAskExit: ShouldAskExitFn
   confirmExit: ExitConfirmFn
@@ -14,7 +14,7 @@ type SmartCloseOptions = {
   onBeforeExitApproved?: () => void
 }
 
-const store = new Store<{ onCloseAction?: ClosePref }>()
+const store = new Store<{ settings: { onCloseBehavior: ClosePref } }>()
 
 export function attachSmartClose(
   win: BrowserWindow,
@@ -29,10 +29,10 @@ export function attachSmartClose(
     if (isQuitting) return
     e.preventDefault()
 
-    const pref = store.get('onCloseAction') ?? 'ask'
+    const pref = store.get('settings.onCloseBehavior')
     let action: ClosePref = pref
 
-    if (pref === 'ask') {
+    if (store.get('settings.askBeforeExit') === true) {
       const { action: chosen, remember } = await openExitOrMinimizeDialog({
         parent: win,
         appName: 'SVWB Analyzer',
@@ -44,7 +44,10 @@ export function attachSmartClose(
       })
       if (chosen === 'cancel') return
       action = chosen
-      if (remember) store.set('onCloseAction', action)
+      if (remember) {
+        store.set('settings.onCloseBehavior', action)
+        store.set('settings.askBeforeExit', false)
+      }
     }
 
     if (action === 'minimize') {

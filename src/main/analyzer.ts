@@ -3,6 +3,7 @@ import forkPath from './forkedImageAnalyzer?modulePath'
 import path from 'path'
 import { ClassName, PlayOrder } from '@prisma/client'
 import { broadcast } from './utils/broadcast.js'
+import Store from 'electron-store'
 
 export interface BattleStatus {
   inBattle: boolean
@@ -19,10 +20,24 @@ let battleStatus: BattleStatus = {
 }
 
 let childProcess: ReturnType<typeof utilityProcess.fork> | null = null
+let isStarting = false
+
+const store = new Store()
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function startAnalyzer(_mainWindow: BrowserWindow): void {
   console.log('[Main] analyze-image triggered')
+
+  // Prevent duplicate forks (single-instance guarantee)
+  if (isStarting) {
+    console.log('[Main] startAnalyzer: already starting, skip.')
+    return
+  }
+  if (childProcess) {
+    console.log('[Main] startAnalyzer: child already exists, skip.')
+    return
+  }
+  isStarting = true
 
   const imagePath = app.isPackaged
     ? path.join(process.resourcesPath, 'tools', 'svwb.png')
@@ -30,58 +45,72 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
       path.join(__dirname, '../../tools', 'svwb.png')
 
   const { port1, port2 } = new MessageChannelMain()
-  const child = utilityProcess.fork(forkPath)
 
-  childProcess = child
+  try {
+    const child = utilityProcess.fork(forkPath)
+    childProcess = child
 
-  child.postMessage(
-    { type: 'init', imagePath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath },
-    [port1]
-  )
+    // Clean reference on exit/error to avoid stale handles
+    child.once('exit', (code) => {
+      console.log('[Main] child exit:', code)
+      childProcess = null
+    })
+    child.once('error', (err) => {
+      console.error('[Main] child error:', err)
+      childProcess = null
+    })
 
-  port2.on('message', (e) => {
-    console.log('[Child] message from forked process')
-    const { type, data, notification } = e.data
-    switch (type) {
-      case 'inBattle':
-        // 戰鬥中，不需要通知，只更新狀態
-        broadcast('battle:status', data)
+    child.postMessage(
+      { type: 'init', imagePath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath },
+      [port1]
+    )
 
-        setBattleStatus(data)
-        break
+    port2.on('message', (e) => {
+      console.log('[Child] message from forked process')
+      const { type, data, notification } = e.data
+      switch (type) {
+        case 'inBattle':
+          // 戰鬥中，不需要通知，只更新狀態
+          broadcast('battle:status', data)
 
-      case 'matchResult': {
-        // 更新戰鬥回歸空狀態
-        broadcast('battle:status', data)
-        setBattleStatus(data)
-        broadcast('matches:needRefetch')
+          setBattleStatus(data)
+          break
 
-        // 顯示一次性通知
-        if (notification) {
-          const { title, body } = notification
-          new Notification({ title, body }).show()
+        case 'matchResult': {
+          // 更新戰鬥回歸空狀態
+          broadcast('battle:status', data)
+          setBattleStatus(data)
+          broadcast('matches:needRefetch')
+
+          // 顯示一次性通知
+          if (notification && store.get('settings.enableNotifications') === true) {
+            const { title, body } = notification
+            new Notification({ title, body }).show()
+          }
+          break
         }
-        break
-      }
 
-      case 'modifyMode': {
-        // 重新獲取資料
-        broadcast('matches:needRefetch')
+        case 'modifyMode': {
+          // 重新獲取資料
+          broadcast('matches:needRefetch')
 
-        // 顯示一次性通知
-        if (notification) {
-          const { title, body } = notification
-          new Notification({ title, body }).show()
+          // 顯示一次性通知
+          if (notification && store.get('settings.enableNotifications') === true) {
+            const { title, body } = notification
+            new Notification({ title, body }).show()
+          }
+          break
         }
-        break
+
+        default:
+          console.warn('[Main] unknown message type:', e)
       }
+    })
 
-      default:
-        console.warn('[Main] unknown message type:', e)
-    }
-  })
-
-  port2.start()
+    port2.start()
+  } finally {
+    isStarting = false // NEW: always release the lock
+  }
 }
 
 export function stopAnalyzer(): void {

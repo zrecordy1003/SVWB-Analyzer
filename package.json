@@ -41,7 +41,7 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "runAfterFinish": false
+      "runAfterFinish": true
     },
     "publish": {
       "provider": "github",

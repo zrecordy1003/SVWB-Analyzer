@@ -14,6 +14,11 @@ const store = new Store<{
 let hudWin: BrowserWindow | null = null
 let ipcRegistered = false
 
+const shouldShow =
+  typeof store.get('settings.hudShow') === 'boolean'
+    ? (store.get('settings.hudShow') as boolean)
+    : true
+
 export function createHudWindow(): BrowserWindow {
   if (hudWin && !hudWin.isDestroyed()) return hudWin
 
@@ -28,9 +33,12 @@ export function createHudWindow(): BrowserWindow {
   hudWin = new BrowserWindow({
     ...saved,
     minWidth: 285,
+    minHeight: 445,
     frame: false,
     resizable: true,
     movable: true,
+    vibrancy: 'hud',
+    show: false,
     maximizable: false,
     fullscreenable: false,
     // skipTaskbar: true,
@@ -45,7 +53,7 @@ export function createHudWindow(): BrowserWindow {
     }
   })
 
-  if (is.dev) hudWin.webContents.openDevTools({ mode: 'detach' })
+  if (is.dev) hudWin.webContents.openDevTools()
 
   const url = app.isPackaged
     ? `file://${path.join(__dirname, '../renderer/hud.html')}`
@@ -71,7 +79,7 @@ export function createHudWindow(): BrowserWindow {
   }
   hudWin.webContents.once('did-finish-load', () => {
     forceRepaint()
-    hudWin?.showInactive()
+    if (shouldShow) hudWin!.showInactive() // <- 只有需要時才顯示
   })
   hudWin.setHasShadow(true)
   hudWin.on('show', forceRepaint)

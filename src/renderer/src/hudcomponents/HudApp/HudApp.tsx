@@ -16,19 +16,21 @@ import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import OpacityIcon from '@mui/icons-material/Opacity'
 import CloseIcon from '@mui/icons-material/Close'
 import CategorySwitch, { ViewMode } from '../CategorySwitch/CategorySwitch'
-import MatchCard from './component/Recent'
+import Recent from './component/Recent'
 import Analyze from './component/Analyze'
 import type { ClassName, GameMode, Match } from '@prisma/client'
 import type { RankedWinrateByOpponent } from './component/Analyze'
 
 import { classes, classesMap, modes } from '@renderer/map/classMap'
+import ModeSwitch from '../ModeSwitch/ModeSwitch'
 
 // ---- 類型：把 view 與 filters 分離 ----
 type ViewTab = ViewMode // 'recent' | 'analyze' (依你的元件定義)
 
 const HudApp: React.FC = () => {
   // ---- 視圖狀態（控制顯示「近五場 / 分析」）----
-  const [viewTab, setViewTab] = useState<ViewTab>('analyze')
+  const [viewTab, setViewTab] = useState<ViewTab>('recent')
+  // const [viewTab, setViewTab] = useState('ranked')
 
   // ---- 資料狀態 ----
   const [recentList, setRecentList] = useState<Match[]>([])
@@ -188,7 +190,7 @@ const HudApp: React.FC = () => {
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 600 }}>
-            數據分析
+            近期數據
           </Typography>
 
           {/* 透明度控制 */}
@@ -205,7 +207,7 @@ const HudApp: React.FC = () => {
             <Slider
               className="hud-slider"
               size="small"
-              min={0.2}
+              min={0.5}
               max={1}
               step={0.01}
               value={hudOpacity}
@@ -294,11 +296,12 @@ const HudApp: React.FC = () => {
             ))}
           </ToggleButtonGroup>
         </Box> */}
+        {/* <ModeSwitch viewTab={viewTab} setViewTab={setViewTab} /> */}
 
         <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
 
         {/* 內容 */}
-        {viewTab === 'recent' && <MatchCard fetchData={recentList} />}
+        {viewTab === 'recent' && <Recent fetchData={recentList} />}
         {/* {viewTab === 'analyze' && <Analyze data={analyzeData} height={200} sortBy="total" />} */}
       </Box>
     </ThemeProvider>

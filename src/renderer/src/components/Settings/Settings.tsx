@@ -1,11 +1,24 @@
-import { Box, Switch, FormControlLabel, Select, MenuItem, Divider, Typography } from '@mui/material'
+import {
+  Box,
+  Switch,
+  FormControlLabel,
+  Select,
+  MenuItem,
+  Divider,
+  Typography,
+  FormLabel,
+  RadioGroup,
+  Radio
+} from '@mui/material'
 import React, { useEffect, useState } from 'react'
 import UpdatePrompt from '../UpdatePrompt/UpdatePrompt'
+import Disclaimer from '../Disclaimer'
 
 type OnCloseBehavior = 'minimize' | 'exit'
 type ThemeType = 'system' | 'light' | 'dark'
 
-interface AppSettings {
+interface AppSettingsInner {
+  hudShow: boolean
   enableNotifications: boolean
   onCloseBehavior: OnCloseBehavior
   askBeforeExit: boolean
@@ -16,27 +29,38 @@ interface AppSettings {
   theme: ThemeType
 }
 
+interface AppSettings {
+  settings: AppSettingsInner
+}
+
 // 預設設定
 const DEFAULT_SETTINGS: AppSettings = {
-  enableNotifications: true,
-  onCloseBehavior: 'minimize',
-  askBeforeExit: true,
-  startOnBoot: false,
-  reduceAnimations: false,
-  autoCheckUpdates: false,
-  autoInstallUpdates: false,
-  theme: 'system'
+  settings: {
+    hudShow: true,
+    enableNotifications: true,
+    onCloseBehavior: 'minimize',
+    askBeforeExit: true,
+    startOnBoot: false,
+    reduceAnimations: false,
+    autoCheckUpdates: false,
+    autoInstallUpdates: false,
+    theme: 'system'
+  }
 }
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
+  const s = settings.settings
 
   // 載入設定
   useEffect(() => {
     window.settings
-      .getAll()
+      .get<AppSettingsInner>('settings')
       .then((saved) => {
-        setSettings({ ...DEFAULT_SETTINGS, ...saved })
+        // saved 可能只有部分鍵（如你給的 JSON），要跟預設合併
+        setSettings({
+          settings: { ...DEFAULT_SETTINGS.settings, ...(saved ?? {}) }
+        })
       })
       .catch((err) => {
         console.error('Failed to load settings:', err)
@@ -44,12 +68,15 @@ const Settings: React.FC = () => {
   }, [])
 
   // 只要有更動就存檔（或是每個 Switch/Select 都呼叫 set）
-  const handleChange = <K extends keyof AppSettings>(key: K, value: AppSettings[K]): void => {
-    setSettings((prev) => {
-      const next = { ...prev, [key]: value }
-      window.settings.set(key, value)
-      return next
-    })
+  const handleChange = <K extends keyof AppSettingsInner>(
+    key: K,
+    value: AppSettingsInner[K]
+  ): void => {
+    setSettings((prev) => ({
+      settings: { ...prev.settings, [key]: value }
+    }))
+    // 寫入 "settings.xxx"
+    window.settings.set(`settings.${String(key)}`, value)
   }
 
   return (
@@ -59,7 +86,7 @@ const Settings: React.FC = () => {
       {/* <FormControlLabel
         control={
           <Switch
-            checked={settings.reduceAnimations}
+            checked={s.reduceAnimations}
             onChange={(_, checked) => handleChange('reduceAnimations', checked)}
           />
         }
@@ -69,7 +96,7 @@ const Settings: React.FC = () => {
       {/* <Box mt={1}>
         <label>Theme: </label>
         <Select
-          value={settings.theme}
+          value={s.theme}
           onChange={(e) => handleChange('theme', e.target.value as ThemeType)}
           size="small"
         >
@@ -79,13 +106,27 @@ const Settings: React.FC = () => {
         </Select>
       </Box> */}
 
-      {/* <Divider /> */}
+      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
+        <Typography variant="h5">一般</Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={s.hudShow}
+              onChange={(_, checked) => handleChange('hudShow', checked)}
+            />
+          }
+          label="啟動時顯示 HUD"
+        />
+      </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
       <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
         <Typography variant="h5">通知</Typography>
         <FormControlLabel
           control={
             <Switch
-              checked={settings.enableNotifications}
+              checked={s.enableNotifications}
               onChange={(_, checked) => handleChange('enableNotifications', checked)}
             />
           }
@@ -96,40 +137,62 @@ const Settings: React.FC = () => {
       <Divider sx={{ mt: '10px', mb: '20px' }} />
       <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
         <Typography variant="h5">啟動與關閉</Typography>
-        <FormControlLabel
+        {/* <FormControlLabel
           control={
             <Switch
-              checked={settings.startOnBoot}
+              checked={s.startOnBoot}
               onChange={(_, checked) => {
                 handleChange('startOnBoot', checked)
-                window.electron.ipcRenderer.send('settings:startOnBoot', checked)
+                window.electron.ipcRenderer.send('s:startOnBoot', checked)
               }}
             />
           }
           label="開機時自動啟動"
-        />
+        /> */}
 
-        <Box>
-          <label>應用關閉時動作: </label>
-          <Select
-            value={settings.onCloseBehavior}
-            onChange={(e) => handleChange('onCloseBehavior', e.target.value as OnCloseBehavior)}
-            size="small"
+        <Box display="flex" alignItems="center" gap={2} sx={{ minHeight: 40 }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={s.askBeforeExit}
+                onChange={(_, checked) => handleChange('askBeforeExit', checked)}
+              />
+            }
+            label="關閉應用前詢問"
+          />
+
+          {/* 右側容器「保持掛載」，用 visibility 隱藏，避免高度變化 */}
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              visibility: s.askBeforeExit ? 'hidden' : 'visible'
+            }}
           >
-            <MenuItem value="minimize">最小化至系統匣</MenuItem>
-            <MenuItem value="exit">關閉應用</MenuItem>
-          </Select>
-        </Box>
+            {/* 用 FormControlLabel 做純 label，會和其他 label 高度一致 */}
+            <FormControlLabel control={<></>} label="應用關閉時" sx={{ m: 0 }} />
 
-        <FormControlLabel
-          control={
-            <Switch
-              checked={settings.askBeforeExit}
-              onChange={(_, checked) => handleChange('askBeforeExit', checked)}
-            />
-          }
-          label="關閉應用前詢問"
-        />
+            <RadioGroup
+              row
+              value={s.onCloseBehavior}
+              onChange={(e) => handleChange('onCloseBehavior', e.target.value as OnCloseBehavior)}
+              sx={{ m: 0 }}
+            >
+              <FormControlLabel
+                value="minimize"
+                control={<Radio size="small" />}
+                label="最小化至系統匣"
+                sx={{ m: 0 }}
+              />
+              <FormControlLabel
+                value="exit"
+                control={<Radio size="small" />}
+                label="關閉應用"
+                sx={{ m: 0 }}
+              />
+            </RadioGroup>
+          </Box>
+        </Box>
       </Box>
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />
@@ -140,21 +203,24 @@ const Settings: React.FC = () => {
         <FormControlLabel
           control={
             <Switch
-              checked={settings.autoCheckUpdates}
+              checked={s.autoCheckUpdates}
               onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
             />
           }
           label="自動檢查更新"
         />
-        <FormControlLabel
+        {/* <FormControlLabel
           control={
             <Switch
-              checked={settings.autoInstallUpdates}
+              checked={s.autoInstallUpdates}
               onChange={(_, checked) => handleChange('autoInstallUpdates', checked)}
             />
           }
           label="自動安裝更新"
-        />
+        /> */}
+      </Box>
+      <Box component={'footer'} sx={{ mt: 10 }}>
+        <Disclaimer />
       </Box>
     </Box>
   )

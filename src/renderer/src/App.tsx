@@ -72,7 +72,7 @@ const Main = styled('main', {
   overflowY: 'auto'
 }))
 
-type PageKey = 'Home' | 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings'
+type PageKey = 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings'
 
 function App(): React.JSX.Element {
   // theme mode
@@ -91,7 +91,7 @@ function App(): React.JSX.Element {
   const isMobile = useMediaQuery('(max-width:600px)')
 
   // current page
-  const [currentPage, setCurrentPage] = useState<PageKey>('Home')
+  const [currentPage, setCurrentPage] = useState<PageKey>('MatchList')
 
   // build theme
 
@@ -139,7 +139,7 @@ function App(): React.JSX.Element {
 
   // menu items
   const menuItems: Array<{ key: PageKey; text: string; icon: React.ReactNode }> = [
-    { key: 'Home', text: '主頁', icon: <HomeIcon /> },
+    // { key: 'Home', text: '主頁', icon: <HomeIcon /> },
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     // { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
@@ -148,7 +148,7 @@ function App(): React.JSX.Element {
 
   // AppBar title 根據 page
   const titles: Record<PageKey, string> = {
-    Home: '主頁',
+    // Home: '主頁',
     Analyzer: '分析器',
     MatchList: '對局列表',
     MatchAnalytics: '統計圖表',
@@ -307,7 +307,7 @@ function App(): React.JSX.Element {
       <Main open={open}>
         <Toolbar />
         <Suspense fallback={<div>載入中...</div>}>
-          {currentPage === 'Home' && <HomePage />}
+          {/* {currentPage === 'Home' && <HomePage />} */}
           {currentPage === 'MatchList' && <MatchList />}
           {currentPage === 'Analyzer' && <Analyzer />}
           {/* {currentPage === 'MatchAnalytics' && <MatchAnalytics />} */}
@@ -316,9 +316,9 @@ function App(): React.JSX.Element {
         </Suspense>
 
         {/* Footer */}
-        <Box component="footer" sx={{ textAlign: 'center', mt: 2 }}>
-          <Disclaimer />
-        </Box>
+        {/* <Box component="footer" sx={{ textAlign: 'center', mt: 2 }}> */}
+        {/* <Disclaimer /> */}
+        {/* </Box> */}
       </Main>
     </ThemeProvider>
   )

@@ -10,7 +10,7 @@ export type RankedWinrateByOpponent = {
   byOpponent: Record<string, SideStats>
   overall: SideStats
 }
-export type RangeKey = 'today' | '7d' | '30d' | 'all'
+export type RangeKey = 'today' | '7d' | '30d' | 'all' | 'custom'
 
 // 建議在模組層共用 PrismaClient（或你有既有單例就用你的）
 const prisma = new PrismaClient()

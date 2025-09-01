@@ -16,14 +16,15 @@ import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
 import { zhTW as dfZhTW } from 'date-fns/locale'
 import type { GameMode } from '@prisma/client'
 import { classes, modes, modesMap } from '@renderer/map/classMap'
+import type { RangeKey } from 'src/main/ipc/helper'
 
 type ClassType = (typeof classes)[number]
-export type RangeKey = 'today' | '7d' | '30d' | 'all' | 'custom'
 
 export type Filters = {
   my: ClassType[]
   oppo: ClassType[]
   mode: GameMode | null
+  rangeKey: RangeKey
   startDate: Date | null
   endDate: Date | null
 }
@@ -46,43 +47,43 @@ function endOf(d: Date): Date {
   x.setHours(23, 59, 59, 999)
   return x
 }
-function computeQuickRange(key: Exclude<RangeKey, 'custom'>): {
-  start: Date | null
-  end: Date | null
-} {
-  const now = new Date()
-  switch (key) {
-    case 'today':
-      return { start: startOf(now), end: endOf(now) }
-    case '7d':
-      return {
-        start: startOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)),
-        end: endOf(now)
-      }
-    case '30d':
-      return {
-        start: startOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)),
-        end: endOf(now)
-      }
-    case 'all':
-    default:
-      return { start: null, end: null }
-  }
-}
+
+// function computeQuickRange(key: Exclude<RangeKey, 'custom'>): {
+//   start: Date | null
+//   end: Date | null
+// } {
+//   const now = new Date()
+//   switch (key) {
+//     case 'today':
+//       return { start: startOf(now), end: endOf(now) }
+//     case '7d':
+//       return {
+//         start: startOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6)),
+//         end: endOf(now)
+//       }
+//     case '30d':
+//       return {
+//         start: startOf(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 29)),
+//         end: endOf(now)
+//       }
+//     case 'all':
+//     default:
+//       return { start: null, end: null }
+//   }
+// }
 
 /* ---------- persistence (settings only) ---------- */
-const SETTINGS_KEY = 'matchList.filters.v1'
+const SETTINGS_KEY = 'matchList.filters'
 type PersistShape = {
-  rangeKey: RangeKey
   myIds: string[]
   oppoIds: string[]
   mode: GameMode | null
-  startMs: number | null
-  endMs: number | null
+  rangeKey: RangeKey
+  startDate: Date | null
+  endDate: Date | null
 }
 
 async function settingsGet<T>(key: string): Promise<T | undefined> {
-  // @ts-ignore preload 提供
   return window.settings?.get<T>(key)
 }
 async function settingsSet<T>(key: string, val: T): Promise<void> {
@@ -103,11 +104,10 @@ const SearchBar = ({
   filters: Filters
   onFiltersChange: OnFiltersChange
 }): React.JSX.Element => {
-  const { my, oppo, mode, startDate, endDate } = filters
+  const { my, oppo, mode, rangeKey, startDate, endDate } = filters
 
   const [openStart, setOpenStart] = useState(false)
   const [openEnd, setOpenEnd] = useState(false)
-  const [rangeKey, setRangeKey] = useState<RangeKey>('today')
   const loadedRef = useRef(false) // 避免初始載入時就把未載入的值覆寫回設定
 
   /* ---------- 初始還原 ---------- */
@@ -115,26 +115,19 @@ const SearchBar = ({
     ;(async () => {
       const saved = await settingsGet<PersistShape>(SETTINGS_KEY)
       if (saved) {
-        setRangeKey(saved.rangeKey)
-        let s: Date | null = saved.startMs ? new Date(saved.startMs) : null
-        let e: Date | null = saved.endMs ? new Date(saved.endMs) : null
-        if (saved.rangeKey !== 'custom') {
-          const r = computeQuickRange(saved.rangeKey as Exclude<RangeKey, 'custom'>)
-          s = r.start
-          e = r.end
-        }
+        const s = saved.startDate ? new Date(saved.startDate) : null
+        const e = saved.endDate ? new Date(saved.endDate) : null
+
         onFiltersChange({
           my: inflateClasses(saved.myIds || []),
           oppo: inflateClasses(saved.oppoIds || []),
           mode: saved.mode ?? null,
+          rangeKey: saved.rangeKey,
           startDate: s,
           endDate: e
         })
       } else {
-        // 第一次使用：預設今天
-        const r = computeQuickRange('today')
-        onFiltersChange({ startDate: r.start, endDate: r.end })
-        setRangeKey('today')
+        onFiltersChange({ rangeKey: 'today', startDate: null, endDate: null })
       }
       loadedRef.current = true
     })()
@@ -149,8 +142,8 @@ const SearchBar = ({
       myIds: deflateClasses(my),
       oppoIds: deflateClasses(oppo),
       mode,
-      startMs: startDate ? startDate.getTime() : null,
-      endMs: endDate ? endDate.getTime() : null
+      startDate: startDate ? startDate : null,
+      endDate: endDate ? endDate : null
     }
     settingsSet(SETTINGS_KEY, payload).catch(() => {})
   }, [rangeKey, my, oppo, mode, startDate, endDate])
@@ -181,26 +174,10 @@ const SearchBar = ({
         }
       }
     }
-  } as const
-
-  // 快速區間：非自訂直接套用日期；自訂只顯示日期元件
-  const onQuickRangeChange = (_: unknown, v: RangeKey | null): void => {
-    if (!v) return
-    setRangeKey(v)
-    if (v !== 'custom') {
-      const { start, end } = computeQuickRange(v)
-      onFiltersChange({ startDate: start, endDate: end })
-      setOpenStart(false)
-      setOpenEnd(false)
-    } else if (!startDate && !endDate) {
-      const today = new Date()
-      onFiltersChange({ startDate: startOf(today), endDate: endOf(today) })
-    }
   }
 
   // 改任一日期 → 轉為自訂並校正區間
   const handleChangeStart = (date: Date | null): void => {
-    setRangeKey('custom')
     if (date && endDate && endDate < date) {
       onFiltersChange({ startDate: date, endDate: endOf(date) })
     } else {
@@ -208,7 +185,6 @@ const SearchBar = ({
     }
   }
   const handleChangeEnd = (date: Date | null): void => {
-    setRangeKey('custom')
     if (date && startDate && startDate > date) {
       onFiltersChange({ startDate: startOf(date), endDate: date })
     } else {
@@ -347,76 +323,81 @@ const SearchBar = ({
       </Box>
 
       {/* 第二排：快速區間 */}
-      <Box mb={2}>
-        <ToggleButtonGroup size="small" value={rangeKey} exclusive onChange={onQuickRangeChange}>
+      <Box display={'flex'} gap={2} mb={2}>
+        <ToggleButtonGroup
+          size="small"
+          value={rangeKey}
+          exclusive
+          onChange={(_, v: RangeKey) => onFiltersChange({ rangeKey: v })}
+        >
           <ToggleButton value="today" sx={{ width: 80 }}>
-            今天
+            <Typography>今天</Typography>
           </ToggleButton>
           <ToggleButton value="7d" sx={{ width: 80 }}>
-            7 天內
+            <Typography>7 天內</Typography>
           </ToggleButton>
           <ToggleButton value="30d" sx={{ width: 80 }}>
-            30 天內
+            <Typography>30 天內</Typography>
           </ToggleButton>
           <ToggleButton value="all" sx={{ width: 80 }}>
-            生涯
+            <Typography>生涯</Typography>
           </ToggleButton>
           <ToggleButton value="custom" sx={{ width: 80 }}>
-            自訂
+            <Typography>自訂</Typography>
           </ToggleButton>
         </ToggleButtonGroup>
+
+        {/* 自訂日期才顯示 */}
+        {rangeKey === 'custom' && (
+          <Box display="flex" gap={2}>
+            <LocalizationProvider
+              dateAdapter={AdapterDateFns}
+              adapterLocale={dfZhTW}
+              localeText={pickersZhTW.components.MuiLocalizationProvider.defaultProps.localeText}
+            >
+              <DatePicker
+                reduceAnimations
+                label={translations.startDateLabel}
+                value={startDate}
+                open={openStart}
+                onOpen={() => setOpenStart(true)}
+                onClose={() => setOpenStart(false)}
+                onChange={handleChangeStart}
+                format="yyyy/MM/dd"
+                disableFuture
+                slotProps={{
+                  day: datePickerStyle.day,
+                  textField: { size: 'small', onClick: () => setOpenStart(true) },
+                  popper: { keepMounted: true }
+                }}
+              />
+            </LocalizationProvider>
+
+            <LocalizationProvider
+              dateAdapter={AdapterDateFns}
+              adapterLocale={dfZhTW}
+              localeText={pickersZhTW.components.MuiLocalizationProvider.defaultProps.localeText}
+            >
+              <DatePicker
+                reduceAnimations
+                label={translations.endDateLabel}
+                value={endDate}
+                open={openEnd}
+                onOpen={() => setOpenEnd(true)}
+                onClose={() => setOpenEnd(false)}
+                onChange={handleChangeEnd}
+                format="yyyy/MM/dd"
+                disableFuture
+                slotProps={{
+                  day: datePickerStyle.day,
+                  textField: { size: 'small', onClick: () => setOpenEnd(true) },
+                  popper: { keepMounted: true }
+                }}
+              />
+            </LocalizationProvider>
+          </Box>
+        )}
       </Box>
-
-      {/* 自訂日期才顯示 */}
-      {rangeKey === 'custom' && (
-        <Box display="flex" gap={2}>
-          <LocalizationProvider
-            dateAdapter={AdapterDateFns}
-            adapterLocale={dfZhTW}
-            localeText={pickersZhTW.components.MuiLocalizationProvider.defaultProps.localeText}
-          >
-            <DatePicker
-              reduceAnimations
-              label={translations.startDateLabel}
-              value={startDate}
-              open={openStart}
-              onOpen={() => setOpenStart(true)}
-              onClose={() => setOpenStart(false)}
-              onChange={handleChangeStart}
-              format="yyyy/MM/dd"
-              disableFuture
-              slotProps={{
-                day: datePickerStyle.day,
-                textField: { fullWidth: true, onClick: () => setOpenStart(true) },
-                popper: { keepMounted: true }
-              }}
-            />
-          </LocalizationProvider>
-
-          <LocalizationProvider
-            dateAdapter={AdapterDateFns}
-            adapterLocale={dfZhTW}
-            localeText={pickersZhTW.components.MuiLocalizationProvider.defaultProps.localeText}
-          >
-            <DatePicker
-              reduceAnimations
-              label={translations.endDateLabel}
-              value={endDate}
-              open={openEnd}
-              onOpen={() => setOpenEnd(true)}
-              onClose={() => setOpenEnd(false)}
-              onChange={handleChangeEnd}
-              format="yyyy/MM/dd"
-              disableFuture
-              slotProps={{
-                day: datePickerStyle.day,
-                textField: { fullWidth: true, onClick: () => setOpenEnd(true) },
-                popper: { keepMounted: true }
-              }}
-            />
-          </LocalizationProvider>
-        </Box>
-      )}
     </Box>
   )
 }

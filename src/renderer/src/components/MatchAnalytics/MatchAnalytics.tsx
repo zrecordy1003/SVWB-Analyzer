@@ -90,8 +90,8 @@ const MatchAnalytics: React.FC = () => {
     return { labels, rates }
   }, [filtered])
 
-  console.log(filtered)
-  console.log(winRateData)
+  // console.log(filtered)
+  // console.log(winRateData)
   // 2. 先/後攻比例
   const orderStats = useMemo(() => {
     let first = 0,

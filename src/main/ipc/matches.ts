@@ -12,6 +12,7 @@ export function registerMatchesIpc(): void {
     filterMy: ClassName[] = [],
     filterOppo: ClassName[] = [],
     filterModes: string = '',
+    rangeKey: RangeKey, // <— 新增
     startDate: Date | null = null,
     endDate: Date | null = null
   ): Prisma.MatchWhereInput {
@@ -27,15 +28,17 @@ export function registerMatchesIpc(): void {
       where.mode = { equals: filterModes as GameMode }
     }
 
-    // 正規化日期（含括 end-of-day）
+    // ---- 日期處理：優先使用 startDate/endDate；若都沒給但有 rangeKey，就由 rangeKey 推導 ----
     let start: Date | undefined
-    let end: Date | undefined
+    let endInclusive: Date | undefined
+
+    // 先吃明確的 start/end
     if (startDate instanceof Date && !isNaN(startDate.getTime())) {
       start = new Date(startDate)
     }
     if (endDate instanceof Date && !isNaN(endDate.getTime())) {
       const e = new Date(endDate)
-      // 若來的是純日期 00:00，補到當天最後一毫秒
+      // 若是 00:00:00.000，就補到當天最後一毫秒
       if (
         e.getHours() === 0 &&
         e.getMinutes() === 0 &&
@@ -44,15 +47,48 @@ export function registerMatchesIpc(): void {
       ) {
         e.setHours(23, 59, 59, 999)
       }
-      end = e
+      endInclusive = e
     }
 
-    if (start && end) {
-      where.playedAt = { gte: start, lte: end }
+    // 若沒有明確 start/end，且提供了 rangeKey，則用 rangeKey 來算
+    if (!start && !endInclusive && rangeKey) {
+      const now = new Date()
+      const s = new Date(now)
+      s.setHours(0, 0, 0, 0)
+      const e = new Date(now)
+      e.setHours(23, 59, 59, 999)
+
+      switch (rangeKey) {
+        case 'today':
+          start = s
+          endInclusive = e
+          break
+        case '7d': {
+          const s7 = new Date(s)
+          s7.setDate(s7.getDate() - 6) // 含今天共 7 天
+          start = s7
+          endInclusive = e
+          break
+        }
+        case '30d': {
+          const s30 = new Date(s)
+          s30.setDate(s30.getDate() - 29) // 含今天共 30 天
+          start = s30
+          endInclusive = e
+          break
+        }
+        case 'all':
+        default:
+          break
+      }
+    }
+
+    if (start && endInclusive) {
+      where.playedAt = { gte: start, lte: endInclusive }
     } else if (start) {
       where.playedAt = { gte: start }
-    } else if (end) {
-      where.playedAt = { lte: end }
+    } else if (endInclusive) {
+      where.playedAt = { lte: endInclusive }
     }
 
     return where
@@ -65,10 +101,11 @@ export function registerMatchesIpc(): void {
       filterMy: ClassName[] = [],
       filterOppo: ClassName[] = [],
       filterModes: string = '',
+      rangeKey: RangeKey = 'today',
       startDate: Date | null = null,
       endDate: Date | null = null
     ) => {
-      const where = buildMatchWhere(filterMy, filterOppo, filterModes, startDate, endDate)
+      const where = buildMatchWhere(filterMy, filterOppo, filterModes, rangeKey, startDate, endDate)
       return prisma.match.count({ where })
     }
   )
@@ -82,10 +119,11 @@ export function registerMatchesIpc(): void {
       filterMy: ClassName[] = [],
       filterOppo: ClassName[] = [],
       filterModes: string = '',
+      rangeKey: RangeKey = 'today',
       startDate: Date | null = null,
       endDate: Date | null = null
     ) => {
-      const where = buildMatchWhere(filterMy, filterOppo, filterModes, startDate, endDate)
+      const where = buildMatchWhere(filterMy, filterOppo, filterModes, rangeKey, startDate, endDate)
       return prisma.match.findMany({
         where,
         orderBy: [{ playedAt: 'desc' }, { id: 'desc' }], // stable ordering for pagination
@@ -213,7 +251,7 @@ export function registerMatchesIpc(): void {
   // HUD 先只抓階級對戰
   ipcMain.handle('matches:fetchRecent', async (_e, n: number = 5) => {
     return prisma.match.findMany({
-      where: { mode: 'ranked' },
+      // where: { mode: 'ranked' },
       orderBy: { playedAt: 'desc' },
       take: n
     })

@@ -33,7 +33,17 @@ process.env.OPENCV_BIN_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'bin')
   : path.join(__dirname, '../../resources/opencv/bin')
 
-const store = new Store()
+const store = new Store({
+  defaults: {
+    settings: {
+      hudShow: true,
+      askBeforeExit: true,
+      onCloseBehavior: 'minimize',
+      enableNotifications: true,
+      autoCheckUpdates: true
+    }
+  }
+})
 
 // --- 單例鎖 ---
 const gotTheLock = app.requestSingleInstanceLock()
@@ -144,7 +154,6 @@ function createWindow(): void {
   })
 
   mainWindow.removeMenu()
-  if (!tray) tray = createAppTray(mainWindow, app.exit)
 
   ipcMain.once('renderer:ready', () => {
     const elapsed = Date.now() - splashShownAt
@@ -182,7 +191,11 @@ function createWindow(): void {
 
   // 開發時自動開 DevTools；正式版不要開
   if (is.dev) mainWindow.webContents.openDevTools()
+
   hudWindow = createHudWindow()
+
+  if (!tray) tray = createAppTray(mainWindow, hudWindow, app.exit)
+
   mainWindow.on('closed', () => {
     if (hudWindow && !hudWindow.isDestroyed()) {
       hudWindow.close()
@@ -190,9 +203,11 @@ function createWindow(): void {
     hudWindow = null
   })
 
-  const shouldAskExit = (): boolean => getBattleStatus().inBattle
+  const shouldAskExit = (): boolean =>
+    getBattleStatus().inBattle || store.get('settings.askBeforeExit') === true
+
   const confirmExit = async (): Promise<boolean> => {
-    if (store.get('exitConfirmSkip')) return true
+    if (store.get('settings.askBeforeExit') === true) return true
 
     const { confirmed, remember } = await openExitConfirmDialog({
       parent: mainWindow!,
@@ -203,7 +218,7 @@ function createWindow(): void {
       rememberLabel: '以後不要再詢問'
     })
 
-    if (remember) store.set('exitConfirmSkip', true)
+    if (remember) store.set('settings.askBeforeExit', false)
     return confirmed
   }
 
@@ -211,7 +226,7 @@ function createWindow(): void {
     shouldAskExit,
     confirmExit,
     onBeforeMinimize: () => {
-      // 你想最小化時順便做的事（例如暫停 HUD 或停止擷取）
+      // 最小化時順便做的事（例如暫停 HUD 或停止擷取）
       // stopCapture()
     },
     onBeforeExitApproved: () => {
@@ -320,10 +335,11 @@ function startPollingForGame(): void {
         if (isSentMinimizedInfo && !isMinimized && hasBounds) isSentMinimizedInfo = false
         if (!isSentMinimizedInfo && (isMinimized || !hasBounds)) {
           isSentMinimizedInfo = true
-          new Notification({
-            title: '［提醒］遊戲最小化 / 視窗不在前景',
-            body: '已暫停擷取畫面，分析仍在待命；超過 30 分鐘會自動關閉。'
-          }).show()
+          store.get('settings.enableNotifications') === true &&
+            new Notification({
+              title: '［提醒］遊戲最小化 / 視窗不在前景',
+              body: '已暫停擷取畫面，分析仍在待命；超過 30 分鐘會自動關閉。'
+            }).show()
         }
       } else {
         isSentMinimizedInfo = false

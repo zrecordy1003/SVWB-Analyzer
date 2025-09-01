@@ -1,8 +1,11 @@
-// main/tray.ts
 import { Tray, Menu, BrowserWindow, nativeImage, app } from 'electron'
 import path from 'path'
 
-export function createAppTray(mainWindow: BrowserWindow, requestExit: () => void): Tray {
+export function createAppTray(
+  mainWindow: BrowserWindow,
+  hudWindow: BrowserWindow,
+  requestExit: () => void
+): Tray {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, 'icon.png') // 改成你的打包後 icon
     : path.join(__dirname, '../../resources/icon.png')
@@ -17,13 +20,22 @@ export function createAppTray(mainWindow: BrowserWindow, requestExit: () => void
       mainWindow.focus()
     }
   }
+  const toggleHudShow = (): void => {
+    if (hudWindow.isVisible()) {
+      hudWindow.hide()
+    } else {
+      hudWindow.show()
+      hudWindow.focus()
+    }
+  }
 
   tray.setToolTip('SVWB Analyzer')
-  tray.on('click', toggleShow)
+  tray.on('double-click', toggleShow)
 
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '顯示 / 隱藏', click: toggleShow },
+      { label: '顯示 HUD / 隱藏 HUD', click: toggleHudShow },
       { type: 'separator' },
       {
         label: '退出',

@@ -1,6 +1,6 @@
-import { Box, Card, Typography } from '@mui/material'
+import { Box, Card, Chip, Typography } from '@mui/material'
 import { Match } from '@prisma/client'
-import { classesMap } from '@renderer/map/classMap'
+import { classesMap, modesMap } from '@renderer/map/classMap'
 import React from 'react'
 
 interface RecentProps {
@@ -68,6 +68,15 @@ const Recent: React.FC<RecentProps> = ({ fetchData }) => {
                   </Typography>
                 </Box>
                 <Box>
+                  {m.mode && (
+                    <Typography
+                      variant="caption"
+                      sx={{ mr: 1 }}
+                      color={m.mode ? modesMap[m.mode]?.color : undefined}
+                    >
+                      {modesMap[m.mode]?.label}
+                    </Typography>
+                  )}
                   {m.bp && (
                     <Typography
                       variant="caption"

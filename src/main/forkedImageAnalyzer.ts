@@ -530,8 +530,9 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         console.log('[ranked] parsed bp =', bp)
 
         if (bp !== null) {
-          await modifyMatchBP(bp) // 0 會被寫入
-          port.postMessage({ type: 'modifyMode' })
+          await modifyMatchBP(bp).then(() => {
+            port.postMessage({ type: 'modifyMode' })
+          })
           isModifyBP = true
         }
       }
@@ -570,7 +571,6 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       modifyMatchMode(mode).then(() => {
         port.postMessage({ type: 'modifyMode' })
       })
-      console.log(plazaDetect)
     }
 
     // 自訂房檢測 (室長 / 訪客)
@@ -578,8 +578,18 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     // 辨別的節點為，是否有偵測到win/lose
     // TODO:尚未完成！
 
-    // const ownCustomWinDetect = matchTemplate(leftArea, tmpls.customWin)
-    // const enemyCustomWinDetect = matchTemplate(rightArea, tmpls.customWin)
+    const ownCustomDetect = matchTemplate(leftArea, tmpls.custom)
+    const enemyCustomDetect = matchTemplate(rightArea, tmpls.custom)
+
+    const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
+    if (rs && !isModifyMode && lastRowId > -1) {
+      isModifyMode = true
+      mode = 'custom'
+      modifyMatchMode(mode).then(() => {
+        port.postMessage({ type: 'modifyMode' })
+      })
+    }
+
     // if (ownCustomWinDetect.score > 0.7) {
     //   console.log('ownCustomWin', ownCustomWinDetect)
     // }
@@ -628,23 +638,22 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
     // 戰鬥開始：首次紀錄 DB
     if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
-      isModifyBP = false
-      isModifyMode = false
-      shouldRecordNewMatch = false
-
       // 前面如果有進過對戰才會使 lastRowId > -1
       if (lastRowId > -1) {
         if (mode !== null) {
           mode = null
         } else {
-          // 如果沒有記錄過勝敗，代表是自訂對戰
-          if (isMatchRecord) {
-            modifyMatchMode('custom')
-          } else {
-            modifyMatchMode('unranked')
+          if (!isModifyMode) {
+            modifyMatchMode('unranked').then(() => {
+              port.postMessage({ type: 'modifyMode' })
+            })
           }
         }
       }
+
+      isModifyBP = false
+      isModifyMode = false
+      shouldRecordNewMatch = false
 
       isMatchRecord = true
 
@@ -700,14 +709,15 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       inBattle = false
 
       const result = resultMidDetect.name === 'win'
-      modifyMatchResult(result)
-      port.postMessage({
-        type: 'matchResult',
-        data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
-        // notification: {
-        //   title: `[${mode}]對戰結果已紀錄`,
-        //   body: win ? '勝利！' : '戰敗...'
-        // }
+      modifyMatchResult(result).then(() => {
+        port.postMessage({
+          type: 'matchResult',
+          data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
+          // notification: {
+          //   title: `[${mode}]對戰結果已紀錄`,
+          //   body: win ? '勝利！' : '戰敗...'
+          // }
+        })
       })
     }
 
@@ -719,14 +729,15 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       inBattle = false
 
       const result = resultDetect.name === 'win'
-      modifyMatchResult(result)
-      port.postMessage({
-        type: 'matchResult',
-        data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
-        // notification: {
-        //   title: `[${mode}]對戰結果已紀錄`,
-        //   body: win ? '勝利！' : '戰敗...'
-        // }
+      modifyMatchResult(result).then(() => {
+        port.postMessage({
+          type: 'matchResult',
+          data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
+          // notification: {
+          //   title: `[${mode}]對戰結果已紀錄`,
+          //   body: win ? '勝利！' : '戰敗...'
+          // }
+        })
       })
     }
   } catch (err: unknown) {

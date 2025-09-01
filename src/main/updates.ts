@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, BrowserWindow, ipcMain } from 'electron'
+import Store from 'electron-store'
 
+const store = new Store()
 let wired = false
 
 export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
@@ -66,11 +68,12 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
   autoUpdater.on('update-downloaded', (info) => send('update:downloaded', info))
 
   // 開 app 幾秒後自動檢查一次（不阻塞首屏）
-  setTimeout(() => {
-    try {
-      autoUpdater.checkForUpdates()
-    } catch (e) {
-      console.log('updates.ts: ', e)
-    }
-  }, 3000)
+  if (store.get('settings.autoCheckUpdates') === true)
+    setTimeout(() => {
+      try {
+        autoUpdater.checkForUpdates()
+      } catch (e) {
+        console.log('updates.ts: ', e)
+      }
+    }, 3000)
 }

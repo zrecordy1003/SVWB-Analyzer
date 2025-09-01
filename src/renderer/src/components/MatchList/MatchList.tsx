@@ -100,6 +100,7 @@ const MatchList = (): React.JSX.Element => {
     my: [],
     oppo: [],
     mode: null, // 預設不限
+    rangeKey: 'today',
     startDate: startOf(today),
     endDate: endOf(today)
   })
@@ -135,14 +136,27 @@ const MatchList = (): React.JSX.Element => {
     const oppoIds = f.oppo.map((c) => c.id)
     try {
       // mode 允許 null
-      const count: number = await window.electron?.ipcRenderer.invoke(
-        'matches:count',
-        myIds,
-        oppoIds,
-        f.mode,
-        f.startDate,
-        f.endDate
-      )
+      let count: number
+      if (f.rangeKey === 'custom') {
+        count = await window.electron?.ipcRenderer.invoke(
+          'matches:count',
+          myIds,
+          oppoIds,
+          f.mode,
+          f.rangeKey,
+          f.startDate,
+          f.endDate
+        )
+      } else {
+        count = await window.electron?.ipcRenderer.invoke(
+          'matches:count',
+          myIds,
+          oppoIds,
+          f.mode,
+          f.rangeKey
+        )
+      }
+
       setTotalCount(count)
     } catch (err) {
       console.error('[MatchList] count error:', err)
@@ -158,16 +172,31 @@ const MatchList = (): React.JSX.Element => {
     const oppoIds = f.oppo.map((c) => c.id)
     const currentReq = ++reqIdRef.current
     try {
-      const data: Match[] = await window.electron?.ipcRenderer.invoke(
-        'matches:getPage',
-        pageIndex,
-        pageSize,
-        myIds,
-        oppoIds,
-        f.mode,
-        f.startDate,
-        f.endDate
-      )
+      let data: Match[]
+      if (f.rangeKey === 'custom') {
+        data = await window.electron?.ipcRenderer.invoke(
+          'matches:getPage',
+          pageIndex,
+          pageSize,
+          myIds,
+          oppoIds,
+          f.mode,
+          f.rangeKey,
+          f.startDate,
+          f.endDate
+        )
+      } else {
+        data = await window.electron?.ipcRenderer.invoke(
+          'matches:getPage',
+          pageIndex,
+          pageSize,
+          myIds,
+          oppoIds,
+          f.mode,
+          f.rangeKey
+        )
+      }
+
       // 只有最後一次請求可以寫入
       if (currentReq === reqIdRef.current) setRows(data)
     } catch (err) {
@@ -253,6 +282,8 @@ const MatchList = (): React.JSX.Element => {
                 <TableRow
                   key={m.id}
                   sx={{
+                    minHeight: '70px',
+                    height: '70px',
                     borderLeft:
                       m.result === null
                         ? '5px solid #f5faf64f'
@@ -286,13 +317,7 @@ const MatchList = (): React.JSX.Element => {
                       color: m.result == null ? 'gray' : m.result ? '#00ff668c' : '#c81f3ede'
                     }}
                   >
-                    {m.mode === 'custom'
-                      ? '不支援'
-                      : m.result === true
-                        ? '勝'
-                        : m.result === false
-                          ? '敗'
-                          : '未紀錄'}
+                    {m.result === true ? '勝' : m.result === false ? '敗' : '未紀錄'}
                   </TableCell>
                   <TableCell sx={{ textAlign: 'center' }}>
                     {m.mode ? (
@@ -309,7 +334,7 @@ const MatchList = (): React.JSX.Element => {
                   <TableCell
                     sx={{
                       textAlign: 'right',
-                      color: m.bp ? undefined : 'gray',
+                      color: m.bp ? (Number(m.bp) > 0 ? '#00ff668c' : '#c81f3ede') : 'gray',
                       fontFamily: 'monospace'
                     }}
                   >
@@ -319,18 +344,15 @@ const MatchList = (): React.JSX.Element => {
                     sx={{
                       textAlign: 'right',
                       fontFamily: 'monospace',
-                      color: m.durationTime == null || m.mode === 'custom' ? 'gray' : undefined
+                      color: m.durationTime == null ? 'gray' : undefined
                     }}
-                    title={m.mode === 'custom' ? '自訂對戰不支援' : ''}
                   >
                     {m.durationTime
-                      ? m.mode === 'custom'
-                        ? '不支援'
-                        : (() => {
-                            const minutes = Math.floor(m.durationTime / 60)
-                            const seconds = Math.floor(m.durationTime % 60)
-                            return `${minutes}:${String(seconds).padStart(2, '0')}`
-                          })()
+                      ? (() => {
+                          const minutes = Math.floor(m.durationTime / 60)
+                          const seconds = Math.floor(m.durationTime % 60)
+                          return `${minutes}:${String(seconds).padStart(2, '0')}`
+                        })()
                       : '無法統計'}
                   </TableCell>
                   <TableCell
