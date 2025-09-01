@@ -62,7 +62,10 @@
       "node_modules/.prisma/**/*",
       "node_modules/@prisma/client/**/*",
       "tools/svwb-capture-tool.exe",
-      "resources/icon.png",
+      {
+        "from": "resources/icon.png",
+        "to": "icon.png"
+      },
       {
         "from": "resources/opencv",
         "to": "opencv"
