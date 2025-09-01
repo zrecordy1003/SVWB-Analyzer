@@ -666,7 +666,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       }
 
       isModifyBP = false
-      shouldModifyMode = false
+      shouldModifyMode = true
       shouldRecordNewMatch = false
 
       isMatchRecord = true
