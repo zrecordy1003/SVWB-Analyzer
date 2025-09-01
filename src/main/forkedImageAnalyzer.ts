@@ -523,7 +523,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
         // 2Pick模式判斷：模式修改
         if (lastRowId > -1) {
-          shouldModifyMode = true
+          shouldModifyMode = false
           mode = 'twoPick'
           modifyMatchMode(mode).then(() => {
             port.postMessage({ type: 'modifyMode' })
@@ -552,7 +552,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
         // 階級模式判斷：模式修改
         if (lastRowId > -1) {
-          shouldModifyMode = true
+          shouldModifyMode = false
           mode = 'ranked'
           modifyMatchMode(mode).then(() => {
             port.postMessage({ type: 'modifyMode' })
@@ -566,7 +566,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
       // 練習模式判斷：模式修改
       if (cpuDetect.score > 0.7 && lastRowId > -1) {
-        shouldModifyMode = true
+        shouldModifyMode = false
         mode = 'cpu'
         modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
@@ -579,7 +579,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
       // 廣場賽模式判斷：模式修改
       if (plazaDetect.score > 0.7 && lastRowId > -1) {
-        shouldModifyMode = true
+        shouldModifyMode = false
         mode = 'weekendPlaza'
         modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
@@ -596,7 +596,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
       const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
       if (rs && lastRowId > -1) {
-        shouldModifyMode = true
+        shouldModifyMode = false
         mode = 'custom'
         modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
@@ -666,7 +666,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       }
 
       isModifyBP = false
-      shouldModifyMode = true
+      shouldModifyMode = false
       shouldRecordNewMatch = false
 
       isMatchRecord = true

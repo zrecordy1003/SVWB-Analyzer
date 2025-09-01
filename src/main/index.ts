@@ -238,6 +238,7 @@ function createWindow(): void {
 
 // 閒置秒數門檻（可改成從 settings 讀取）
 const IDLE_THRESHOLD_SECONDS = 1800
+// const IDLE_THRESHOLD_SECONDS = 10
 
 async function isSystemIdle(thresholdSec: number): Promise<boolean> {
   const pm: any = powerMonitor as any
