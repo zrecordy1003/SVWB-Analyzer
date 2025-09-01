@@ -251,7 +251,7 @@ export function registerMatchesIpc(): void {
   // HUD 先只抓階級對戰
   ipcMain.handle('matches:fetchRecent', async (_e, n: number = 5) => {
     return prisma.match.findMany({
-      // where: { mode: 'ranked' },
+      where: { result: { not: null } },
       orderBy: { playedAt: 'desc' },
       take: n
     })
