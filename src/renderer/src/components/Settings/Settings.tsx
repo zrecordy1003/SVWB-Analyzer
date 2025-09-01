@@ -196,7 +196,7 @@ const Settings: React.FC = () => {
 
       <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
         <Typography variant="h5">更新</Typography>
-        <UpdatePrompt />
+        <UpdatePrompt autoPopup={false} />
         <FormControlLabel
           control={
             <Switch
