@@ -27,7 +27,7 @@ export function createHudWindow(): BrowserWindow {
     x: wa.x + wa.width - 420,
     y: wa.y + 100,
     width: 285,
-    height: 550
+    height: 445
   }
 
   hudWin = new BrowserWindow({

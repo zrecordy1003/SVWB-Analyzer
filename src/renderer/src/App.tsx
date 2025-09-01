@@ -35,6 +35,7 @@ import HomePage from './components/HomePage/HomePage'
 import Settings from './components/Settings/Settings'
 import Analyzer from './components/Analyzer/Analyzer'
 import BattleStatus from './components/BattleStatus/BattleStatus'
+import UpdatePrompt from './components/UpdatePrompt/UpdatePrompt'
 // const Analyzer = lazy(() => import('./components/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
@@ -176,7 +177,7 @@ function App(): React.JSX.Element {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-
+      <UpdatePrompt isCheckButtonVisible={false} />
       <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar sx={{ position: 'relative' }}>
           <IconButton color="inherit" edge="start" onClick={handleDrawerToggle} sx={{ mr: 2 }}>

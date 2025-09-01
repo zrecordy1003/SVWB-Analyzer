@@ -14,7 +14,11 @@ import {
 
 type Phase = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'none' | 'error'
 
-const UpdatePrompt = (): React.JSX.Element => {
+type UpdatePromptProps = {
+  isCheckButtonVisible?: boolean
+}
+
+const UpdatePrompt: React.FC<UpdatePromptProps> = ({ isCheckButtonVisible = true }) => {
   const [phase, setPhase] = useState<Phase>('idle')
   const [open, setOpen] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -109,9 +113,11 @@ const UpdatePrompt = (): React.JSX.Element => {
 
   return (
     <>
-      <Button variant="outlined" size="small" onClick={onCheck}>
-        檢查更新
-      </Button>
+      {isCheckButtonVisible && (
+        <Button variant="outlined" size="small" onClick={onCheck}>
+          檢查更新
+        </Button>
+      )}
 
       <Dialog
         open={open}

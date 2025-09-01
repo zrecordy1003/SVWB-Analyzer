@@ -44,21 +44,25 @@ const getPeriodByHour = (hour?: number): { label: string; icon: React.JSX.Elemen
       label: '凌晨',
       icon: (
         <SunnySnowingIcon
-          sx={{ color: '#7986cb', verticalAlign: 'middle', ml: '7px', mr: '4px' }}
+          sx={{ color: '#7986cb', verticalAlign: 'middle', ml: '7px', mr: '4px', mb: '3px' }}
         />
       )
     }
   if (hour >= 6 && hour < 12)
     return {
       label: '早上',
-      icon: <WbSunnyIcon sx={{ color: 'gold', verticalAlign: 'middle', ml: '7px', mr: '4px' }} />
+      icon: (
+        <WbSunnyIcon
+          sx={{ color: 'gold', verticalAlign: 'middle', ml: '7px', mr: '4px', mb: '3px' }}
+        />
+      )
     }
   if (hour === 12)
     return {
       label: '中午',
       icon: (
         <BrightnessHighIcon
-          sx={{ color: '#ffb74d', verticalAlign: 'middle', ml: '7px', mr: '4px' }}
+          sx={{ color: '#ffb74d', verticalAlign: 'middle', ml: '7px', mr: '4px', mb: '3px' }}
         />
       )
     }
@@ -66,18 +70,26 @@ const getPeriodByHour = (hour?: number): { label: string; icon: React.JSX.Elemen
     return {
       label: '下午',
       icon: (
-        <WbTwilightIcon sx={{ color: '#f16a1c', verticalAlign: 'middle', ml: '7px', mr: '4px' }} />
+        <WbTwilightIcon
+          sx={{ color: '#f16a1c', verticalAlign: 'middle', ml: '7px', mr: '4px', mb: '3px' }}
+        />
       )
     }
   if (hour >= 18 && hour < 20)
     return {
       label: '傍晚',
-      icon: <BedtimeIcon sx={{ color: '#ff8a65', verticalAlign: 'middle', ml: '7px', mr: '4px' }} />
+      icon: (
+        <BedtimeIcon
+          sx={{ color: '#ff8a65', verticalAlign: 'middle', ml: '7px', mr: '4px', mb: '3px' }}
+        />
+      )
     }
   return {
     label: '晚上',
     icon: (
-      <NightsStayIcon sx={{ color: '#78909c', verticalAlign: 'middle', ml: '7px', mr: '4px' }} />
+      <NightsStayIcon
+        sx={{ color: '#78909c', verticalAlign: 'middle', ml: '7px', mr: '4px', mb: '3px' }}
+      />
     )
   }
 }
