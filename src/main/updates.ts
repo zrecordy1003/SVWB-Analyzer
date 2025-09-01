@@ -75,5 +75,5 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
       } catch (e) {
         console.log('updates.ts: ', e)
       }
-    }, 3000)
+    }, 2000)
 }

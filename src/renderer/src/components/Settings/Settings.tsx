@@ -8,8 +8,8 @@ import {
   Radio
 } from '@mui/material'
 import React, { useEffect, useState } from 'react'
-import UpdatePrompt from '../UpdatePrompt/UpdatePrompt'
 import Disclaimer from '../Disclaimer'
+import UpdateSettings from '../Update/UpdateSettings'
 
 type OnCloseBehavior = 'minimize' | 'exit'
 type ThemeType = 'system' | 'light' | 'dark'
@@ -196,7 +196,7 @@ const Settings: React.FC = () => {
 
       <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
         <Typography variant="h5">更新</Typography>
-        <UpdatePrompt autoPopup={false} />
+        <UpdateSettings />
         <FormControlLabel
           control={
             <Switch
