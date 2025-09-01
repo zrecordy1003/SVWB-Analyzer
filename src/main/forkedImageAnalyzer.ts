@@ -13,6 +13,11 @@ import {
 } from './database.js'
 import { ClassName, GameMode, PlayOrder } from '@prisma/client'
 
+type scoreAndName = {
+  score: number
+  name: string
+}
+
 const BASE_WIDTH = 1280
 const BASE_HEIGHT = 720
 
@@ -418,6 +423,13 @@ let shouldRecordNewMatch = false
 // 避免意外改到最後一筆資料的模式
 let lastRowId = -1
 
+let rankDetect: scoreAndName
+let twoPickDetect: scoreAndName
+let cpuDetect: scoreAndName
+let plazaDetect: scoreAndName
+let ownCustomDetect: scoreAndName
+let enemyCustomDetect: scoreAndName
+
 // 主分析函式：一次分析完成後會自動 scheduleNext()
 async function analyzeOnce(port: MessagePortMain): Promise<void> {
   const now = Date.now()
@@ -483,113 +495,114 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       return scheduleNext(port)
     }
 
-    // 階級模式：模板配對
-    const rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
+    if (!isModifyMode) {
+      // 階級模式：模板配對
+      rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
 
-    // 2Pick模式判斷：模板配對
-    const twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
+      // 2Pick模式判斷：模板配對
+      twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
 
-    if (twoPickDetect.score > THRESHOLD.ranked) {
-      //  2Pick模式判斷：BP修改
-      if (!isModifyBP && lastRowId > -1) {
-        console.log(twoPickDetect)
+      if (twoPickDetect.score > THRESHOLD.ranked) {
+        //  2Pick模式判斷：BP修改
+        if (!isModifyBP && lastRowId > -1) {
+          console.log(twoPickDetect)
 
-        const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
-        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
-        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
+          const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
+          if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+          if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
 
-        const bp = parseBPGain(raw)
-        console.log('[2Pick] parsed bp =', bp)
+          const bp = parseBPGain(raw)
+          console.log('[2Pick] parsed bp =', bp)
 
-        if (bp !== null) {
-          await modifyMatchBP(bp) // 0 會被寫入
-          port.postMessage({ type: 'modifyMode' })
-          isModifyBP = true
+          if (bp !== null) {
+            await modifyMatchBP(bp) // 0 會被寫入
+            port.postMessage({ type: 'modifyMode' })
+            isModifyBP = true
+          }
         }
-      }
 
-      // 2Pick模式判斷：模式修改
-      if (!isModifyMode && lastRowId > -1) {
-        isModifyMode = true
-        mode = 'twoPick'
-        modifyMatchMode(mode).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
-        console.log(twoPickDetect)
-      }
-    } else if (allMatch(rankDetectArea, tmpls.modesRanked, THRESHOLD.ranked)) {
-      // 階級模式判斷：BP修改
-      if (!isModifyBP && lastRowId > -1) {
-        console.log(rankDetect)
-
-        const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
-        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
-        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
-
-        const bp = parseBPGain(raw)
-        console.log('[ranked] parsed bp =', bp)
-
-        if (bp !== null) {
-          await modifyMatchBP(bp).then(() => {
+        // 2Pick模式判斷：模式修改
+        if (lastRowId > -1) {
+          isModifyMode = true
+          mode = 'twoPick'
+          modifyMatchMode(mode).then(() => {
             port.postMessage({ type: 'modifyMode' })
           })
-          isModifyBP = true
+          console.log(twoPickDetect)
+        }
+      } else if (allMatch(rankDetectArea, tmpls.modesRanked, THRESHOLD.ranked)) {
+        // 階級模式判斷：BP修改
+        if (!isModifyBP && lastRowId > -1) {
+          console.log(rankDetect)
+
+          const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+          if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+          if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
+
+          const bp = parseBPGain(raw)
+          console.log('[ranked] parsed bp =', bp)
+
+          if (bp !== null) {
+            await modifyMatchBP(bp).then(() => {
+              port.postMessage({ type: 'modifyMode' })
+            })
+            isModifyBP = true
+          }
+        }
+
+        // 階級模式判斷：模式修改
+        if (lastRowId > -1) {
+          isModifyMode = true
+          mode = 'ranked'
+          modifyMatchMode(mode).then(() => {
+            port.postMessage({ type: 'modifyMode' })
+          })
+          console.log(mode)
         }
       }
 
-      // 階級模式判斷：模式修改
-      if (!isModifyMode && lastRowId > -1) {
+      // 練習模式：模板配對
+      cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU)
+
+      // 練習模式判斷：模式修改
+      if (cpuDetect.score > 0.7 && lastRowId > -1) {
         isModifyMode = true
-        mode = 'ranked'
+        mode = 'cpu'
         modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
         })
-        console.log(mode)
+        console.log(cpuDetect)
+      }
+
+      // 廣場賽模式：模板配對
+      plazaDetect = matchTemplate(topRightArea, tmpls.modesPlaza)
+
+      // 廣場賽模式判斷：模式修改
+      if (plazaDetect.score > 0.7 && lastRowId > -1) {
+        isModifyMode = true
+        mode = 'weekendPlaza'
+        modifyMatchMode(mode).then(() => {
+          port.postMessage({ type: 'modifyMode' })
+        })
+      }
+
+      // 自訂房檢測 (室長 / 訪客)
+      // 檢測到房間這個事件(檢測到房間，但是沒有開始對戰，而是解散出來打別的模式)
+      // 辨別的節點為，是否有偵測到win/lose
+      // TODO:尚未完成！
+
+      ownCustomDetect = matchTemplate(leftArea, tmpls.custom)
+      enemyCustomDetect = matchTemplate(rightArea, tmpls.custom)
+
+      const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
+      if (rs && lastRowId > -1) {
+        isModifyMode = true
+        mode = 'custom'
+        modifyMatchMode(mode).then(() => {
+          port.postMessage({ type: 'modifyMode' })
+        })
       }
     }
-
-    // 練習模式：模板配對
-    const cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU)
-
-    // 練習模式判斷：模式修改
-    if (cpuDetect.score > 0.7 && !isModifyMode && lastRowId > -1) {
-      isModifyMode = true
-      mode = 'cpu'
-      modifyMatchMode(mode).then(() => {
-        port.postMessage({ type: 'modifyMode' })
-      })
-      console.log(cpuDetect)
-    }
-
-    // 廣場賽模式：模板配對
-    const plazaDetect = matchTemplate(topRightArea, tmpls.modesPlaza)
-
-    // 廣場賽模式判斷：模式修改
-    if (plazaDetect.score > 0.7 && !isModifyMode && lastRowId > -1) {
-      isModifyMode = true
-      mode = 'weekendPlaza'
-      modifyMatchMode(mode).then(() => {
-        port.postMessage({ type: 'modifyMode' })
-      })
-    }
-
-    // 自訂房檢測 (室長 / 訪客)
-    // 檢測到房間這個事件(檢測到房間，但是沒有開始對戰，而是解散出來打別的模式)
-    // 辨別的節點為，是否有偵測到win/lose
-    // TODO:尚未完成！
-
-    const ownCustomDetect = matchTemplate(leftArea, tmpls.custom)
-    const enemyCustomDetect = matchTemplate(rightArea, tmpls.custom)
-
-    const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
-    if (rs && !isModifyMode && lastRowId > -1) {
-      isModifyMode = true
-      mode = 'custom'
-      modifyMatchMode(mode).then(() => {
-        port.postMessage({ type: 'modifyMode' })
-      })
-    }
-
     // if (ownCustomWinDetect.score > 0.7) {
     //   console.log('ownCustomWin', ownCustomWinDetect)
     // }

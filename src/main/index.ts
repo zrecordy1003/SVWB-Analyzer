@@ -487,6 +487,7 @@ app.on('window-all-closed', async () => {
 })
 
 app.on('before-quit', async () => {
+  stopCapture()
   try {
     await _stopAnalyzer?.()
   } catch (e) {
