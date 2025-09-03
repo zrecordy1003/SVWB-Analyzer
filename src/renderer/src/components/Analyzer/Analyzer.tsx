@@ -129,7 +129,7 @@ const Analyzer: React.FC = () => {
   const [chartHeight, setChartHeight] = useState<number>(window.innerHeight * 0.3)
 
   const updateHeight = useCallback(() => {
-    setChartHeight(window.innerHeight - 400)
+    setChartHeight(window.innerHeight - 400 > 300 ? window.innerHeight - 400 : 300)
   }, [])
 
   useEffect(() => {

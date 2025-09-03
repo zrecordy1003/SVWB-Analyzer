@@ -495,72 +495,74 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       return scheduleNext(port)
     }
 
-    if (shouldModifyMode) {
-      // 階級模式：模板配對
-      rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
+    // 考慮到 BP 可能被遮擋，要多次檢測，所以不能放置於底下的 shouldModifyMode 判斷式
 
-      // 2Pick模式判斷：模板配對
-      twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
+    // 階級模式：模板配對
+    rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
 
-      if (twoPickDetect.score > THRESHOLD.ranked) {
-        //  2Pick模式判斷：BP修改
-        if (!isModifyBP && lastRowId > -1) {
-          console.log(twoPickDetect)
+    // 2Pick模式判斷：模板配對
+    twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
 
-          const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
-          if (raw === '') console.log('[analyzeOnce] OCR got empty string')
-          if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
+    if (twoPickDetect.score > THRESHOLD.ranked) {
+      //  2Pick模式判斷：BP修改
+      if (!isModifyBP && lastRowId > -1) {
+        console.log(twoPickDetect)
 
-          const bp = parseBPGain(raw)
-          console.log('[2Pick] parsed bp =', bp)
+        const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
 
-          if (bp !== null) {
-            await modifyMatchBP(bp) // 0 會被寫入
-            port.postMessage({ type: 'modifyMode' })
-            isModifyBP = true
-          }
-        }
+        const bp = parseBPGain(raw)
+        console.log('[2Pick] parsed bp =', bp)
 
-        // 2Pick模式判斷：模式修改
-        if (lastRowId > -1) {
-          shouldModifyMode = false
-          mode = 'twoPick'
-          modifyMatchMode(mode).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
-          console.log(twoPickDetect)
-        }
-      } else if (allMatch(rankDetectArea, tmpls.modesRanked, THRESHOLD.ranked)) {
-        // 階級模式判斷：BP修改
-        if (!isModifyBP && lastRowId > -1) {
-          console.log(rankDetect)
-
-          const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
-          if (raw === '') console.log('[analyzeOnce] OCR got empty string')
-          if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
-
-          const bp = parseBPGain(raw)
-          console.log('[ranked] parsed bp =', bp)
-
-          if (bp !== null) {
-            await modifyMatchBP(bp).then(() => {
-              port.postMessage({ type: 'modifyMode' })
-            })
-            isModifyBP = true
-          }
-        }
-
-        // 階級模式判斷：模式修改
-        if (lastRowId > -1) {
-          shouldModifyMode = false
-          mode = 'ranked'
-          modifyMatchMode(mode).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
-          console.log(mode)
+        if (bp !== null) {
+          await modifyMatchBP(bp) // 0 會被寫入
+          port.postMessage({ type: 'modifyMode' })
+          isModifyBP = true
         }
       }
 
+      // 2Pick模式判斷：模式修改
+      if (shouldModifyMode && lastRowId > -1) {
+        shouldModifyMode = false
+        mode = 'twoPick'
+        modifyMatchMode(mode).then(() => {
+          port.postMessage({ type: 'modifyMode' })
+        })
+        console.log(twoPickDetect)
+      }
+    } else if (rankDetect.score > THRESHOLD.ranked) {
+      // 階級模式判斷：BP修改
+      if (!isModifyBP && lastRowId > -1) {
+        console.log(rankDetect)
+
+        const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
+
+        const bp = parseBPGain(raw)
+        console.log('[ranked] parsed bp =', bp)
+
+        if (bp !== null) {
+          await modifyMatchBP(bp).then(() => {
+            port.postMessage({ type: 'modifyMode' })
+          })
+          isModifyBP = true
+        }
+      }
+
+      // 階級模式判斷：模式修改
+      if (shouldModifyMode && lastRowId > -1) {
+        shouldModifyMode = false
+        mode = 'ranked'
+        modifyMatchMode(mode).then(() => {
+          port.postMessage({ type: 'modifyMode' })
+        })
+        console.log(mode)
+      }
+    }
+
+    if (shouldModifyMode) {
       // 練習模式：模板配對
       cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU)
 
@@ -642,15 +644,21 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const oppoValid = enemyClass.score > THRESHOLD.class || enemyEmblem.score > THRESHOLD.emblem
     const turnValid =
       ownPlayOrder.score > THRESHOLD.playOrder || enemyPlayOrder.score > THRESHOLD.playOrder
-    inBattle = myValid && oppoValid && turnValid
 
-    // 處理對戰無結束的判斷節點，導致無法開始記錄下一把
-    if (isMatchRecord && !inBattle) {
-      shouldRecordNewMatch = true
+    if (!isMatchRecord) {
+      inBattle = myValid && oppoValid && turnValid
     }
 
+    // 處理對戰無結束的判斷節點，導致無法開始記錄下一把
+    // if (isMatchRecord && !inBattle) {
+    //   shouldRecordNewMatch = true
+    // }
+
     // 戰鬥開始：首次紀錄 DB
-    if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
+    // if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
+    if (inBattle && !isMatchRecord) {
+      isMatchRecord = true
+
       // 前面如果有進過對戰才會使 lastRowId > -1
       if (lastRowId > -1) {
         if (mode !== null) {
@@ -667,9 +675,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
       isModifyBP = false
       shouldModifyMode = true
-      shouldRecordNewMatch = false
-
-      isMatchRecord = true
+      // shouldRecordNewMatch = false
 
       const record = await fetchLastMatch()
       if (record) {
