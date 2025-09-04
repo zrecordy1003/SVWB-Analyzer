@@ -128,7 +128,11 @@ export function registerMatchesIpc(): void {
         where,
         orderBy: [{ playedAt: 'desc' }, { id: 'desc' }], // stable ordering for pagination
         skip: pageIndex * pageSize,
-        take: pageSize
+        take: pageSize,
+        include: {
+          my_deck: { select: { id: true, name: true } },
+          oppo_deck: { select: { id: true, name: true } }
+        }
       })
     }
   )
@@ -351,6 +355,129 @@ export function registerMatchesIpc(): void {
       })
     }
   )
+
+  ipcMain.handle('matches:getById', async (_e, id: number) => {
+    const m = await prisma.match.findUnique({
+      where: { id },
+      include: {
+        tags: { include: { tag: true } },
+        my_deck: true,
+        oppo_deck: true
+      }
+    })
+    return m
+  })
+
+  // 編輯（含 tags，同步集合；內含樂觀鎖）
+  ipcMain.handle('matches:updateWithExtras', async (_e, payload) => {
+    const {
+      id,
+      prevUpdatedAt, // 來自前端的上一版 updatedAt（ISO 字串或 Date）
+      tagIds,
+      result,
+      play_order,
+      my_class,
+      oppo_class,
+      mode,
+      bp,
+      durationTime,
+      my_deckId,
+      oppo_deckId,
+      note,
+      playedAt
+    } = payload
+
+    // 1) 先抓目前的 updatedAt（用於前端錯誤訊息/除錯）
+    const prev = await prisma.match.findUnique({
+      where: { id },
+      select: { updatedAt: true }
+    })
+    if (!prev) throw new Error('Match not found')
+
+    // 2) 準備 updateMany 可用的資料（只能放標量欄位、不能放 nested relation）
+    const dataMany: Prisma.MatchUpdateManyMutationInput = {}
+
+    if (typeof result !== 'undefined') dataMany.result = result
+    if (typeof play_order !== 'undefined') dataMany.play_order = play_order
+    if (typeof my_class !== 'undefined') dataMany.my_class = my_class
+    if (typeof oppo_class !== 'undefined') dataMany.oppo_class = oppo_class
+    if (typeof mode !== 'undefined') dataMany.mode = mode
+    if (typeof bp !== 'undefined') dataMany.bp = bp
+    if (typeof durationTime !== 'undefined') dataMany.durationTime = durationTime
+    if (typeof note !== 'undefined') dataMany.note = note
+
+    // ✅ 用外鍵欄位，而不是 my_deck / oppo_deck 的 connect/disconnect
+    if (typeof my_deckId !== 'undefined') dataMany.my_deckId = my_deckId ?? null
+    if (typeof oppo_deckId !== 'undefined') dataMany.oppo_deckId = oppo_deckId ?? null
+
+    if (typeof playedAt !== 'undefined' && playedAt !== null) {
+      const dt = new Date(playedAt)
+      dataMany.playedAt = dt
+      dataMany.year = dt.getFullYear()
+      dataMany.month = dt.getMonth() + 1
+      dataMany.day = dt.getDate()
+    }
+
+    // 樂觀鎖：把 updatedAt 轉成 Date，允許 null 的情況
+    const prevTs = prevUpdatedAt ? new Date(prevUpdatedAt) : null
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // 3) 先嘗試更新（用 updateMany + updatedAt 做條件，確保原子性）
+      const whereLock: Prisma.MatchWhereInput = {
+        id,
+        // 如果 updatedAt 可能為 null，要分兩種條件
+        ...(prevTs === null ? { updatedAt: null } : { updatedAt: prevTs })
+      }
+
+      const res = await tx.match.updateMany({
+        where: whereLock,
+        data: dataMany
+      })
+
+      if (res.count === 0) {
+        const err = new Error('CONFLICT_UPDATED_AT')
+        ;(err as any).code = 'CONFLICT'
+        throw err
+      }
+
+      // 4) 同步 Tags（樞紐表）
+      if (Array.isArray(tagIds)) {
+        const existing = await tx.matchTag.findMany({ where: { matchId: id } })
+        const existSet = new Set(existing.map((x) => x.tagId))
+        const nextSet = new Set(tagIds)
+
+        const toDel = [...existSet].filter((tid) => !nextSet.has(tid))
+        const toAdd = [...nextSet].filter((tid) => !existSet.has(tid))
+
+        if (toDel.length) {
+          await tx.matchTag.deleteMany({ where: { matchId: id, tagId: { in: toDel } } })
+        }
+        if (toAdd.length) {
+          await tx.matchTag.createMany({
+            data: toAdd.map((tid) => ({ matchId: id, tagId: tid }))
+          })
+        }
+      }
+
+      // 5) 回傳最新資料（帶關聯）
+      return tx.match.findUnique({
+        where: { id },
+        include: {
+          tags: { include: { tag: true } },
+          my_deck: true,
+          oppo_deck: true
+        }
+      })
+    })
+
+    return updated
+  })
+
+  // 刪除（連動刪樞紐由外鍵級聯）
+  ipcMain.handle('matches:delete', async (_e, id: number) => {
+    await prisma.match.delete({ where: { id } })
+    return true
+  })
 }
 
 export function broadcastNewMatch(win?: BrowserWindow, match?: any): void {

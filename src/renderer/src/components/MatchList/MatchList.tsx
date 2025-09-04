@@ -1,3 +1,4 @@
+// src/renderer/components/matches/MatchList.tsx
 import React, { useEffect, useRef, useState, ChangeEvent } from 'react'
 import {
   Box,
@@ -10,10 +11,16 @@ import {
   TableHead,
   TableRow,
   TablePagination,
-  Typography
+  Typography,
+  IconButton,
+  Tooltip,
+  Stack
 } from '@mui/material'
 import LooksOneTwoToneIcon from '@mui/icons-material/LooksOneTwoTone'
 import LooksTwoTwoToneIcon from '@mui/icons-material/LooksTwoTwoTone'
+import EditIcon from '@mui/icons-material/Edit'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import NoteAltOutlinedIcon from '@mui/icons-material/NoteAltOutlined'
 import WbSunnyIcon from '@mui/icons-material/WbSunny'
 import NightsStayIcon from '@mui/icons-material/NightsStay'
 import BrightnessHighIcon from '@mui/icons-material/BrightnessHigh'
@@ -23,11 +30,11 @@ import SunnySnowingIcon from '@mui/icons-material/SunnySnowing'
 
 import { classesMap, modesMap } from '@renderer/map/classMap'
 import { Match } from '@prisma/client'
-import SearchBar, { Filters as SearchFilters, OnFiltersChange } from './component/SearchBar'
+import SearchBar from './component/SearchBar'
+import MatchEditDialog from './component/MatchEditDialog'
+import ConfirmDialog from '../Common/ConfirmDialog'
 
 const PAGE_SIZE_OPTIONS = [5, 10]
-
-// 防抖 hook
 function useDebounced<T>(value: T, delay = 200): T {
   const [v, setV] = useState(value)
   useEffect(() => {
@@ -94,85 +101,80 @@ const getPeriodByHour = (hour?: number): { label: string; icon: React.JSX.Elemen
   }
 }
 
-const MatchList = (): React.JSX.Element => {
-  // 1) 狀態
-  const today = new Date()
-  const startOf = (d: Date): Date => {
-    const x = new Date(d)
-    x.setHours(0, 0, 0, 0)
-    return x
-  }
-  const endOf = (d: Date): Date => {
-    const x = new Date(d)
-    x.setHours(23, 59, 59, 999)
-    return x
-  }
+const startOf = (d: Date): Date => {
+  const x = new Date(d)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+const endOf = (d: Date): Date => {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
 
+const MatchList = (): React.JSX.Element => {
+  // filter state
+  const today = new Date()
   const [filters, setFilters] = useState<SearchFilters>({
     my: [],
     oppo: [],
-    mode: null, // 預設不限
+    mode: null,
     rangeKey: 'today',
     startDate: startOf(today),
     endDate: endOf(today)
   })
-
   const onFiltersChange: OnFiltersChange = (patch) => setFilters((f) => ({ ...f, ...patch }))
-
   const [rows, setRows] = useState<Match[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
   const [page, setPage] = useState<number>(0)
   const [rowsPerPage, setRowsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0])
-
-  // 2) 防抖 / 競態
   const debouncedFilters = useDebounced(filters, 200)
   const reqIdRef = useRef(0)
-
-  // 3) Refs 給外部 refetch 使用
   const filtersRef = useRef(filters)
-  const pageRef = useRef(page)
-  const rowsPerPageRef = useRef(rowsPerPage)
   useEffect(() => {
     filtersRef.current = filters
   }, [filters])
+  const pageRef = useRef(page)
   useEffect(() => {
     pageRef.current = page
   }, [page])
+  const rowsPerPageRef = useRef(rowsPerPage)
   useEffect(() => {
     rowsPerPageRef.current = rowsPerPage
   }, [rowsPerPage])
 
-  // 4) IPC 呼叫
+  // Edit dialog
+  const [editId, setEditId] = useState<number | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: number | null }>({
+    open: false,
+    id: null
+  })
+
+  // IPC helpers
   const fetchFilteredCount = async (f: SearchFilters): Promise<void> => {
     const myIds = f.my.map((c) => c.id)
     const oppoIds = f.oppo.map((c) => c.id)
-    try {
-      // mode 允許 null
-      let count: number
-      if (f.rangeKey === 'custom') {
-        count = await window.electron?.ipcRenderer.invoke(
-          'matches:count',
-          myIds,
-          oppoIds,
-          f.mode,
-          f.rangeKey,
-          f.startDate,
-          f.endDate
-        )
-      } else {
-        count = await window.electron?.ipcRenderer.invoke(
-          'matches:count',
-          myIds,
-          oppoIds,
-          f.mode,
-          f.rangeKey
-        )
-      }
-
-      setTotalCount(count)
-    } catch (err) {
-      console.error('[MatchList] count error:', err)
+    let count: number
+    if (f.rangeKey === 'custom') {
+      count = await window.electron?.ipcRenderer.invoke(
+        'matches:count',
+        myIds,
+        oppoIds,
+        f.mode,
+        f.rangeKey,
+        f.startDate,
+        f.endDate
+      )
+    } else {
+      count = await window.electron?.ipcRenderer.invoke(
+        'matches:count',
+        myIds,
+        oppoIds,
+        f.mode,
+        f.rangeKey
+      )
     }
+    setTotalCount(count)
   }
 
   const fetchPage = async (
@@ -183,56 +185,47 @@ const MatchList = (): React.JSX.Element => {
     const myIds = f.my.map((c) => c.id)
     const oppoIds = f.oppo.map((c) => c.id)
     const currentReq = ++reqIdRef.current
-    try {
-      let data: Match[]
-      if (f.rangeKey === 'custom') {
-        data = await window.electron?.ipcRenderer.invoke(
-          'matches:getPage',
-          pageIndex,
-          pageSize,
-          myIds,
-          oppoIds,
-          f.mode,
-          f.rangeKey,
-          f.startDate,
-          f.endDate
-        )
-      } else {
-        data = await window.electron?.ipcRenderer.invoke(
-          'matches:getPage',
-          pageIndex,
-          pageSize,
-          myIds,
-          oppoIds,
-          f.mode,
-          f.rangeKey
-        )
-      }
-
-      // 只有最後一次請求可以寫入
-      if (currentReq === reqIdRef.current) setRows(data)
-    } catch (err) {
-      console.error('[MatchList] fetchPage error:', err)
+    let data: Match[]
+    if (f.rangeKey === 'custom') {
+      data = await window.electron?.ipcRenderer.invoke(
+        'matches:getPage',
+        pageIndex,
+        pageSize,
+        myIds,
+        oppoIds,
+        f.mode,
+        f.rangeKey,
+        f.startDate,
+        f.endDate
+      )
+    } else {
+      data = await window.electron?.ipcRenderer.invoke(
+        'matches:getPage',
+        pageIndex,
+        pageSize,
+        myIds,
+        oppoIds,
+        f.mode,
+        f.rangeKey
+      )
     }
+    if (currentReq === reqIdRef.current) setRows(data)
   }
 
-  // 5) filters / page 驅動資料
   useEffect(() => {
-    // filters 或 page size 改變：重置 page=0 + 抓第一頁
     setPage(0)
     fetchFilteredCount(debouncedFilters)
     fetchPage(0, rowsPerPage, debouncedFilters)
   }, [debouncedFilters, rowsPerPage])
 
   useEffect(() => {
-    // 只換頁
     fetchPage(page, rowsPerPage, debouncedFilters)
   }, [page])
 
-  // 6) 外部觸發重抓
   useEffect(() => {
     const handler = (): void => {
       fetchPage(pageRef.current, rowsPerPageRef.current, filtersRef.current)
+      fetchFilteredCount(filtersRef.current)
     }
     const unsub = window.electron?.ipcRenderer.on('matches:needRefetch', handler)
     return () => {
@@ -240,21 +233,39 @@ const MatchList = (): React.JSX.Element => {
     }
   }, [])
 
-  // 7) Handlers
   const handleChangePage = (_: unknown, newPage: number): void => setPage(newPage)
   const handleChangeRowsPerPage = (e: ChangeEvent<HTMLInputElement>): void => {
     setRowsPerPage(+e.target.value)
     setPage(0)
   }
-
   const totalPages = Math.max(1, Math.ceil(totalCount / rowsPerPage))
 
+  const openEdit = (id: number) => setEditId(id)
+  const closeEdit = () => setEditId(null)
+
+  const requestDelete = (id: number) => setConfirmDelete({ open: true, id })
+  const handleConfirmDelete = async (ok: boolean) => {
+    if (!ok || !confirmDelete.id) {
+      setConfirmDelete({ open: false, id: null })
+      return
+    }
+    try {
+      await window.electron.ipcRenderer.invoke('matches:delete', confirmDelete.id)
+      // 刷新
+      fetchPage(pageRef.current, rowsPerPageRef.current, filtersRef.current)
+      fetchFilteredCount(filtersRef.current)
+    } finally {
+      setConfirmDelete({ open: false, id: null })
+    }
+  }
+
+  console.log(rows)
   return (
     <Box p={2}>
       <SearchBar filters={filters} onFiltersChange={onFiltersChange} />
 
       {/* 分頁控制 */}
-      <Box display="flex" alignItems="center" justifyContent="space-between">
+      <Box display="flex" alignItems="center" justifyContent="space-between" mt={1} mb={1.5}>
         <Typography variant="button">
           頁數 {totalCount > 0 ? page + 1 : 0} / {totalCount > 0 ? totalPages : 0}
         </Typography>
@@ -284,8 +295,9 @@ const MatchList = (): React.JSX.Element => {
               <TableCell sx={{ textAlign: 'right' }}>勝 / 敗</TableCell>
               <TableCell sx={{ textAlign: 'center' }}>模式</TableCell>
               <TableCell sx={{ textAlign: 'right' }}>BP</TableCell>
-              <TableCell sx={{ textAlign: 'right' }}>遊戲時長</TableCell>
+              <TableCell sx={{ textAlign: 'center' }}>標籤 / 備註</TableCell>
               <TableCell sx={{ textAlign: 'right' }}>開始時間</TableCell>
+              <TableCell sx={{ textAlign: 'center', width: 96 }}>操作</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -305,10 +317,24 @@ const MatchList = (): React.JSX.Element => {
                   }}
                 >
                   <TableCell sx={{ textAlign: 'right', color: classesMap[m.my_class]?.color }}>
-                    {classesMap[m.my_class]?.label}
+                    <Typography fontSize={'small'}>{classesMap[m.my_class]?.label}</Typography>
+                    <Typography
+                      fontSize={'small'}
+                      color={!m.my_deck?.name && 'gray'}
+                      sx={{ opacity: 0.9 }}
+                    >
+                      {m.my_deck?.name ? m.my_deck?.name : '未設置'}
+                    </Typography>
                   </TableCell>
                   <TableCell sx={{ textAlign: 'right', color: classesMap[m.oppo_class]?.color }}>
-                    {classesMap[m.oppo_class]?.label}
+                    <Typography fontSize={'small'}>{classesMap[m.oppo_class]?.label}</Typography>
+                    <Typography
+                      fontSize={'small'}
+                      color={!m.oppo_deck?.name && 'gray'}
+                      sx={{ opacity: 0.9 }}
+                    >
+                      {m.oppo_deck?.name ? m.oppo_deck?.name : '未設置'}
+                    </Typography>
                   </TableCell>
                   <TableCell sx={{ textAlign: 'right' }}>
                     {m.play_order === 'first' ? (
@@ -352,21 +378,12 @@ const MatchList = (): React.JSX.Element => {
                   >
                     {m.bp ?? '-'}
                   </TableCell>
-                  <TableCell
-                    sx={{
-                      textAlign: 'right',
-                      fontFamily: 'monospace',
-                      color: m.durationTime == null ? 'gray' : undefined
-                    }}
-                  >
-                    {m.durationTime
-                      ? (() => {
-                          const minutes = Math.floor(m.durationTime / 60)
-                          const seconds = Math.floor(m.durationTime % 60)
-                          return `${minutes}:${String(seconds).padStart(2, '0')}`
-                        })()
-                      : '無法統計'}
+
+                  {/* 標籤／備註（縮排顯示，避免表格太胖） */}
+                  <TableCell sx={{ textAlign: 'center' }}>
+                    <RowTagsAndNote matchId={m.id} />
                   </TableCell>
+
                   <TableCell
                     sx={{ textAlign: 'right', fontFamily: 'monospace' }}
                     title={String(new Date(m.playedAt).toLocaleString())}
@@ -396,11 +413,24 @@ const MatchList = (): React.JSX.Element => {
                       )
                     })()}
                   </TableCell>
+
+                  <TableCell sx={{ textAlign: 'center' }}>
+                    <Tooltip title="編輯">
+                      <IconButton size="small" onClick={() => openEdit(m.id)}>
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="刪除">
+                      <IconButton size="small" color="error" onClick={() => requestDelete(m.id)}>
+                        <DeleteOutlineIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </TableCell>
                 </TableRow>
               ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} align="center">
+                <TableCell colSpan={9} align="center">
                   無符合資料
                 </TableCell>
               </TableRow>
@@ -408,8 +438,81 @@ const MatchList = (): React.JSX.Element => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* 編輯對話框 */}
+      <MatchEditDialog
+        open={!!editId}
+        matchId={editId}
+        onClose={closeEdit}
+        onSaved={() => {
+          fetchPage(pageRef.current, rowsPerPageRef.current, filtersRef.current)
+          fetchFilteredCount(filtersRef.current)
+        }}
+        onDeleted={() => {
+          fetchPage(pageRef.current, rowsPerPageRef.current, filtersRef.current)
+          fetchFilteredCount(filtersRef.current)
+        }}
+      />
+
+      {/* 刪除確認 */}
+      <ConfirmDialog
+        open={confirmDelete.open}
+        title="刪除此對戰紀錄？"
+        message="此操作無法復原。"
+        onClose={handleConfirmDelete}
+      />
     </Box>
   )
 }
 
 export default MatchList
+
+// --- 內部：小元件：列上顯示 Tag + 備註圖示 ---
+const RowTagsAndNote: React.FC<{ matchId: number }> = ({ matchId }) => {
+  const [tags, setTags] = useState<{ id: number; name: string }[] | null>(null)
+  const [hasNote, setHasNote] = useState<boolean>(false)
+
+  useEffect(() => {
+    let mounted = true
+    ;(async () => {
+      const m = await window.electron.ipcRenderer.invoke('matches:getById', matchId)
+      if (!mounted) return
+      setHasNote(!!m?.note)
+      const t = (m?.tags ?? []).map((x: any) => x.tag)
+      setTags(t)
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [matchId])
+
+  if (!tags)
+    return (
+      <Typography variant="body2" color="text.secondary">
+        …
+      </Typography>
+    )
+
+  const shown = tags.slice(0, 2)
+  const more = tags.length - shown.length
+
+  return (
+    <Stack
+      direction="row"
+      spacing={0.5}
+      alignItems="center"
+      justifyContent="center"
+      sx={{ flexWrap: 'nowrap', overflow: 'hidden' }}
+    >
+      {shown.map((t) => (
+        <Chip key={t.id} size="small" variant="outlined" label={t.name} />
+      ))}
+      {more > 0 && <Chip size="small" label={`+${more}`} />}
+      {hasNote && (
+        <Tooltip title="有備註">
+          <NoteAltOutlinedIcon fontSize="small" sx={{ ml: 0.5, color: 'text.secondary' }} />
+        </Tooltip>
+      )}
+    </Stack>
+  )
+}

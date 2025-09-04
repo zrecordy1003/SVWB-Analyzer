@@ -450,7 +450,7 @@ function DeckSelect(props: {
                         group.items.map((d) => (
                           <Chip
                             key={d.id}
-                            label={`${d.name} (#${d.id})`}
+                            label={`${d.name}`}
                             onClick={() => setSelectedDeckId(d.id)}
                             color={selectedDeckId === d.id ? 'primary' : 'default'}
                             variant={selectedDeckId === d.id ? 'filled' : 'outlined'}
@@ -588,7 +588,7 @@ function DeckSelect(props: {
 }
 
 // ----------- 主元件：首頁快速編輯卡 -----------
-export default function MatchQuickEditCard() {
+export default function MatchEdit() {
   const [local, setLocal] = useState<LocalState>(() => loadLocal())
   const [decks, setDecks] = useState<Deck[]>([])
   const [matches, setMatches] = useState<MatchWithTags[]>([])
@@ -664,8 +664,8 @@ export default function MatchQuickEditCard() {
   return (
     <Card>
       <CardHeader
-        title="最近對戰 - 快速編輯"
-        subheader="快速修改 BP、備註/標籤、我的牌組"
+        // title="最近對戰 - 快速編輯"
+        subheader="修改 BP、備註/標籤、牌組"
         action={
           <FormControlLabel
             control={<Switch checked={onlyToday} onChange={(_, v) => setOnlyToday(v)} />}

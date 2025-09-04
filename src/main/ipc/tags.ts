@@ -13,4 +13,19 @@ export function registerTagsIpc(): void {
       take: 100
     })
   })
+
+  ipcMain.handle('tags:create', async (_e, name: string) => {
+    return prisma.tag.create({ data: { name } })
+  })
+
+  ipcMain.handle('tags:rename', async (_e, id: number, name: string) => {
+    return prisma.tag.update({ where: { id }, data: { name } })
+  })
+
+  ipcMain.handle('tags:delete', async (_e, id: number) => {
+    // 先刪樞紐
+    await prisma.matchTag.deleteMany({ where: { tagId: id } })
+    await prisma.tag.delete({ where: { id } })
+    return true
+  })
 }

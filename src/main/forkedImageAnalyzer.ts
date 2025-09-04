@@ -383,16 +383,16 @@ function matchTemplate(
 /**
  * 如果所有 templates 都 matchScore > threshold，才回 true
  */
-function allMatch(
-  base: Mat,
-  templates: { name: string; image: Mat }[],
-  threshold: number
-): boolean {
-  return templates.every((tpl) => {
-    const { score } = matchTemplate(base, [tpl])
-    return score > threshold
-  })
-}
+// function allMatch(
+//   base: Mat,
+//   templates: { name: string; image: Mat }[],
+//   threshold: number
+// ): boolean {
+//   return templates.every((tpl) => {
+//     const { score } = matchTemplate(base, [tpl])
+//     return score > threshold
+//   })
+// }
 
 let inBattle = false
 let isMatchRecord = false
@@ -415,7 +415,7 @@ const THRESHOLD = {
   result: 0.7
 }
 
-let shouldRecordNewMatch = false
+// let shouldRecordNewMatch = false
 
 // let customBattleActive = false // whether a custom-room battle is ongoing
 // let normalBattleActive = false // whether a normal battle is ongoing
@@ -489,7 +489,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       // customBattleActive = false
       // normalBattleActive = false
       lastRowId = -1
-      shouldRecordNewMatch = false
+      // shouldRecordNewMatch = false
 
       console.log('[Analyzer] History detected: cooling down for 15s')
       return scheduleNext(port)

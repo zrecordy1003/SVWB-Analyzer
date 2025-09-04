@@ -11,9 +11,10 @@ datasource db {
 }
 
 model DeckCategory {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @default(now()) @updatedAt
 
   decks Deck[]
 
@@ -21,10 +22,11 @@ model DeckCategory {
 }
 
 model Deck {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   name      String
   class     String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @default(now()) @updatedAt
 
   // 新增分類（可為 null）
   categoryId String?
@@ -38,9 +40,10 @@ model Deck {
 }
 
 model Tag {
-  id        Int      @id @default(autoincrement())
+  id        Int       @id @default(autoincrement())
   name      String
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  updatedAt DateTime? @default(now()) @updatedAt
 
   matches MatchTag[]
 
@@ -103,7 +106,8 @@ model Match {
   month Int?
   day   Int?
 
-  note String?
+  note      String?
+  updatedAt DateTime? @default(now()) @updatedAt
 
   my_deck   Deck? @relation("MatchMyDeck", fields: [my_deckId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   oppo_deck Deck? @relation("MatchOppoDeck", fields: [oppo_deckId], references: [id], onDelete: SetNull, onUpdate: Cascade)

@@ -19,10 +19,11 @@ import { Zoom } from '@mui/material'
 
 import TimelineIcon from '@mui/icons-material/Timeline'
 import MenuIcon from '@mui/icons-material/Menu'
-import BarChartIcon from '@mui/icons-material/BarChart'
+// import BarChartIcon from '@mui/icons-material/BarChart'
 import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
-import HomeIcon from '@mui/icons-material/Home'
+// import HomeIcon from '@mui/icons-material/Home'
+import EditNoteIcon from '@mui/icons-material/EditNote'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 // import Sun from '@mui/icons-material/Brightness4'
 // import Moon from '@mui/icons-material/Brightness7'
@@ -31,14 +32,16 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 
 // import Disclaimer from './components/Disclaimer'
 import GameStatus from './components/GameStatus'
-import HomePage from './components/HomePage/HomePage'
+// import HomePage from './components/HomePage/HomePage'
 import Settings from './components/Settings/Settings'
-import Analyzer from './components/Analyzer/Analyzer'
 import BattleStatus from './components/BattleStatus/BattleStatus'
 import UpdateBackground from './components/Update/UpdateBackground'
-// const Analyzer = lazy(() => import('./components/Analyzer'))
+import DeckSelector from './components/DeckSelector/DeckSelector'
+const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
-const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
+// const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
+const MatchEdit = lazy(() => import('./components/MatchEdit/MatchEdit'))
+
 // const ChartBuilder = lazy(() => import('./components/ChartBuilder/ChartBuilder'))
 // import Statistics from './components/Statistics'
 
@@ -73,7 +76,7 @@ const Main = styled('main', {
   overflowY: 'auto'
 }))
 
-type PageKey = 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings'
+type PageKey = 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings' | 'MatchEdit'
 
 function App(): React.JSX.Element {
   // theme mode
@@ -140,7 +143,11 @@ function App(): React.JSX.Element {
 
   // menu items
   const menuItems: Array<{ key: PageKey; text: string; icon: React.ReactNode }> = [
-    // { key: 'Home', text: '主頁', icon: <HomeIcon /> },
+    {
+      key: 'MatchEdit',
+      text: '對局編輯',
+      icon: <EditNoteIcon sx={{ ml: '1px', fontSize: '28px' }} />
+    },
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     // { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
@@ -149,7 +156,7 @@ function App(): React.JSX.Element {
 
   // AppBar title 根據 page
   const titles: Record<PageKey, string> = {
-    // Home: '主頁',
+    MatchEdit: '對局編輯',
     Analyzer: '分析器',
     MatchList: '對局列表',
     MatchAnalytics: '統計圖表',
@@ -192,6 +199,16 @@ function App(): React.JSX.Element {
           <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
             {titles[currentPage]}
           </Typography>
+          <Box
+            sx={{
+              position: 'absolute',
+              left: '35%',
+              height: '100%',
+              transform: 'translateY(3px)'
+            }}
+          >
+            <DeckSelector />
+          </Box>
           <Box
             sx={{
               position: 'absolute',
@@ -309,6 +326,7 @@ function App(): React.JSX.Element {
         <Toolbar />
         <Suspense fallback={<div>載入中...</div>}>
           {/* {currentPage === 'Home' && <HomePage />} */}
+          {currentPage === 'MatchEdit' && <MatchEdit />}
           {currentPage === 'MatchList' && <MatchList />}
           {currentPage === 'Analyzer' && <Analyzer />}
           {/* {currentPage === 'MatchAnalytics' && <MatchAnalytics />} */}
