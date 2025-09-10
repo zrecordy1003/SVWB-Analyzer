@@ -58,6 +58,10 @@ declare global {
         rangeKey?: RangeKey
         start?: Date | number | string
         end?: Date | number | string
+        myDeckIds?: number[]
+        tagIds?: number[]
+        crMin?: number
+        crMax?: number
       }): Promise<RankedWinrateByOpponent>
       onNewMatch(cb: (m: any) => void): () => void
       onNeedRefetch(cb: () => void): () => void

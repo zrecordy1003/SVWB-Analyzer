@@ -13,6 +13,7 @@ datasource db {
 model DeckCategory {
   id        String    @id @default(cuid())
   name      String
+  sort      Int?
   createdAt DateTime  @default(now())
   updatedAt DateTime? @default(now()) @updatedAt
 
@@ -27,6 +28,8 @@ model Deck {
   class     String
   createdAt DateTime  @default(now())
   updatedAt DateTime? @default(now()) @updatedAt
+
+  isDefault Boolean @default(false)
 
   // 新增分類（可為 null）
   categoryId String?
@@ -96,6 +99,8 @@ model Match {
   oppo_deckId  Int?
   mode         GameMode?
   bp           Int?
+  current_cr   Int?
+  delta_cr     Int?
   durationTime Int?
 
   playedAt DateTime  @default(now())

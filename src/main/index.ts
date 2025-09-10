@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor, screen } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -138,9 +138,22 @@ function createSplash(): void {
 }
 
 function createWindow(): void {
+  // const wa = screen.getPrimaryDisplay().workArea
+  const saved: { x?: number; y?: number; width: number; height: number } = store.get(
+    'mainWindowBounds'
+  ) ?? {
+    width: 1450,
+    height: 800
+  }
+
+  const defaultWidth = 1450
+  const defaultHeight = 800
+
   mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 760,
+    // ...saved,
+    width: saved?.width ?? defaultWidth,
+    height: saved?.height ?? defaultHeight,
+    ...(saved.x && saved.y ? { x: saved.x, y: saved.y } : { center: true }),
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#111318',
@@ -152,6 +165,9 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+
+  mainWindow.on('moved', () => store.set('mainWindowBounds', mainWindow!.getBounds()))
+  mainWindow.on('resized', () => store.set('mainWindowBounds', mainWindow!.getBounds()))
 
   mainWindow.removeMenu()
 

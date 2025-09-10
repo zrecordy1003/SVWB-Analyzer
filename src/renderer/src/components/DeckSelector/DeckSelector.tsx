@@ -1,11 +1,12 @@
+// src/renderer/components/matches/DeckSelector.tsx
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Box,
   Button,
   Card,
-  CardActionArea,
   CardContent,
+  CardActionArea,
   Chip,
   Dialog,
   DialogTitle,
@@ -24,17 +25,20 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  FormControlLabel,
+  Switch,
+  Paper
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
-import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import SearchIcon from '@mui/icons-material/Search'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
-import { classes } from '@renderer/map/classMap'
+import { classes, classesMap } from '@renderer/map/classMap'
+import type { ClassName } from '@prisma/client'
 
 /** BattleState 介面（來自事件） */
 interface BattleState {
@@ -44,24 +48,33 @@ interface BattleState {
   playOrder: string | null
 }
 
-/** === DB 型別 === */
-type DbDeckCategory = { id: string; name: string; createdAt: string }
-type DbDeck = { id: number; name: string; class: string; categoryId: string | null }
+/** 後端回傳 */
+type Ok<T> = { ok: true; data: T }
+type Err = { ok: false; error: string }
+type Res<T> = Ok<T> | Err
 
-/** === UI 型別 === */
-type ClassId = (typeof classes)[number]['id']
-type DeckCategory = { id: string; name: string }
-type Deck = { id: number; name: string; classId: ClassId; categoryId: string | null }
-
-type DeckSelectorProps = {
-  value?: number | null
-  onChange?: (deckId: number | null, deck?: Deck) => void
-  label?: string
-  width?: number | string
-  allowCreate?: boolean
+/** DB 型別 */
+type DbDeckCategory = { id: string; name: string; sort?: number }
+type DbDeck = {
+  id: number
+  name: string
+  class: ClassName
+  categoryId: string | null
+  isDefault?: boolean
 }
 
-/** 分類顯示對應 */
+/** UI 型別 */
+type ClassId = ClassName
+type DeckCategory = { id: string; name: string }
+type Deck = {
+  id: number
+  name: string
+  classId: ClassId
+  categoryId: string | null
+  isDefault: boolean
+}
+
+/** 分類顯示對應（可自訂字樣） */
 const CATEGORY_LABEL_MAP: Record<string, string> = {
   aggro: '快攻',
   midrange: '中速',
@@ -69,22 +82,26 @@ const CATEGORY_LABEL_MAP: Record<string, string> = {
 }
 const getCategoryLabel = (name: string) => CATEGORY_LABEL_MAP[name] ?? name
 
-/** 名稱長度限制 */
-const DISPLAY_NAME_LIMIT = 8
-const displayName = (s: string) =>
-  s.length > DISPLAY_NAME_LIMIT ? s.slice(0, DISPLAY_NAME_LIMIT) + '…' : s
+/** 名稱長度限制（統一 8 字） */
+const NAME_LIMIT = 8
+const displayName = (s: string) => (s.length > 12 ? s.slice(0, 12) + '…' : s)
 
-export const DeckSelector: React.FC<DeckSelectorProps> = ({
-  value,
-  onChange,
-  label = '選擇牌組',
+/** 「全部」分類的虛擬 id */
+const ALL_CAT = '__ALL__'
+const lastCatKey = (cls: ClassId) => `deck:lastCat:${cls}`
+
+type DeckSelectorProps = {
+  label?: string
+  width?: number | string
+  allowCreate?: boolean
+}
+
+const DeckSelector: React.FC<DeckSelectorProps> = ({
+  label = '管理預設牌組',
   width = 320,
   allowCreate = true
 }) => {
-  const [internalSelectedId, setInternalSelectedId] = useState<number | null>(null)
-  const selectedId = value !== undefined ? value : internalSelectedId
-
-  // Dialog 狀態
+  // Dialog
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -99,19 +116,11 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
 
   // 新增
   const [newName, setNewName] = useState('')
+  const [newCategoryId, setNewCategoryId] = useState<string | ''>('') // 建立時可選分類
+  const [newClass, setNewClass] = useState<ClassId>('witch')
+  const [newSetDefault, setNewSetDefault] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  // 預設牌組
-  const [defaultDecks, setDefaultDecks] = useState<Record<ClassId, number | null>>({
-    elf: null,
-    royal: null,
-    witch: null,
-    dragon: null,
-    bishop: null,
-    nightmare: null,
-    nemesis: null
-  })
 
   // 編輯
   const [editing, setEditing] = useState<Deck | null>(null)
@@ -121,28 +130,47 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
   // 刪除
   const [deleting, setDeleting] = useState<Deck | null>(null)
 
-  // 初始化
+  // 設定預設時的忙碌 deckId（避免連點）
+  const [defaultBusyId, setDefaultBusyId] = useState<number | null>(null)
+
+  // 初始化：載入分類與牌組
   useEffect(() => {
     let mounted = true
     ;(async () => {
       try {
-        const res = await window.electron.ipcRenderer.invoke('decks:list')
+        setLoadError(null)
+        const [catRes, deckRes] = (await Promise.all([
+          window.electron.ipcRenderer.invoke('deckCategories:all'),
+          window.electron.ipcRenderer.invoke('decks:all')
+        ])) as [Res<DbDeckCategory[]>, Res<DbDeck[]>]
+
         if (!mounted) return
-        if (res?.error) throw new Error(res.error)
-        const cats: DeckCategory[] = (res?.categories as DbDeckCategory[]).map((c) => ({
-          id: c.id,
-          name: c.name
-        }))
-        const ds: Deck[] = (res?.decks as DbDeck[]).map((d) => ({
+        if (!catRes.ok) throw new Error(catRes.error)
+        if (!deckRes.ok) throw new Error(deckRes.error)
+
+        const cats: DeckCategory[] = catRes.data.map((c) => ({ id: c.id, name: c.name }))
+        const ds: Deck[] = deckRes.data.map((d) => ({
           id: d.id,
           name: d.name,
-          classId: d.class as ClassId,
-          categoryId: d.categoryId
+          classId: d.class,
+          categoryId: d.categoryId,
+          isDefault: !!d.isDefault
         }))
+
         setCategories(cats)
         setDecks(ds)
-        if (!activeCategoryId && cats.length) setActiveCategoryId(cats[0].id)
-        setLoadError(null)
+
+        // 初始分類：若當前職業已有預設 → 切到預設所在分類；否則 last；否則第一個；最後 ALL
+        const initClass: ClassId = 'witch'
+        const defaultDeck = ds.find((x) => x.classId === initClass && x.isDefault)
+        const last = localStorage.getItem(lastCatKey(initClass))
+        setActiveClass(initClass)
+        setNewClass(initClass)
+        if (defaultDeck?.categoryId) setActiveCategoryId(defaultDeck.categoryId)
+        else if (last && cats.some((c) => c.id === last)) setActiveCategoryId(last)
+        else if (cats[0]) setActiveCategoryId(cats[0].id)
+        else setActiveCategoryId(ALL_CAT)
+        setNewCategoryId(cats[0]?.id ?? '')
       } catch (err: any) {
         setLoadError(err?.message ?? '載入失敗（Failed to load）')
       }
@@ -152,19 +180,33 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
     }
   }, [])
 
-  // 戰鬥聯動
+  /** 以 classes 陣列動態產生各職業的預設牌組 id map */
+  const classIds = useMemo(() => classes.map((c) => c.id as ClassId), [])
+  const defaultIdByClass = useMemo(() => {
+    const base = Object.fromEntries(classIds.map((id) => [id, null])) as Record<
+      ClassId,
+      number | null
+    >
+    for (const d of decks) if (d.isDefault) base[d.classId] = d.id
+    return base
+  }, [decks, classIds])
+
+  const defaultDeckOfActive = useMemo(() => {
+    const id = defaultIdByClass[activeClass]
+    return id ? (decks.find((d) => d.id === id) ?? null) : null
+  }, [defaultIdByClass, activeClass, decks])
+
+  // 戰鬥聯動：自動切職業，僅提示該職業預設（不做臨時選取）
   useEffect(() => {
     const handler = (_e: unknown, msg: BattleState) => {
       if (msg.inBattle && msg.ownClass) {
         const cls = msg.ownClass as ClassId
         setActiveClass(cls)
-        const defId = defaultDecks[cls]
+        setNewClass(cls)
+        const defId = defaultIdByClass[cls]
         if (defId) {
           const d = decks.find((x) => x.id === defId)
-          if (d) {
-            if (value === undefined) setInternalSelectedId(d.id)
-            onChange?.(d.id, d)
-          }
+          if (d?.categoryId) setActiveCategoryId(d.categoryId)
         }
       }
     }
@@ -173,13 +215,9 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
       if (typeof unsubscribe === 'function') unsubscribe()
       else window.electron?.ipcRenderer.removeListener?.('battle:status', handler as any)
     }
-  }, [decks, defaultDecks, value, onChange])
+  }, [decks, defaultIdByClass])
 
-  const selectedDeck = useMemo(
-    () => decks.find((d) => d.id === selectedId) || null,
-    [decks, selectedId]
-  )
-
+  // 當前職業下，各分類的數量
   const categoryCounts = useMemo(() => {
     const byCat: Record<string, number> = {}
     for (const cat of categories) byCat[cat.id] = 0
@@ -191,62 +229,105 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
     return byCat
   }, [decks, categories, activeClass])
 
+  // 清單：當前職業 + 當前分類（或 ALL）+ 搜尋
   const filtered = useMemo(() => {
-    if (!activeCategoryId) return []
     const q = query.trim().toLowerCase()
-    let base = decks.filter((d) => d.classId === activeClass && d.categoryId === activeCategoryId)
+    let base = decks.filter((d) => d.classId === activeClass)
+    if (activeCategoryId && activeCategoryId !== ALL_CAT) {
+      base = base.filter((d) => d.categoryId === activeCategoryId)
+    }
     if (q) base = base.filter((d) => d.name.toLowerCase().includes(q))
     return base
   }, [decks, activeClass, activeCategoryId, query])
 
-  const handleChoose = (deck: Deck) => {
-    if (value === undefined) setInternalSelectedId(deck.id)
-    onChange?.(deck.id, deck)
-    setDefaultDecks((prev) => ({ ...prev, [deck.classId]: deck.id }))
-    setOpen(false)
-  }
-  const handleClear = () => {
-    if (value === undefined) setInternalSelectedId(null)
-    onChange?.(null, undefined)
-  }
-  const handleSetDefaultOnly = (deck: Deck) => {
-    setDefaultDecks((prev) => ({ ...prev, [deck.classId]: deck.id }))
+  /** 設為該職業預設（交易 API，唯一性由後端保證） */
+  const setDefaultForClass = async (deck: Deck) => {
+    try {
+      setDefaultBusyId(deck.id)
+      const res = (await window.electron.ipcRenderer.invoke('decks:setDefaultForClass', {
+        deckId: deck.id
+      })) as Res<DbDeck>
+      if (!res.ok) throw new Error(res.error)
+      setDecks((prev) =>
+        prev.map((d) => (d.classId !== deck.classId ? d : { ...d, isDefault: d.id === deck.id }))
+      )
+    } catch (err: any) {
+      setError(err?.message ?? '設定預設失敗')
+    } finally {
+      setDefaultBusyId(null)
+    }
   }
 
+  // 切換職業 tab 時，新增區的職業也跟著改，沒有預設時自動勾選
+  const handleChangeClassTab = (_: unknown, idx: number) => {
+    const cls = classes[idx].id as ClassId
+    setActiveClass(cls)
+    setNewClass(cls)
+    const defId = defaultIdByClass[cls]
+    const defDeck = defId ? decks.find((d) => d.id === defId) : null
+    const last = localStorage.getItem(lastCatKey(cls))
+    if (defDeck?.categoryId) setActiveCategoryId(defDeck.categoryId)
+    else if (last && categories.some((c) => c.id === last)) setActiveCategoryId(last)
+    else if (categories[0]) setActiveCategoryId(categories[0].id)
+    else setActiveCategoryId(ALL_CAT)
+  }
+
+  // 沒有預設時，建立畫面預設打勾（看 newClass）
+  useEffect(() => {
+    setNewSetDefault(defaultIdByClass[newClass] == null)
+  }, [newClass, defaultIdByClass])
+
   const handleCreate = async () => {
-    if (!activeCategoryId) return
+    const catId = newCategoryId || activeCategoryId || ''
+    if (!catId || catId === ALL_CAT) return setError('請選擇分類')
     const name = newName.trim()
     if (!name) return setError('需要名稱')
-    if (name.length > 8) return setError('名稱最多 8 字')
+    if (name.length > NAME_LIMIT) return setError(`名稱最多 ${NAME_LIMIT} 字`)
+
     const dup = decks.some(
       (d) =>
-        d.classId === activeClass &&
-        d.categoryId === activeCategoryId &&
+        d.classId === newClass &&
+        d.categoryId === catId &&
         d.name.toLowerCase() === name.toLowerCase()
     )
     if (dup) return setError('名稱已存在')
-    setError(null)
+
     try {
       setCreating(true)
-      const res = await window.electron.ipcRenderer.invoke('decks:create', {
+      const res = (await window.electron.ipcRenderer.invoke('decks:create', {
         name,
-        classId: activeClass,
-        categoryId: activeCategoryId
-      })
-      if (res?.error) throw new Error(res.error)
-      const createdDb = res as DbDeck
+        class: newClass,
+        categoryId: catId,
+        isDefault: newSetDefault
+      })) as Res<DbDeck>
+
+      if (!res.ok) throw new Error(res.error)
+
+      const createdDb = res.data
       const created: Deck = {
         id: createdDb.id,
         name: createdDb.name,
-        classId: createdDb.class as ClassId,
-        categoryId: createdDb.categoryId
+        classId: createdDb.class,
+        categoryId: createdDb.categoryId,
+        isDefault: !!createdDb.isDefault
       }
-      setDecks((prev) => [created, ...prev])
-      if (value === undefined) setInternalSelectedId(created.id)
-      onChange?.(created.id, created)
-      setDefaultDecks((prev) => ({ ...prev, [created.classId]: created.id }))
+
+      setDecks((prev) => {
+        if (created.isDefault) {
+          return prev
+            .map((d) => (d.classId === created.classId ? { ...d, isDefault: false } : d))
+            .concat(created)
+        }
+        return [created, ...prev]
+      })
+
+      // 建好後：若職業不同，切到該職業；同時切到它的分類，方便立刻看到
+      if (newClass !== activeClass) setActiveClass(newClass)
+      localStorage.setItem(lastCatKey(created.classId), created.categoryId ?? '')
+      setActiveCategoryId(created.categoryId)
+      setNewCategoryId(created.categoryId ?? '')
       setNewName('')
-      setOpen(false)
+      setError(null)
     } catch (err: any) {
       setError(err?.message ?? '建立失敗')
     } finally {
@@ -254,51 +335,63 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
     }
   }
 
+  // 編輯（rename / move category）
   const handleEditSave = async () => {
     if (!editing) return
     const newTrim = editName.trim()
     if (!newTrim) return
-    if (newTrim.length > 8) return setError('名稱最多 8 字')
+    if (newTrim.length > NAME_LIMIT) return setError(`名稱最多 ${NAME_LIMIT} 字`)
+
     try {
-      const res = await window.electron.ipcRenderer.invoke('decks:update', {
+      const res = (await window.electron.ipcRenderer.invoke('decks:update', {
         id: editing.id,
         name: newTrim,
         categoryId: editCategoryId
-      })
-      if (res?.error) throw new Error(res.error)
-      const updatedDb = res as DbDeck
+      })) as Res<DbDeck>
+
+      if (!res.ok) throw new Error(res.error)
+
+      const updatedDb = res.data
       const updated: Deck = {
         id: updatedDb.id,
         name: updatedDb.name,
-        classId: updatedDb.class as ClassId,
-        categoryId: updatedDb.categoryId
+        classId: updatedDb.class,
+        categoryId: updatedDb.categoryId,
+        isDefault: !!updatedDb.isDefault
       }
+
       setDecks((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-      if (selectedId === updated.id) onChange?.(updated.id, updated)
       setEditing(null)
     } catch (err: any) {
       setError(err?.message ?? '更新失敗')
     }
   }
 
+  // 刪除
   const handleDelete = async () => {
     if (!deleting) return
     try {
-      await window.electron.ipcRenderer.invoke('decks:delete', { id: deleting.id })
+      const res = (await window.electron.ipcRenderer.invoke('decks:delete', {
+        id: deleting.id
+      })) as Res<{ success: true }>
+
+      if (!res.ok) throw new Error(res.error)
       setDecks((prev) => prev.filter((d) => d.id !== deleting.id))
-      if (selectedId === deleting.id) {
-        if (value === undefined) setInternalSelectedId(null)
-        onChange?.(null, undefined)
-      }
       setDeleting(null)
     } catch (err: any) {
       setError(err?.message ?? '刪除失敗')
     }
   }
 
+  // 存下每個職業的最後分類
+  useEffect(() => {
+    if (!activeCategoryId || activeCategoryId === ALL_CAT) return
+    localStorage.setItem(lastCatKey(activeClass), activeCategoryId)
+  }, [activeClass, activeCategoryId])
+
   return (
     <>
-      {/* 選擇器主卡片 */}
+      {/* 主卡片（僅開啟管理對話框） */}
       <Card variant="outlined" sx={{ width, height: 56, display: 'flex' }}>
         <CardActionArea onClick={() => setOpen(true)} sx={{ flex: 1, minHeight: 0 }}>
           <CardContent
@@ -312,36 +405,36 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
               overflow: 'hidden'
             }}
           >
-            <Stack direction="row" alignItems="center" gap={1} sx={{ flex: 1, minWidth: 0 }}>
+            <Stack direction="row" alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="overline" sx={{ opacity: 0.8 }} noWrap>
                   {label}
                 </Typography>
-                <Typography variant="h6" noWrap>
-                  {selectedDeck ? selectedDeck.name : '選擇牌組'}
+                <br />
+                <Typography
+                  variant="caption"
+                  fontSize={'14px'}
+                  sx={{ color: classesMap[activeClass]?.color }}
+                >
+                  {`${classesMap[activeClass]?.label}  `}
+                </Typography>
+                －
+                <Typography
+                  variant="caption"
+                  fontSize={'14px'}
+                  sx={{ color: classesMap[activeClass]?.color, opacity: 0.9 }}
+                >
+                  {' '}
+                  {defaultDeckOfActive?.name ?? ' 未設定'}
                 </Typography>
               </Box>
             </Stack>
-            <Stack direction="row" gap={1} alignItems="center">
-              {selectedDeck ? (
-                <Chip size="small" color="success" variant="outlined" label="已選擇" />
-              ) : (
-                <Chip size="small" color="info" variant="outlined" label="未選擇" />
-              )}
-              {selectedDeck && (
-                <Tooltip title="清除">
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleClear()
-                    }}
-                  >
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              )}
-            </Stack>
+            <Chip
+              size="small"
+              color={defaultDeckOfActive ? 'success' : 'warning'}
+              variant="outlined"
+              label={defaultDeckOfActive ? '已有預設' : '未設定'}
+            />
           </CardContent>
         </CardActionArea>
       </Card>
@@ -351,7 +444,7 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
         <DialogTitle
           sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pr: 1 }}
         >
-          選擇或新增牌組
+          預設牌組管理
           <IconButton size="small" onClick={() => setOpen(false)}>
             <CloseIcon />
           </IconButton>
@@ -359,7 +452,7 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
 
         <DialogContent
           dividers
-          sx={{ display: 'flex', flexDirection: 'column', height: 540, overflow: 'hidden' }}
+          sx={{ display: 'flex', flexDirection: 'column', height: 600, overflow: 'hidden', gap: 1 }}
         >
           {loadError && (
             <Alert severity="error" sx={{ mb: 1 }}>
@@ -367,10 +460,30 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
             </Alert>
           )}
 
+          {/* 頂部：本職業預設提示條 */}
+          <Paper
+            sx={{
+              p: 1,
+              bgcolor: classesMap[activeClass].bgColor,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}
+          >
+            <Stack direction="row" alignItems="center" spacing={1}>
+              <StarIcon sx={{ color: classesMap[activeClass].color }} fontSize="small" />
+              <Typography variant="body2">
+                {defaultDeckOfActive
+                  ? `目前 ${classesMap[activeClass]?.label} 的預設牌組：${defaultDeckOfActive.name}`
+                  : `目前 ${classesMap[activeClass]?.label} 尚未設定預設牌組`}
+              </Typography>
+            </Stack>
+          </Paper>
+
           {/* 職業 Tabs */}
           <Tabs
             value={classes.findIndex((c) => c.id === activeClass)}
-            onChange={(_, idx: number) => setActiveClass(classes[idx].id as ClassId)}
+            onChange={handleChangeClassTab}
             variant="scrollable"
             scrollButtons="auto"
             sx={{ mb: 0.5 }}
@@ -381,7 +494,7 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
                 label={
                   <Stack direction="row" alignItems="center" gap={0.5}>
                     <span>{c.label}</span>
-                    {defaultDecks[c.id as ClassId] ? (
+                    {defaultIdByClass[c.id as ClassId] ? (
                       <StarIcon htmlColor={c.color} fontSize="small" />
                     ) : null}
                   </Stack>
@@ -390,185 +503,286 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
             ))}
           </Tabs>
 
-          {/* 分類 Tabs */}
-          <Tabs
-            value={Math.max(
-              0,
-              categories.findIndex((cat) => cat.id === activeCategoryId)
-            )}
-            onChange={(_, idx: number) => setActiveCategoryId(categories[idx]?.id ?? null)}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{ mb: 0.5 }}
-          >
-            {categories.map((cat) => {
-              const count = categoryCounts[cat.id] ?? 0
-              return <Tab key={cat.id} label={`${getCategoryLabel(cat.name)}（${count}）`} />
-            })}
-          </Tabs>
+          <Box display={'flex'} alignItems={'center'} justifyContent={'space-between'}>
+            {/* 分類 Tabs（含「全部」） */}
+            <Tabs
+              value={
+                activeCategoryId === ALL_CAT
+                  ? 0
+                  : Math.max(1, 1 + categories.findIndex((cat) => cat.id === activeCategoryId))
+              }
+              onChange={(_, idx: number) => {
+                if (idx === 0) setActiveCategoryId(ALL_CAT)
+                else setActiveCategoryId(categories[idx - 1]?.id ?? ALL_CAT)
+              }}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ mb: 0.5 }}
+            >
+              <Tab label="全部" />
+              {categories.map((cat) => {
+                const count = categoryCounts[cat.id] ?? 0
+                return <Tab key={cat.id} label={`${getCategoryLabel(cat.name)}（${count}）`} />
+              })}
+            </Tabs>
 
-          {/* 搜尋 */}
-          <TextField
-            placeholder="搜尋牌組"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              )
-            }}
-            sx={{ mb: 1 }}
-          />
+            {/* 搜尋 */}
+            <TextField
+              size="small"
+              placeholder="搜尋牌組（名稱）"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon fontSize="small" />
+                  </InputAdornment>
+                )
+              }}
+              sx={{ mb: 1 }}
+            />
+          </Box>
 
-          {/* 清單：固定三欄、卡片等高 */}
+          {/* 清單：固定三欄、卡片等高；點卡片＝設為預設 */}
           <Box
             sx={{
               display: 'grid',
               gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
               gap: 2,
-              maxHeight: 280,
+              maxHeight: 300,
+              minHeight: 200,
               overflowY: 'auto',
               pr: 1
             }}
           >
-            {filtered.map((d) => {
-              const isSelected = d.id === selectedId
-              const isDefaultForClass = defaultDecks[activeClass] === d.id
-              const clazz = classes.find((c) => c.id === d.classId)!
-              return (
-                <Card
-                  key={d.id}
-                  variant="outlined"
-                  sx={{
-                    p: 1.25,
-                    height: 104,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    borderRadius: 2,
-                    boxShadow: isSelected ? 4 : 1,
-                    borderColor: isSelected ? 'success.main' : 'divider',
-                    '&:hover': { boxShadow: 6 },
-                    position: 'relative',
-                    backgroundColor: `${clazz.bgColor}22`,
-                    cursor: 'pointer'
-                  }}
-                  onClick={() => handleChoose(d)}
-                >
-                  {/* 右上角：預設/編輯/刪除 */}
-                  <Stack
-                    direction="row"
-                    spacing={0.5}
-                    sx={{ position: 'absolute', top: 4, right: 4 }}
+            {filtered.length === 0 ? (
+              <Paper
+                sx={{
+                  gridColumn: '1 / -1',
+                  pt: 8,
+                  textAlign: 'center',
+                  color: 'text.secondary',
+                  bgcolor: classesMap[activeClass].bgColor
+                }}
+              >
+                <Typography variant="body2" sx={{ mb: 1 }}>
+                  這裡還沒有牌組，試著新增一組吧！
+                </Typography>
+                {allowCreate && (
+                  <Button
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      const fallback = categories[0]?.id ?? ''
+                      const pick =
+                        activeCategoryId && activeCategoryId !== ALL_CAT
+                          ? activeCategoryId
+                          : fallback
+                      setNewCategoryId(pick)
+                      ;(
+                        document.getElementById('deck-create-name-input') as HTMLInputElement | null
+                      )?.focus()
+                    }}
                   >
-                    <Tooltip title={isDefaultForClass ? '預設牌組' : '設為預設'}>
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleSetDefaultOnly(d)
-                        }}
-                      >
-                        {isDefaultForClass ? (
-                          <StarIcon htmlColor={clazz.color} fontSize="small" />
-                        ) : (
-                          <StarBorderIcon fontSize="small" />
-                        )}
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="編輯">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setEditing(d)
-                          setEditName(d.name)
-                          setEditCategoryId(d.categoryId ?? null)
-                        }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="刪除">
-                      <IconButton
-                        size="small"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setDeleting(d)
-                        }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  </Stack>
+                    新增牌組
+                  </Button>
+                )}
+              </Paper>
+            ) : (
+              filtered.map((d) => {
+                const clazz = classes.find((c) => c.id === d.classId)!
+                const isDefault = !!d.isDefault
+                return (
+                  <Card
+                    key={d.id}
+                    variant="outlined"
+                    sx={{
+                      p: 1.25,
+                      height: 110,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      borderRadius: 2,
+                      boxShadow: isDefault ? 6 : 1,
+                      borderColor: isDefault ? 'success.main' : 'divider',
+                      '&:hover': { boxShadow: 6 },
+                      position: 'relative',
+                      backgroundColor: `${clazz.bgColor}22`,
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => void setDefaultForClass(d)}
+                  >
+                    {/* 整張卡片可點：設為預設 */}
+                    <CardActionArea
+                      sx={{ position: 'absolute', inset: 0, borderRadius: 2 }}
+                      disabled={defaultBusyId === d.id}
+                    />
 
-                  <ListItemText
-                    primary={
-                      //   <Tooltip title={d.name}>
-                      <Typography variant="body2" fontWeight={600} noWrap>
-                        {displayName(d.name)}
-                      </Typography>
-                      //   {/* </Tooltip> */}
-                    }
-                    secondary={
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        {clazz.label} ·{' '}
-                        {getCategoryLabel(
-                          categories.find((c) => c.id === d.categoryId)?.name ?? '-'
-                        )}
-                      </Typography>
-                    }
-                    sx={{ pr: 1.5 }}
-                  />
+                    {/* 右上角：星星僅作狀態指示（不可點），避免誤導 */}
+                    <Stack
+                      direction="row"
+                      spacing={0.5}
+                      sx={{ position: 'absolute', top: 4, right: 4, zIndex: 1 }}
+                    >
+                      <Tooltip title={isDefault ? '預設牌組' : '點卡片可設為預設'}>
+                        <span>
+                          <IconButton
+                            size="small"
+                            disableRipple
+                            sx={{ pointerEvents: 'none' }} // 不可點擊，整卡片才是操作點
+                            aria-hidden
+                          >
+                            {isDefault ? (
+                              <StarIcon htmlColor={clazz.color} fontSize="small" />
+                            ) : (
+                              <StarBorderIcon fontSize="small" />
+                            )}
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                      <Tooltip title="編輯">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setEditing(d)
+                            setEditName(d.name)
+                            setEditCategoryId(d.categoryId ?? null)
+                          }}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="刪除">
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setDeleting(d)
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Stack>
 
-                  <Stack direction="row" justifyContent="flex-end">
-                    {isSelected && (
-                      <Chip icon={<CheckIcon />} size="small" color="success" label="已選擇" />
-                    )}
-                  </Stack>
-                </Card>
-              )
-            })}
+                    <ListItemText
+                      primary={
+                        <Typography variant="body2" fontWeight={600} noWrap>
+                          {displayName(d.name)}
+                        </Typography>
+                      }
+                      secondary={
+                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                          {clazz.label} ·{' '}
+                          {getCategoryLabel(
+                            categories.find((c) => c.id === d.categoryId)?.name ?? '-'
+                          )}
+                        </Typography>
+                      }
+                      sx={{ pr: 1.5, zIndex: 0 }}
+                    />
+
+                    <Stack direction="row" justifyContent="flex-end" sx={{ zIndex: 0 }}>
+                      {isDefault && <Chip size="small" color="success" label="預設" />}
+                    </Stack>
+                  </Card>
+                )
+              })
+            )}
           </Box>
 
-          {/* 新增 */}
+          {/* 新增區：可選職業 + 分類 + 一鍵設為預設 */}
           {allowCreate && (
             <>
               <Divider sx={{ my: 1 }} />
-              <Box>
+              <Paper sx={{ p: 1.5, bgcolor: '#4b4848' }}>
                 <Typography variant="subtitle2" sx={{ mb: 1 }}>
                   新增牌組
                 </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} gap={1} alignItems="stretch">
                   <TextField
-                    placeholder="輸入新牌組名稱（最多 8 字）"
+                    id="deck-create-name-input"
+                    placeholder={`輸入新牌組名稱（最多 ${NAME_LIMIT} 字）`}
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
-                    slotProps={{ input: { inputProps: { maxLength: 8 } } }}
-                    helperText={`${newName.length}/8`}
+                    error={!!error}
+                    helperText={error ? error : `${newName.length}/${NAME_LIMIT}`}
+                    slotProps={{ input: { inputProps: { maxLength: NAME_LIMIT } } }}
+                    sx={{ width: 250 }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()
                         void handleCreate()
                       }
                     }}
-                    fullWidth
                   />
+
+                  {/* 職業 */}
+                  <FormControl sx={{ minWidth: 120 }}>
+                    <InputLabel>職業</InputLabel>
+                    <Select
+                      label="職業"
+                      value={newClass}
+                      onChange={(e) => setNewClass(e.target.value as ClassId)}
+                    >
+                      {classes.map((c) => (
+                        <MenuItem key={c.id} value={c.id}>
+                          {c.label}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  {/* 分類 */}
+                  <FormControl sx={{ minWidth: 120 }}>
+                    <InputLabel>分類</InputLabel>
+                    <Select
+                      label="分類"
+                      value={
+                        newCategoryId ||
+                        (activeCategoryId === ALL_CAT ? '' : activeCategoryId) ||
+                        ''
+                      }
+                      onChange={(e) => setNewCategoryId(String(e.target.value))}
+                    >
+                      {categories.map((cat) => (
+                        <MenuItem key={cat.id} value={cat.id}>
+                          {getCategoryLabel(cat.name)}
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+
+                  <FormControlLabel
+                    sx={{ pb: 3, mx: 0.5 }}
+                    control={
+                      <Switch
+                        checked={newSetDefault}
+                        onChange={(e) => setNewSetDefault(e.target.checked)}
+                      />
+                    }
+                    label="設為預設"
+                  />
+
                   <Button
                     variant="contained"
+                    size="small"
+                    sx={{ height: '50px' }}
                     startIcon={<AddIcon />}
                     onClick={() => void handleCreate()}
-                    disabled={creating || !activeCategoryId}
+                    disabled={creating || !newCategoryId}
                   >
-                    新增
+                    建立
                   </Button>
                 </Stack>
-              </Box>
+              </Paper>
             </>
           )}
         </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setOpen(false)}>關閉</Button>
+        </DialogActions>
       </Dialog>
 
       {/* 編輯對話框 */}
@@ -578,11 +792,11 @@ export const DeckSelector: React.FC<DeckSelectorProps> = ({
           <TextField
             fullWidth
             autoFocus
-            label="牌組名稱（最多 8 字）"
+            label={`牌組名稱（最多 ${NAME_LIMIT} 字）`}
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
-            slotProps={{ input: { inputProps: { maxLength: 8 } } }}
-            helperText={`${editName.length}/8`}
+            slotProps={{ input: { inputProps: { maxLength: NAME_LIMIT } } }}
+            helperText={`${editName.length}/${NAME_LIMIT}`}
             sx={{ mb: 2 }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {

@@ -23,7 +23,7 @@ import MenuIcon from '@mui/icons-material/Menu'
 import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 // import HomeIcon from '@mui/icons-material/Home'
-import EditNoteIcon from '@mui/icons-material/EditNote'
+// import EditNoteIcon from '@mui/icons-material/EditNote'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 // import Sun from '@mui/icons-material/Brightness4'
 // import Moon from '@mui/icons-material/Brightness7'
@@ -40,7 +40,7 @@ import DeckSelector from './components/DeckSelector/DeckSelector'
 const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 // const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
-const MatchEdit = lazy(() => import('./components/MatchEdit/MatchEdit'))
+// const MatchEdit = lazy(() => import('./components/MatchEdit/MatchEdit'))
 
 // const ChartBuilder = lazy(() => import('./components/ChartBuilder/ChartBuilder'))
 // import Statistics from './components/Statistics'
@@ -143,11 +143,11 @@ function App(): React.JSX.Element {
 
   // menu items
   const menuItems: Array<{ key: PageKey; text: string; icon: React.ReactNode }> = [
-    {
-      key: 'MatchEdit',
-      text: '對局編輯',
-      icon: <EditNoteIcon sx={{ ml: '1px', fontSize: '28px' }} />
-    },
+    // {
+    //   key: 'MatchEdit',
+    //   text: '對局編輯',
+    //   icon: <EditNoteIcon sx={{ ml: '1px', fontSize: '28px' }} />
+    // },
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     // { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
@@ -326,7 +326,7 @@ function App(): React.JSX.Element {
         <Toolbar />
         <Suspense fallback={<div>載入中...</div>}>
           {/* {currentPage === 'Home' && <HomePage />} */}
-          {currentPage === 'MatchEdit' && <MatchEdit />}
+          {/* {currentPage === 'MatchEdit' && <MatchEdit />} */}
           {currentPage === 'MatchList' && <MatchList />}
           {currentPage === 'Analyzer' && <Analyzer />}
           {/* {currentPage === 'MatchAnalytics' && <MatchAnalytics />} */}

@@ -6,8 +6,11 @@ import cv, { Mat } from '@u4/opencv4nodejs'
 import { createWorker, OEM, PSM } from 'tesseract.js'
 import {
   addMatch,
+  clearMyDeck,
   fetchLastMatch,
   modifyMatchBP,
+  modifyMatchCurrentCR,
+  modifyMatchDeltaCR,
   modifyMatchMode,
   modifyMatchResult
 } from './database.js'
@@ -89,6 +92,162 @@ process.parentPort.on('message', (e) => {
     process.exit(0)
   }
 })
+
+async function recognizeCurrentCR(imgPath: string): Promise<string | undefined> {
+  // 檔案檢查
+  if (!fs.existsSync(imgPath)) {
+    console.warn('[OCR] image is not exist:', imgPath)
+    return
+  }
+  const { size } = fs.statSync(imgPath)
+  if (size === 0) {
+    console.warn('[OCR] File size is zero')
+    return
+  }
+
+  // 讀圖
+  const mat = cv.imread(imgPath).bgrToGray()
+  if (mat.empty) {
+    console.warn('[OCR] Can not read pixel')
+    return
+  }
+
+  // 固定解析度 ROI
+  const current = { x: 1160, y: 365, w: 75, h: 35 }
+  const cursorA = { x: 1055, y: 315, w: 210, h: 135 }
+  const cursorB = { x: 1060, y: 280, w: 210, h: 135 } // 額外再檢一次，避免邊界案例
+  const CURSOR_BLOCK_THRESHOLD = 0.6
+
+  // 游標遮擋檢測（修正成兩塊 ROI 取最大值）
+  const tmpls = prepareScaledTemplates(mat).cursor
+  const roiA = mat.getRegion(new cv.Rect(cursorA.x, cursorA.y, cursorA.w, cursorA.h))
+  const roiB = mat.getRegion(new cv.Rect(cursorB.x, cursorB.y, cursorB.w, cursorB.h))
+  const m1 = matchTemplate(roiA, tmpls)
+  const m2 = matchTemplate(roiB, tmpls)
+  if (Math.max(m1.score, m2.score) > CURSOR_BLOCK_THRESHOLD) {
+    console.log('[OCR] cursor block (currentCR), skip this turn')
+    return '' // 讓上層略過、等待下次
+  }
+
+  // 擷取 + 二值化
+  const currentCrRoi = mat.getRegion(new cv.Rect(current.x, current.y, current.w, current.h))
+  const bin = currentCrRoi.threshold(128, 255, cv.THRESH_BINARY)
+  const buf = cv.imencode('.png', bin)
+
+  try {
+    const worker = await createWorker(['eng'], OEM.DEFAULT, {
+      cachePath: cacheDir,
+      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
+    })
+    await worker.setParameters({
+      tessedit_char_whitelist: '+-0123456789',
+      tessedit_pageseg_mode: PSM.SINGLE_LINE
+    })
+
+    const {
+      data: { text }
+    } = await worker.recognize(buf)
+    await worker.terminate()
+
+    const normalized = (text ?? '')
+      .trim()
+      .replace(/[＋﹢]/g, '+')
+      .replace(/[－﹣]/g, '-')
+      .replace(/[Oo]/g, '0')
+      .replace(/\s+/g, '')
+
+    if (!/^[-+]?\d+$/.test(normalized)) {
+      console.warn('[OCR] currentCR invalid after normalize:', JSON.stringify(normalized))
+      return '' // 視為本次無效
+    }
+    console.log('[OCR] CR(current):', JSON.stringify(normalized))
+    return normalized
+  } catch (e) {
+    console.error('[OCR] recognizeCurrentCR failed:', e)
+    return ''
+  }
+}
+
+async function recognizeDeltaCR(imgPath: string): Promise<string | undefined> {
+  // 檔案檢查
+  if (!fs.existsSync(imgPath)) {
+    console.warn('[OCR] image is not exist:', imgPath)
+    return
+  }
+  const { size } = fs.statSync(imgPath)
+  if (size === 0) {
+    console.warn('[OCR] File size is zero')
+    return
+  }
+
+  // 讀圖
+  const mat = cv.imread(imgPath).bgrToGray()
+  if (mat.empty) {
+    console.warn('[OCR] Can not read pixel')
+    return
+  }
+
+  // 固定解析度 ROI
+  const delta = { x: 1170, y: 335, w: 50, h: 25 }
+  const cursorA = { x: 1055, y: 315, w: 210, h: 135 }
+  const cursorB = { x: 1060, y: 280, w: 210, h: 135 }
+  const CURSOR_BLOCK_THRESHOLD = 0.6
+
+  // 游標遮擋檢測（兩塊 ROI 取最大值，比對 cursor 模板）
+  const tmpls = prepareScaledTemplates(mat).cursor
+  const roiA = mat.getRegion(new cv.Rect(cursorA.x, cursorA.y, cursorA.w, cursorA.h))
+  const roiB = mat.getRegion(new cv.Rect(cursorB.x, cursorB.y, cursorB.w, cursorB.h))
+  const m1 = matchTemplate(roiA, tmpls)
+  const m2 = matchTemplate(roiB, tmpls)
+  if (Math.max(m1.score, m2.score) > CURSOR_BLOCK_THRESHOLD) {
+    console.log('[OCR] cursor block (deltaCR), skip this turn')
+    return ''
+  }
+
+  // 擷取 + 二值化
+  const deltaCrRoi = mat.getRegion(new cv.Rect(delta.x, delta.y, delta.w, delta.h))
+  const bin = deltaCrRoi.threshold(128, 255, cv.THRESH_BINARY)
+  const buf = cv.imencode('.png', bin)
+
+  try {
+    const worker = await createWorker(['eng'], OEM.DEFAULT, {
+      cachePath: cacheDir,
+      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
+    })
+    await worker.setParameters({
+      tessedit_char_whitelist: '+-0123456789',
+      tessedit_pageseg_mode: PSM.SINGLE_LINE
+    })
+
+    const {
+      data: { text }
+    } = await worker.recognize(buf)
+
+    await worker.terminate()
+
+    const trimmed = text.trim()
+    console.log('[OCR] raw delta CR:', JSON.stringify(trimmed))
+
+    // ---- 正規化：把回傳值整理成「純數字字串」or 判定無效 ----
+    const normalized = trimmed
+      .replace(/[＋﹢]/g, '+')
+      .replace(/[－﹣]/g, '-')
+      .replace(/O/g, '0')
+      .replace(/o/g, '0')
+      .trim()
+
+    if (!/^[-+]?\d+$/.test(normalized)) {
+      console.warn('[OCR] invalid format after normalize:', JSON.stringify(normalized))
+      return '' // 視為本次無效，讓上層跳過
+    }
+
+    // 這裡不轉 number，維持回傳字串給呼叫端做 parse（相容現有介面）
+    return normalized
+  } catch (e) {
+    console.error('[OCR] recognizeDeltaCR failed:', e)
+    return ''
+  }
+}
 
 async function recognizeBPGain(
   imgPath: string,
@@ -400,7 +559,10 @@ let isMatchRecord = false
 let isPlayingHistory = false
 let mode: GameMode | null = null // current battle mode: 'cpu', 'ranked', or 'free'
 
+let isModifyCurrentCR = false
+let isModifyDeltaCR = false
 let isModifyBP = false
+let isResultMidDetect = false
 
 let shouldModifyMode = false
 
@@ -467,7 +629,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const rightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, rows))
     const topRightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, halfH))
 
-    const rankDetectArea = gray.getRegion(new cv.Rect(780, 205, 150, 180))
+    const rankDetectArea = gray.getRegion(new cv.Rect(780, 205, 150, 60))
     const twoPickDetectArea = gray.getRegion(new cv.Rect(780, 295, 180, 50))
 
     // 歷史紀錄
@@ -483,6 +645,8 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       inBattle = false
       isMatchRecord = false
       isPlayingHistory = false
+      isModifyCurrentCR = false
+      isModifyDeltaCR = false
       isModifyBP = false
       shouldModifyMode = false
       mode = null
@@ -504,7 +668,9 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
 
     if (twoPickDetect.score > THRESHOLD.ranked) {
-      //  2Pick模式判斷：BP修改
+      // 2Pick模式判斷：BP修改
+      // 因為 2Pick 應該帶入對應的 2Pick 牌組
+      clearMyDeck()
       if (!isModifyBP && lastRowId > -1) {
         console.log(twoPickDetect)
 
@@ -532,6 +698,38 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         console.log(twoPickDetect)
       }
     } else if (rankDetect.score > THRESHOLD.ranked) {
+      if (!isModifyDeltaCR && lastRowId > -1) {
+        const raw = await recognizeDeltaCR(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
+
+        const deltaCR = parseBPGain(raw)
+        console.log('[ranked] parsed deltaCR =', deltaCR)
+
+        if (deltaCR !== null) {
+          await modifyMatchDeltaCR(deltaCR).then(() => {
+            port.postMessage({ type: 'modifyMode' })
+          })
+          isModifyDeltaCR = true
+        }
+      }
+
+      if (!isModifyCurrentCR && lastRowId > -1) {
+        const raw = await recognizeCurrentCR(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
+
+        const currentCR = parseBPGain(raw)
+        console.log('[ranked] parsed currentCR =', currentCR)
+
+        if (currentCR !== null) {
+          await modifyMatchCurrentCR(currentCR).then(() => {
+            port.postMessage({ type: 'modifyMode' })
+          })
+          isModifyCurrentCR = true
+        }
+      }
+
       // 階級模式判斷：BP修改
       if (!isModifyBP && lastRowId > -1) {
         console.log(rankDetect)
@@ -674,7 +872,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       }
 
       isModifyBP = false
+      isModifyCurrentCR = false
+      isModifyDeltaCR = false
       shouldModifyMode = true
+
+      isResultMidDetect = false
       // shouldRecordNewMatch = false
 
       const record = await fetchLastMatch()
@@ -727,6 +929,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       console.log('resultMidDetect', resultMidDetect)
       isMatchRecord = false
       inBattle = false
+      isResultMidDetect = true
 
       const result = resultMidDetect.name === 'win'
       modifyMatchResult(result).then(() => {
@@ -742,10 +945,14 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     }
 
     const resultDetect = matchTemplate(gray, tmpls.result)
-    if (isMatchRecord && resultDetect.score > THRESHOLD.result) {
+    if (
+      (isMatchRecord && resultDetect.score > THRESHOLD.result) ||
+      (!isMatchRecord && isResultMidDetect && resultDetect.score > THRESHOLD.result)
+    ) {
       console.log('----- Battle Finished -----')
       console.log('resultDetect', resultDetect)
       isMatchRecord = false
+      isResultMidDetect = false
       inBattle = false
 
       const result = resultDetect.name === 'win'

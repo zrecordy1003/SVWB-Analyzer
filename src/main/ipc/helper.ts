@@ -9,7 +9,12 @@ export type RankedWinrateByOpponent = {
   end: number | null // 傳回「含當天」的結束毫秒（若有給）
   byOpponent: Record<string, SideStats>
   overall: SideStats
+  myDecks?: { id: number; name: string }[]
+  tags?: { id: number; name: string }[]
+  crMin: number | null
+  crMax: number | null
 }
+
 export type RangeKey = 'today' | '7d' | '30d' | 'all' | 'custom'
 
 // 建議在模組層共用 PrismaClient（或你有既有單例就用你的）
@@ -22,6 +27,10 @@ export async function getRankedWinrateByOpponent(params: {
   rangeKey?: RangeKey
   start?: Date | number | string // inclusive；不給=不限
   end?: Date | number | string // inclusive；不給=不限
+  myDeckIds?: number[]
+  tagIds?: number[]
+  crMin?: number
+  crMax?: number
 }): Promise<RankedWinrateByOpponent> {
   const { myClass, rangeKey } = params
 
@@ -45,6 +54,26 @@ export async function getRankedWinrateByOpponent(params: {
     whereBase.playedAt = {}
     if (startDate) whereBase.playedAt.gte = startDate
     if (endDateExclusive) whereBase.playedAt.lt = endDateExclusive
+  }
+
+  if (params.myDeckIds?.length) {
+    whereBase.my_deckId = { in: params.myDeckIds }
+  }
+  if (params.tagIds?.length) {
+    // 任一符合 (OR within selected tags)
+    whereBase.tags = { some: { tagId: { in: params.tagIds } } }
+
+    // 若想改成「必須同時包含所有所選標籤（AND）」：
+    // whereBase.AND = [
+    //   ...(whereBase.AND ?? []),
+    //   ...params.tagIds.map((tid) => ({ tags: { some: { tagId: tid } } }))
+    // ]
+  }
+
+  if (typeof params.crMin === 'number' || typeof params.crMax === 'number') {
+    whereBase.current_cr = {}
+    if (typeof params.crMin === 'number') whereBase.current_cr.gte = params.crMin
+    if (typeof params.crMax === 'number') whereBase.current_cr.lte = params.crMax
   }
 
   // 4) groupBy：總場數
@@ -103,12 +132,41 @@ export async function getRankedWinrateByOpponent(params: {
     overall.all.winRate = pct(overall.all.wins, overall.all.total)
   }
 
+  let myDecks: { id: number; name: string }[] | undefined
+  if (params.myDeckIds?.length) {
+    const order = new Map(params.myDeckIds.map((id, i) => [id, i]))
+    const decks = await prisma.deck.findMany({
+      where: { id: { in: params.myDeckIds } },
+      select: { id: true, name: true }
+    })
+    myDecks = decks
+      .filter((d) => order.has(d.id)) // 忽略不存在的 id
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  }
+
+  // ---- 將 tagIds 轉成名稱（可選）----
+  let tags: { id: number; name: string }[] | undefined
+  if (params.tagIds?.length) {
+    const order = new Map(params.tagIds.map((id, i) => [id, i]))
+    const tagRows = await prisma.tag.findMany({
+      where: { id: { in: params.tagIds } },
+      select: { id: true, name: true }
+    })
+    tags = tagRows
+      .filter((t) => order.has(t.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  }
+
   return {
     myClass,
     start: startDate ? startDate.getTime() : null,
-    end: endDateExclusive ? endDateExclusive.getTime() - 1 : null, // 回傳「含當天」
+    end: endDateExclusive ? endDateExclusive.getTime() - 1 : null,
     byOpponent,
-    overall
+    overall,
+    myDecks,
+    tags,
+    crMin: typeof params.crMin === 'number' ? params.crMin : null,
+    crMax: typeof params.crMax === 'number' ? params.crMax : null
   }
 }
 
@@ -137,6 +195,9 @@ function resolveRangeDates(
       return { start: s, endExclusive: tomorrowStart }
     }
     case 'all': {
+      return { start: undefined, endExclusive: undefined }
+    }
+    default: {
       return { start: undefined, endExclusive: undefined }
     }
   }

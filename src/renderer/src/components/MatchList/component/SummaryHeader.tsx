@@ -3,7 +3,7 @@ import React from 'react'
 import { Box, Chip, Stack, Tooltip, Typography } from '@mui/material'
 import LooksOneTwoToneIcon from '@mui/icons-material/LooksOneTwoTone'
 import LooksTwoTwoToneIcon from '@mui/icons-material/LooksTwoTwoTone'
-import AccessTimeIcon from '@mui/icons-material/AccessTime'
+// import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 // import MilitaryTechIcon from '@mui/icons-material/MilitaryTech'
 import type { ClassName, GameMode, PlayOrder } from '@prisma/client'
@@ -19,6 +19,8 @@ type Props = {
   my_deckName?: string | null
   oppo_deckName?: string | null
   bp?: number | null
+  current_cr?: number | null
+  delta_cr?: number | null
   durationTime?: number | null
   playedAt?: Date | string | null
 }
@@ -33,7 +35,9 @@ const SummaryHeader: React.FC<Props> = (props) => {
     my_deckName,
     oppo_deckName,
     bp,
-    durationTime,
+    current_cr,
+    delta_cr,
+    // durationTime,
     playedAt
   } = props
 
@@ -69,14 +73,15 @@ const SummaryHeader: React.FC<Props> = (props) => {
       variant="outlined"
       color={mode ? modesMap[mode].color : undefined}
       //   icon={<MilitaryTechIcon />}
+      sx={{ color: mode ? undefined : 'gray' }}
       label={mode ? modesMap[mode].label : '未選模式'}
     />
   )
 
-  const timeText =
-    durationTime != null
-      ? `${Math.floor(durationTime / 60)}:${String(durationTime % 60).padStart(2, '0')}`
-      : '—'
+  // const timeText =
+  //   durationTime != null
+  //     ? `${Math.floor(durationTime / 60)}:${String(durationTime % 60).padStart(2, '0')}`
+  //     : '—'
 
   const playedAtText = playedAt ? dayjs(playedAt).format('YYYY/MM/DD HH:mm') : '—'
 
@@ -84,7 +89,8 @@ const SummaryHeader: React.FC<Props> = (props) => {
     <Stack
       direction="row"
       alignItems="center"
-      spacing={1}
+      spacing={3}
+      minWidth={880}
       sx={{
         px: 2,
         py: 1.5,
@@ -95,17 +101,35 @@ const SummaryHeader: React.FC<Props> = (props) => {
       useFlexGap
       flexWrap="wrap"
     >
-      <Box display={'flex'} flexDirection={'column'}>
+      <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
         <Box sx={{ color: classesMap[my_class]?.color }}>{classesMap[my_class]?.label}</Box>
-        <Box sx={{ color: classesMap[my_class]?.color, opacity: 0.9 }}>
-          {my_deckName ? `${my_deckName}` : ''}
+        <Box
+          sx={{
+            color: classesMap[my_class]?.color
+              ? my_deckName
+                ? classesMap[my_class]?.color
+                : 'gray'
+              : undefined,
+            opacity: 0.9
+          }}
+        >
+          {my_deckName ? `${my_deckName}` : '未設置'}
         </Box>
       </Box>
 
-      <Box display={'flex'} flexDirection={'column'}>
+      <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
         <Box sx={{ color: classesMap[oppo_class]?.color }}>{classesMap[oppo_class]?.label}</Box>
-        <Box sx={{ color: classesMap[oppo_class]?.color, opacity: 0.9 }}>
-          {oppo_deckName ? `${oppo_deckName}` : ''}
+        <Box
+          sx={{
+            color: classesMap[oppo_class]?.color
+              ? oppo_deckName
+                ? classesMap[oppo_class]?.color
+                : 'gray'
+              : undefined,
+            opacity: 0.9
+          }}
+        >
+          {oppo_deckName ? `${oppo_deckName}` : '未設置'}
         </Box>
       </Box>
 
@@ -125,6 +149,80 @@ const SummaryHeader: React.FC<Props> = (props) => {
       {resultChip}
       {modeChip}
 
+      <Tooltip title="CR">
+        <Chip
+          size="small"
+          variant="outlined"
+          label={
+            current_cr != null ? (
+              <>
+                <Typography component="span" fontSize={'small'}>
+                  CR：
+                </Typography>
+                <Typography
+                  component="span"
+                  fontSize={'medium'}
+                  color={current_cr === 0 ? 'gray' : current_cr > 0 ? 'success' : 'red'}
+                  sx={{ fontFamily: 'monospace' }}
+                >
+                  {current_cr}
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography component="span" fontSize={'small'}>
+                  CR：
+                </Typography>
+                <Typography
+                  component="span"
+                  fontSize={'medium'}
+                  color="gray"
+                  sx={{ fontFamily: 'monospace' }}
+                >
+                  未紀錄
+                </Typography>
+              </>
+            )
+          }
+        />
+      </Tooltip>
+      <Tooltip title="ΔCR">
+        <Chip
+          size="small"
+          variant="outlined"
+          label={
+            delta_cr != null ? (
+              <>
+                <Typography component="span" fontSize={'small'}>
+                  ΔCR：
+                </Typography>
+                <Typography
+                  component="span"
+                  fontSize={'medium'}
+                  color={delta_cr === 0 ? 'gray' : delta_cr > 0 ? 'success' : 'red'}
+                  sx={{ fontFamily: 'monospace' }}
+                >
+                  {delta_cr}
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography component="span" fontSize={'small'}>
+                  ΔCR：
+                </Typography>
+                <Typography
+                  component="span"
+                  fontSize={'medium'}
+                  color="gray"
+                  sx={{ fontFamily: 'monospace' }}
+                >
+                  未紀錄
+                </Typography>
+              </>
+            )
+          }
+        />
+      </Tooltip>
       <Tooltip title="BP">
         <Chip
           size="small"
@@ -163,15 +261,14 @@ const SummaryHeader: React.FC<Props> = (props) => {
         />
       </Tooltip>
 
-      <Tooltip title="時長">
+      {/* <Tooltip title="時長">
         <Chip
           size="small"
           sx={{ fontFamily: 'monospace' }}
-          variant="outlined"
           icon={<AccessTimeIcon />}
           label={timeText}
         />
-      </Tooltip>
+      </Tooltip> */}
 
       <Tooltip title="開始時間">
         <Chip size="small" variant="outlined" icon={<CalendarMonthIcon />} label={playedAtText} />
