@@ -1,0 +1,2 @@
+ALTER TABLE "Match" ADD COLUMN "current_cr" INTEGER;
+ALTER TABLE "Match" ADD COLUMN "delta_cr" INTEGER;

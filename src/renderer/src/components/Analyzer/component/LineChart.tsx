@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useMemo } from 'react'
-import { Card, CardContent, Box, Typography, Divider } from '@mui/material'
+import { Card, CardContent, Box, Typography, Divider, Chip } from '@mui/material'
 import { Bar } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -12,19 +12,22 @@ import {
   Chart
 } from 'chart.js'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import { Tooltip as MUITooltip } from '@mui/material'
+
 import { classesMap } from '@renderer/map/classMap'
 
-import type { ClassName } from '@prisma/client'
+// import type { ClassName } from '@prisma/client'
+import type { RankedWinrateByOpponent } from 'src/main/ipc/helper'
 
-type Stat = { wins: number; total: number; winRate: number }
-type SideStats = { first: Stat; second: Stat; all: Stat }
-export type RankedWinrateByOpponent = {
-  myClass: ClassName
-  start: number | null
-  end: number | null
-  byOpponent: Record<string, SideStats>
-  overall: SideStats
-}
+// type Stat = { wins: number; total: number; winRate: number }
+// type SideStats = { first: Stat; second: Stat; all: Stat }
+// export type RankedWinrateByOpponent = {
+//   myClass: ClassName
+//   start: number | null
+//   end: number | null
+//   byOpponent: Record<string, SideStats>
+//   overall: SideStats
+// }
 
 type LineChartProps = {
   data: RankedWinrateByOpponent | null | undefined
@@ -81,7 +84,7 @@ const valueLabelPlugin = {
     const margin = 6
     const padX = 6
     const padY = 3
-    const pillBg = 'rgba(0,0,0,0.2)'
+    // const pillBg = 'rgba(0,0,0,0.2)'
     const textColor = 'rgba(255,255,255,0.95)'
 
     ctx.save()
@@ -118,7 +121,7 @@ const valueLabelPlugin = {
           x = bar.x - margin - (padX * 2 + textW)
         }
 
-        ctx.fillStyle = willOverflowRight ? pillBg : 'rgba(255, 255, 255, 0.25)'
+        ctx.fillStyle = val >= 50 ? 'rgba(66, 133, 66, 1)' : 'rgba(158, 72, 72, 1)'
 
         roundRect(ctx, x, y - padY, textW + padX * 2, textH + padY * 2, 8)
         ctx.fill()
@@ -443,6 +446,31 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             >
               {classesMap[stats.myClass]?.label ?? stats.myClass}
             </Typography>
+            {stats.myDecks && stats.myDecks.length > 0 && (
+              <Box display={'flex'} alignItems={'center'}>
+                <Typography variant="h6" mr={1}>
+                  使用牌組
+                </Typography>
+
+                <Typography variant="h6" display={'flex'}>
+                  {'['}
+                  <Box display={'flex'} mx={1}>
+                    {stats.myDecks.map((v, index) => {
+                      // const color = classesMap[String(stats.myClass)]?.color ?? undefined
+                      const label = v.name
+
+                      return (
+                        <Box key={v.id}>
+                          {label}
+                          {index < stats.myDecks!.length - 1 && '、'}
+                        </Box>
+                      )
+                    })}
+                  </Box>
+                  {']'}
+                </Typography>
+              </Box>
+            )}
             <Typography variant="h6" fontWeight={700} color="rgba(255,255,255,0.9)">
               對各職業勝率
             </Typography>
@@ -451,7 +479,11 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             {period}
           </Typography>
         </Box>
-
+        {typeof stats.crMin === 'number' && typeof stats.crMax === 'number' && (
+          <Typography component={'span'} variant="subtitle1" sx={{ opacity: 0.8 }}>
+            CR 區間：{stats.crMin} ~ {stats.crMax}
+          </Typography>
+        )}
         <Box
           mt={1.5}
           display="flex"
@@ -487,16 +519,24 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
               先攻勝率：
             </Typography>
-            <Typography
-              variant="subtitle1"
-              component="span"
-              sx={{ color: winFirst >= 50 ? 'success.main' : 'error.main' }}
-            >
-              {winFirst.toFixed(1)}%
-            </Typography>
-            <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
-              &nbsp;({stats.overall.first.total})
-            </Typography>
+            {stats.overall.first.total > 0 ? (
+              <>
+                <Typography
+                  variant="subtitle1"
+                  component="span"
+                  sx={{ color: winFirst >= 50 ? 'success.main' : 'error.main' }}
+                >
+                  {winFirst.toFixed(1)}%
+                </Typography>
+                <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
+                  &nbsp;({stats.overall.first.total})
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="subtitle1" component="span" sx={{ color: 'gray' }}>
+                暫無數據
+              </Typography>
+            )}
           </Box>
 
           {/* 後攻勝率 */}
@@ -504,16 +544,24 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
               後攻勝率：
             </Typography>
-            <Typography
-              variant="subtitle1"
-              component="span"
-              sx={{ color: winSecond >= 50 ? 'success.main' : 'error.main' }}
-            >
-              {winSecond.toFixed(1)}%
-            </Typography>
-            <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
-              &nbsp;({stats.overall.second.total})
-            </Typography>
+            {stats.overall.second.total > 0 ? (
+              <>
+                <Typography
+                  variant="subtitle1"
+                  component="span"
+                  sx={{ color: winSecond >= 50 ? 'success.main' : 'error.main' }}
+                >
+                  {winSecond.toFixed(1)}%
+                </Typography>
+                <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
+                  &nbsp;({stats.overall.second.total})
+                </Typography>
+              </>
+            ) : (
+              <Typography variant="subtitle1" component="span" sx={{ color: 'gray' }}>
+                暫無數據
+              </Typography>
+            )}
           </Box>
         </Box>
         <Divider sx={{ my: 1 }} />

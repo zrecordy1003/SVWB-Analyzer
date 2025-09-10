@@ -4,6 +4,166 @@ import { ClassName, GameMode, Match, Prisma, Tag } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
 import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
 
+export type QueryPayload = {
+  myClassIds?: ClassName[]
+  oppoClassIds?: ClassName[]
+  mode?: GameMode | null
+  rangeKey?: RangeKey
+  start?: string | number | Date | null
+  end?: string | number | Date | null
+  myDeckIds?: number[] // 只篩我方牌組；若要同時含對方，改 OR
+  tagIds?: number[]
+  note?: 'any' | 'with' | 'without'
+  crMin?: number | null
+  crMax?: number | null
+
+  // for getPage
+  pageIndex?: number
+  pageSize?: number
+}
+
+function toDateSafe(v: unknown): Date | null {
+  if (v == null) return null
+  if (typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v))) {
+    const d = new Date(Number(v))
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(v as any)
+  return isNaN(d.getTime()) ? null : d
+}
+
+function computeDateRangeByKey(p: Pick<QueryPayload, 'rangeKey' | 'start' | 'end'>): {
+  start: Date | undefined
+  end: Date | undefined
+} {
+  // 明確 start/end 優先（custom）
+  const s = toDateSafe(p.start)
+  const e = toDateSafe(p.end)
+  if (s || e) return { start: s ?? undefined, end: e ?? undefined }
+
+  const key = p.rangeKey
+  if (!key || key === 'all') return { start: undefined, end: undefined }
+
+  const now = new Date()
+  const start = new Date(now)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(now)
+  end.setHours(23, 59, 59, 999)
+
+  if (key === 'today') return { start, end }
+  if (key === '7d') {
+    const s7 = new Date(start)
+    s7.setDate(s7.getDate() - 6)
+    return { start: s7, end }
+  }
+  if (key === '30d') {
+    const s30 = new Date(start)
+    s30.setDate(s30.getDate() - 29)
+    return { start: s30, end }
+  }
+  return { start: undefined, end: undefined }
+}
+
+function buildWhereFromPayload(p: QueryPayload): Prisma.MatchWhereInput {
+  const AND: Prisma.MatchWhereInput[] = []
+
+  if (p.myClassIds?.length) AND.push({ my_class: { in: p.myClassIds } })
+  if (p.oppoClassIds?.length) AND.push({ oppo_class: { in: p.oppoClassIds } })
+  if (p.mode) AND.push({ mode: p.mode })
+
+  const { start, end } = computeDateRangeByKey(p)
+  if (start && end) AND.push({ playedAt: { gte: start, lte: end } })
+  else if (start) AND.push({ playedAt: { gte: start } })
+  else if (end) AND.push({ playedAt: { lte: end } })
+
+  if (p.myDeckIds?.length) {
+    AND.push({ my_deckId: { in: p.myDeckIds } })
+    // 若要「我方或對方任一」命中，改成：
+    // AND.push({ OR: [{ my_deckId: { in: p.myDeckIds } }, { oppo_deckId: { in: p.myDeckIds } }] })
+  }
+
+  if (p.tagIds?.length) {
+    AND.push({ tags: { some: { tagId: { in: p.tagIds } } } })
+  }
+
+  if (p.note === 'with') {
+    AND.push({ AND: [{ note: { not: null } }, { note: { not: '' } }] })
+  } else if (p.note === 'without') {
+    AND.push({ OR: [{ note: null }, { note: '' }] })
+  }
+
+  if (typeof p.crMin === 'number' || typeof p.crMax === 'number') {
+    const gte = typeof p.crMin === 'number' ? p.crMin : undefined
+    const lte = typeof p.crMax === 'number' ? p.crMax : undefined
+    AND.push({ current_cr: { ...(gte != null ? { gte } : {}), ...(lte != null ? { lte } : {}) } })
+  }
+
+  return AND.length ? { AND } : {}
+}
+
+/** 將「舊版位置參數」或「新版物件」統一轉成 QueryPayload */
+function normalizeCountArgs(args: any[]): QueryPayload {
+  // 新版：第一個就是物件
+  if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+    return args[0] as QueryPayload
+  }
+
+  // 舊版：filterMy, filterOppo, filterModes, rangeKey, startDate, endDate [, extraObj]
+  const [
+    filterMy = [],
+    filterOppo = [],
+    filterModes = '',
+    rangeKey = 'today',
+    startDate = null,
+    endDate = null,
+    extra = {}
+  ] = args
+  const payload: QueryPayload = {
+    myClassIds: filterMy,
+    oppoClassIds: filterOppo,
+    mode: filterModes || null,
+    rangeKey,
+    start: startDate,
+    end: endDate
+  }
+  // 允許把新欄位放在最後一個 extra 物件（可選）
+  if (extra && typeof extra === 'object') Object.assign(payload, extra)
+  return payload
+}
+
+function normalizePageArgs(args: any[]): QueryPayload {
+  // 新版：單一物件
+  if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
+    return args[0] as QueryPayload
+  }
+
+  // 舊版：pageIndex, pageSize, filterMy, filterOppo, filterModes, rangeKey, startDate, endDate [, extraObj]
+  const [
+    pageIndex = 0,
+    pageSize = 10,
+    filterMy = [],
+    filterOppo = [],
+    filterModes = '',
+    rangeKey = 'today',
+    startDate = null,
+    endDate = null,
+    extra = {}
+  ] = args
+
+  const payload: QueryPayload = {
+    pageIndex,
+    pageSize,
+    myClassIds: filterMy,
+    oppoClassIds: filterOppo,
+    mode: filterModes || null,
+    rangeKey,
+    start: startDate,
+    end: endDate
+  }
+  if (extra && typeof extra === 'object') Object.assign(payload, extra)
+  return payload
+}
+
 export function registerMatchesIpc(): void {
   const prisma = getPrisma()
 
@@ -94,42 +254,99 @@ export function registerMatchesIpc(): void {
     return where
   }
 
-  ipcMain.handle(
-    'matches:count',
-    async (
-      _e,
-      filterMy: ClassName[] = [],
-      filterOppo: ClassName[] = [],
-      filterModes: string = '',
-      rangeKey: RangeKey = 'today',
-      startDate: Date | null = null,
-      endDate: Date | null = null
-    ) => {
-      const where = buildMatchWhere(filterMy, filterOppo, filterModes, rangeKey, startDate, endDate)
-      return prisma.match.count({ where })
+  ipcMain.handle('matches:count', async (_e, ...args: any[]) => {
+    const payload = normalizeCountArgs(args)
+    const where = buildWhereFromPayload(payload)
+    return prisma.match.count({ where })
+  })
+
+  ipcMain.handle('matches:getPage', async (_e, ...args: any[]) => {
+    try {
+      const p = normalizePageArgs(args)
+      const pageIndex =
+        Number.isFinite(p.pageIndex) && (p.pageIndex ?? 0) >= 0 ? Math.floor(p.pageIndex!) : 0
+      const pageSize =
+        Number.isFinite(p.pageSize) && (p.pageSize ?? 10) > 0 ? Math.floor(p.pageSize!) : 10
+      const where = buildWhereFromPayload(p)
+
+      const rows = await prisma.match.findMany({
+        where,
+        orderBy: [{ playedAt: 'desc' }, { id: 'desc' }],
+        skip: pageIndex * pageSize,
+        take: pageSize,
+        include: {
+          my_deck: { select: { id: true, name: true, class: true } },
+          oppo_deck: { select: { id: true, name: true, class: true } },
+          tags: { select: { tag: { select: { id: true, name: true } } } }
+        }
+      })
+      return rows
+    } catch (error) {
+      console.log('[ipc] matches:getPage failed:', error)
+      return []
     }
-  )
+  })
 
   ipcMain.handle(
-    'matches:getPage',
+    'matches:getPageWithExtras',
     async (
       _e,
       pageIndex: number,
       pageSize: number,
-      filterMy: ClassName[] = [],
-      filterOppo: ClassName[] = [],
-      filterModes: string = '',
+      myIds: ClassName[] = [],
+      oppoIds: ClassName[] = [],
+      mode: string | null = null,
       rangeKey: RangeKey = 'today',
-      startDate: Date | null = null,
-      endDate: Date | null = null
+      start?: string | number | Date | null,
+      end?: string | number | Date | null
     ) => {
-      const where = buildMatchWhere(filterMy, filterOppo, filterModes, rangeKey, startDate, endDate)
-      return prisma.match.findMany({
-        where,
-        orderBy: [{ playedAt: 'desc' }, { id: 'desc' }], // stable ordering for pagination
-        skip: pageIndex * pageSize,
-        take: pageSize
-      })
+      try {
+        // ---- 安全轉型 ----
+        const toDate = (v: unknown): Date | null => {
+          if (v == null) return null
+          if (typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v))) {
+            const d = new Date(Number(v))
+            return isNaN(d.getTime()) ? null : d
+          }
+          const d = new Date(v as any)
+          return isNaN(d.getTime()) ? null : d
+        }
+
+        const safePageIndex =
+          Number.isFinite(pageIndex) && pageIndex >= 0 ? Math.floor(pageIndex) : 0
+        const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 10
+        const safeMode = typeof mode === 'string' ? mode : ''
+
+        const asClassArray = (arr: unknown[]): ClassName[] =>
+          Array.isArray(arr) ? (arr.filter((x) => typeof x === 'string') as ClassName[]) : []
+
+        const filterMy = asClassArray(myIds as unknown as unknown[])
+        const filterOppo = asClassArray(oppoIds as unknown as unknown[])
+        const startDate = toDate(start)
+        const endDate = toDate(end)
+
+        // ---- 條件 ----
+        const where = buildMatchWhere(filterMy, filterOppo, safeMode, rangeKey, startDate, endDate)
+
+        // ---- 查詢 ----
+        const rows = await prisma.match.findMany({
+          where,
+          orderBy: [{ playedAt: 'desc' }, { id: 'desc' }],
+          skip: safePageIndex * safePageSize,
+          take: safePageSize,
+          include: {
+            my_deck: { select: { id: true, name: true, class: true } },
+            oppo_deck: { select: { id: true, name: true, class: true } },
+            tags: { select: { tag: { select: { id: true, name: true } } } }
+          }
+        })
+
+        return rows
+      } catch (err) {
+        console.error('[ipc] matches:getPageWithExtras failed:', err)
+        // 不破壞前端預期型別，錯誤時回傳空陣列
+        return []
+      }
     }
   )
 
@@ -267,6 +484,10 @@ export function registerMatchesIpc(): void {
         rangeKey?: RangeKey
         start?: string | number | Date
         end?: string | number | Date
+        myDeckIds?: number[]
+        tagIds?: number[]
+        crMin?: number
+        crMax?: number
       }
     ) => {
       return getRankedWinrateByOpponent(args)
@@ -351,6 +572,129 @@ export function registerMatchesIpc(): void {
       })
     }
   )
+
+  ipcMain.handle('matches:getById', async (_e, id: number) => {
+    const m = await prisma.match.findUnique({
+      where: { id },
+      include: {
+        tags: { include: { tag: true } },
+        my_deck: true,
+        oppo_deck: true
+      }
+    })
+    return m
+  })
+
+  // 編輯（含 tags，同步集合；內含樂觀鎖）
+  ipcMain.handle('matches:updateWithExtras', async (_e, payload) => {
+    const {
+      id,
+      prevUpdatedAt, // 來自前端的上一版 updatedAt（ISO 字串或 Date）
+      tagIds,
+      result,
+      play_order,
+      my_class,
+      oppo_class,
+      mode,
+      bp,
+      durationTime,
+      my_deckId,
+      oppo_deckId,
+      note,
+      playedAt
+    } = payload
+
+    // 1) 先抓目前的 updatedAt（用於前端錯誤訊息/除錯）
+    const prev = await prisma.match.findUnique({
+      where: { id },
+      select: { updatedAt: true }
+    })
+    if (!prev) throw new Error('Match not found')
+
+    // 2) 準備 updateMany 可用的資料（只能放標量欄位、不能放 nested relation）
+    const dataMany: Prisma.MatchUpdateManyMutationInput = {}
+
+    if (typeof result !== 'undefined') dataMany.result = result
+    if (typeof play_order !== 'undefined') dataMany.play_order = play_order
+    if (typeof my_class !== 'undefined') dataMany.my_class = my_class
+    if (typeof oppo_class !== 'undefined') dataMany.oppo_class = oppo_class
+    if (typeof mode !== 'undefined') dataMany.mode = mode
+    if (typeof bp !== 'undefined') dataMany.bp = bp
+    if (typeof durationTime !== 'undefined') dataMany.durationTime = durationTime
+    if (typeof note !== 'undefined') dataMany.note = note
+
+    // ✅ 用外鍵欄位，而不是 my_deck / oppo_deck 的 connect/disconnect
+    if (typeof my_deckId !== 'undefined') dataMany.my_deckId = my_deckId ?? null
+    if (typeof oppo_deckId !== 'undefined') dataMany.oppo_deckId = oppo_deckId ?? null
+
+    if (typeof playedAt !== 'undefined' && playedAt !== null) {
+      const dt = new Date(playedAt)
+      dataMany.playedAt = dt
+      dataMany.year = dt.getFullYear()
+      dataMany.month = dt.getMonth() + 1
+      dataMany.day = dt.getDate()
+    }
+
+    // 樂觀鎖：把 updatedAt 轉成 Date，允許 null 的情況
+    const prevTs = prevUpdatedAt ? new Date(prevUpdatedAt) : null
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // 3) 先嘗試更新（用 updateMany + updatedAt 做條件，確保原子性）
+      const whereLock: Prisma.MatchWhereInput = {
+        id,
+        // 如果 updatedAt 可能為 null，要分兩種條件
+        ...(prevTs === null ? { updatedAt: null } : { updatedAt: prevTs })
+      }
+
+      const res = await tx.match.updateMany({
+        where: whereLock,
+        data: dataMany
+      })
+
+      if (res.count === 0) {
+        const err = new Error('CONFLICT_UPDATED_AT')
+        ;(err as any).code = 'CONFLICT'
+        throw err
+      }
+
+      // 4) 同步 Tags（樞紐表）
+      if (Array.isArray(tagIds)) {
+        const existing = await tx.matchTag.findMany({ where: { matchId: id } })
+        const existSet = new Set(existing.map((x) => x.tagId))
+        const nextSet = new Set(tagIds)
+
+        const toDel = [...existSet].filter((tid) => !nextSet.has(tid))
+        const toAdd = [...nextSet].filter((tid) => !existSet.has(tid))
+
+        if (toDel.length) {
+          await tx.matchTag.deleteMany({ where: { matchId: id, tagId: { in: toDel } } })
+        }
+        if (toAdd.length) {
+          await tx.matchTag.createMany({
+            data: toAdd.map((tid) => ({ matchId: id, tagId: tid }))
+          })
+        }
+      }
+
+      // 5) 回傳最新資料（帶關聯）
+      return tx.match.findUnique({
+        where: { id },
+        include: {
+          tags: { include: { tag: true } },
+          my_deck: true,
+          oppo_deck: true
+        }
+      })
+    })
+
+    return updated
+  })
+
+  // 刪除（連動刪樞紐由外鍵級聯）
+  ipcMain.handle('matches:delete', async (_e, id: number) => {
+    await prisma.match.delete({ where: { id } })
+    return true
+  })
 }
 
 export function broadcastNewMatch(win?: BrowserWindow, match?: any): void {

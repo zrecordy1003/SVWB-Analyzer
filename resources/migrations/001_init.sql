@@ -72,10 +72,10 @@ CREATE TABLE IF NOT EXISTS MatchTag (
 
 CREATE INDEX IF NOT EXISTS idx_matchtag_tagId ON MatchTag(tagId);
 
-INSERT INTO DeckCategory (id, name) VALUES ('aggro',   '快攻')
+INSERT INTO DeckCategory (id, name) VALUES ('aggro', '快攻')
   ON CONFLICT(name) DO NOTHING;
 
-INSERT INTO DeckCategory (id, name) VALUES ('midrange','中速')
+INSERT INTO DeckCategory (id, name) VALUES ('midrange', '中速')
   ON CONFLICT(name) DO NOTHING;
 
 INSERT INTO DeckCategory (id, name) VALUES ('control', '控制')
