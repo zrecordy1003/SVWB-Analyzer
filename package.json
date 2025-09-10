@@ -1,6 +1,6 @@
 {
   "name": "svwb-analyzer",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A tool for Shadowverse: Worlds Beyond, recording and analyzing games data.",
   "type": "module",
   "main": "./out/main/index.js",
