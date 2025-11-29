@@ -12,6 +12,39 @@ interface Props {
   open: boolean
 }
 
+type ResolutionStatus = {
+  ok: boolean
+  label: string
+  width?: number
+  height?: number
+  hint?: string
+}
+
+const computeResolutionStatus = (bounds?: {
+  width?: number
+  height?: number
+}): ResolutionStatus => {
+  const width = bounds?.width
+  const height = bounds?.height
+  if (!width || !height) return { ok: false, label: '未知', hint: '無法偵測解析度' }
+
+  const closeTo = (v: number, target: number, tolerance: number) =>
+    Math.abs(v - target) <= tolerance
+  const is720 = closeTo(width, 1280, 40) && closeTo(height, 720, 60)
+  const is1080 = closeTo(width, 1920, 40) && closeTo(height, 1080, 60)
+  const ratio = width / height
+  const near169 = Math.abs(ratio - 16 / 9) < 0.03
+
+  if (is720 || is1080) {
+    return { ok: true, label: is720 ? '1280×720' : '1920×1080', width, height }
+  }
+
+  const label = `${width}×${height}`
+  const hint = near169 ? '請調整為 1280×720 或 1920×1080' : '建議使用 16:9（1280×720 或 1920×1080）'
+
+  return { ok: false, label, width, height, hint }
+}
+
 const GameStatus: React.FC<Props> = ({ open }: Props) => {
   const svwbStatus = useSvwbStatus()
 
@@ -33,7 +66,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
 
   const { running, bounds } = svwbStatus!
   const isMinimized = bounds?.x === -32000 && bounds?.y === -32000
-  const isCorrectResolution = bounds?.width === 1296 && bounds?.height === 759
+  const resolution = computeResolutionStatus(bounds)
 
   const TooltipStyles = {
     tooltip: {
@@ -94,9 +127,9 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
           </Tooltip>
         )}
 
-        {running && !isCorrectResolution && !isMinimized && (
+        {running && !resolution.ok && !isMinimized && (
           <Tooltip
-            title="建議解析度為 1280x720"
+            title={resolution.hint || '建議解析度為 1280×720 或 1920×1080'}
             placement="right"
             slotProps={{ ...TooltipStyles }}
             slots={{
@@ -138,11 +171,26 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
         </Box>
       )}
 
-      {running && !isCorrectResolution && !isMinimized && (
+      {running && !resolution.ok && !isMinimized && (
         <Box display="flex" alignItems="center" color="coral">
           <WarningIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
-            <Typography>建議解析度為 1280x720</Typography>
+            <Typography>解析度 {resolution.label}，建議改為 1280×720 或 1920×1080</Typography>
+          </Fade>
+        </Box>
+      )}
+
+      {running && (
+        <Box
+          display="flex"
+          alignItems="center"
+          color={resolution.ok ? 'success.main' : 'text.secondary'}
+        >
+          <Fade in={open} timeout={200}>
+            <Typography variant="body2">
+              目前解析度：{resolution.label}
+              {resolution.hint ? `（${resolution.hint}）` : ''}
+            </Typography>
           </Fade>
         </Box>
       )}

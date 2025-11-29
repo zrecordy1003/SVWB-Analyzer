@@ -212,8 +212,7 @@ const DeckSelector: React.FC<DeckSelectorProps> = ({
     }
     const unsubscribe = window.electron?.ipcRenderer.on?.('battle:status', handler)
     return () => {
-      if (typeof unsubscribe === 'function') unsubscribe()
-      else window.electron?.ipcRenderer.removeListener?.('battle:status', handler as any)
+      unsubscribe()
     }
   }, [decks, defaultIdByClass])
 

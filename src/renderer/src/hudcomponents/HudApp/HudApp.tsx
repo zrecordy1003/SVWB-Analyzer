@@ -9,7 +9,8 @@ import {
   createTheme,
   ThemeProvider,
   ToggleButtonGroup,
-  ToggleButton
+  ToggleButton,
+  Chip
 } from '@mui/material'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
@@ -23,6 +24,7 @@ import type { RankedWinrateByOpponent } from './component/Analyze'
 
 import { classes, classesMap, modes } from '@renderer/map/classMap'
 import ModeSwitch from '../ModeSwitch/ModeSwitch'
+import { BattleStatus } from 'src/main/analyzer'
 
 // ---- 類型：把 view 與 filters 分離 ----
 type ViewTab = ViewMode // 'recent' | 'analyze' (依你的元件定義)
@@ -39,6 +41,7 @@ const HudApp: React.FC = () => {
   // ---- HUD 外觀 ----
   const [hudOpacity, setHudOpacity] = useState<number>(0.85)
   const [isPinned, setIsPinned] = useState<boolean>(true)
+  const [battleStatus, setBattleStatus] = useState<BattleStatus>()
 
   // ---- 篩選條件（你新增的：職業／模式）----
   const [selectedClass, setSelectedClass] = useState<ClassName>('elf')
@@ -94,6 +97,12 @@ const HudApp: React.FC = () => {
   // 初始載入：HUD 設定 + 使用者上次選的職業/模式
   useEffect(() => {
     let mounted = true
+
+    const battleHandler = (_event: unknown, msg: BattleStatus) => {
+      setBattleStatus(msg)
+    }
+    const unsubBattleStatus = window.electron.ipcRenderer.on('battle:status', battleHandler)
+
     ;(async () => {
       const [op, pin, lastClass, lastMode] = await Promise.all([
         window.settings.get<number>('hudOpacity'),
@@ -115,6 +124,7 @@ const HudApp: React.FC = () => {
     })()
     return () => {
       mounted = false
+      unsubBattleStatus()
     }
   }, [])
 
@@ -166,6 +176,12 @@ const HudApp: React.FC = () => {
     const result = await window.hud?.setPinned(next)
     if (typeof result === 'boolean') setIsPinned(result)
   }
+
+  useEffect(() => {
+    if (battleStatus?.inBattle) {
+      window.electron.ipcRenderer.invoke('')
+    }
+  }, [battleStatus])
 
   return (
     <ThemeProvider theme={theme}>
@@ -249,6 +265,29 @@ const HudApp: React.FC = () => {
             <CloseIcon />
           </IconButton>
         </Box>
+
+        {battleStatus && battleStatus?.inBattle === true && (
+          <Box display={'flex'} alignItems={'center'} justifyContent={'center'} gap={1}>
+            <Typography sx={{ color: classesMap[battleStatus.ownClass!].color }}>
+              {classesMap[battleStatus.ownClass!].label}
+            </Typography>
+
+            <Chip
+              label={battleStatus.playOrder === 'first' ? '先攻' : '後攻'}
+              slotProps={{
+                label: {
+                  sx: {
+                    color: battleStatus.playOrder === 'first' ? 'primary.main' : 'secondary.main'
+                  }
+                }
+              }}
+            />
+
+            <Typography sx={{ color: classesMap[battleStatus.enemyClass!].color }}>
+              {classesMap[battleStatus.enemyClass!].label}
+            </Typography>
+          </Box>
+        )}
 
         {/* 視圖切換（只控制「顯示哪一頁」） */}
         {/* <ViewSwitch value={viewTab} onChange={setViewTab} /> */}

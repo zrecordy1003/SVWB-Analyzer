@@ -2,6 +2,7 @@
 import { ipcMain } from 'electron'
 import type { Prisma, PrismaClient, ClassName, Deck, DeckCategory } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
+import { RangeKey } from './helper.js'
 
 /* ================================
  * 型別
@@ -83,6 +84,46 @@ async function hasNameDuplicateCI(
   )
 }
 
+const toDateSafe = (v: unknown): Date | null => {
+  if (v == null) return null
+  if (typeof v === 'number' || (typeof v === 'string' && /^\d+$/.test(v))) {
+    const d = new Date(Number(v))
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(v as any)
+  return isNaN(d.getTime()) ? null : d
+}
+
+const computeRange = (p: { rangeKey?: RangeKey; start?: any; end?: any }): {
+  start?: Date
+  end?: Date
+} => {
+  const start = toDateSafe(p.start)
+  const end = toDateSafe(p.end)
+  if (start || end) return { start: start ?? undefined, end: end ?? undefined }
+
+  const now = new Date()
+  const todayStart = new Date(now)
+  todayStart.setHours(0, 0, 0, 0)
+  const todayEnd = new Date(now)
+  todayEnd.setHours(23, 59, 59, 999)
+
+  if (p.rangeKey === 'today' || !p.rangeKey) return { start: todayStart, end: todayEnd }
+  if (p.rangeKey === 'all') return {}
+
+  if (p.rangeKey === '7d') {
+    const s7 = new Date(todayStart)
+    s7.setDate(s7.getDate() - 6)
+    return { start: s7, end: todayEnd }
+  }
+  if (p.rangeKey === '30d') {
+    const s30 = new Date(todayStart)
+    s30.setDate(s30.getDate() - 29)
+    return { start: s30, end: todayEnd }
+  }
+  return {}
+}
+
 /* ================================
  * IPC
  * ================================ */
@@ -131,6 +172,63 @@ export function registerDecksIpc(): void {
           }
         })
       )
+  )
+
+  // 牌組戰績：依我方牌組統計勝率
+  ipcMain.handle(
+    'decks:stats',
+    async (
+      _e,
+      params: {
+        deckIds?: number[]
+        rangeKey?: RangeKey
+        start?: string | number | Date | null
+        end?: string | number | Date | null
+      } = {}
+    ): Promise<
+      Res<
+        Array<{
+          deckId: number
+          total: number
+          wins: number
+          winRate: number
+        }>
+      >
+    > =>
+      wrap(async () => {
+        const { start, end } = computeRange(params)
+        const where: Prisma.MatchWhereInput = {
+          my_deckId: { not: null },
+          result: { not: null }
+        }
+        if (params.deckIds?.length) where.my_deckId = { in: params.deckIds }
+        if (start && end) where.playedAt = { gte: start, lte: end }
+        else if (start) where.playedAt = { gte: start }
+        else if (end) where.playedAt = { lte: end }
+
+        const totals = await prisma.match.groupBy({
+          by: ['my_deckId'],
+          where,
+          _count: { _all: true }
+        })
+        const wins = await prisma.match.groupBy({
+          by: ['my_deckId'],
+          where: { ...where, result: true },
+          _count: { _all: true }
+        })
+
+        return totals.map((row) => {
+          const win = wins.find((w) => w.my_deckId === row.my_deckId)?._count._all ?? 0
+          const total = row._count._all
+          const rate = total > 0 ? +((win / total) * 100).toFixed(2) : 0
+          return {
+            deckId: row.my_deckId!,
+            total,
+            wins: win,
+            winRate: rate
+          }
+        })
+      })
   )
 
   // 建立分類（如需）

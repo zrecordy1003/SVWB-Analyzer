@@ -24,6 +24,23 @@ type scoreAndName = {
 const BASE_WIDTH = 1280
 const BASE_HEIGHT = 720
 
+type ScaleFactors = { scaleX: number; scaleY: number }
+
+const getScaleFactors = (mat: Mat): ScaleFactors => ({
+  scaleX: mat.cols / BASE_WIDTH,
+  scaleY: mat.rows / BASE_HEIGHT
+})
+
+const scaleRect = (
+  rect: { x: number; y: number; w: number; h: number },
+  scale: ScaleFactors
+): { x: number; y: number; w: number; h: number } => ({
+  x: Math.round(rect.x * scale.scaleX),
+  y: Math.round(rect.y * scale.scaleY),
+  w: Math.max(1, Math.round(rect.w * scale.scaleX)),
+  h: Math.max(1, Math.round(rect.h * scale.scaleY))
+})
+
 let original: {
   classes: Array<{ name: string; image: Mat }>
   emblems: Array<{ name: string; image: Mat }>
@@ -112,10 +129,12 @@ async function recognizeCurrentCR(imgPath: string): Promise<string | undefined> 
     return
   }
 
-  // 固定解析度 ROI
-  const current = { x: 1160, y: 365, w: 75, h: 35 }
-  const cursorA = { x: 1055, y: 315, w: 210, h: 135 }
-  const cursorB = { x: 1060, y: 280, w: 210, h: 135 } // 額外再檢一次，避免邊界案例
+  const scale = getScaleFactors(mat)
+
+  // 固定解析度 ROI（會依螢幕比例縮放）
+  const current = scaleRect({ x: 1160, y: 365, w: 75, h: 35 }, scale)
+  const cursorA = scaleRect({ x: 1055, y: 315, w: 210, h: 135 }, scale)
+  const cursorB = scaleRect({ x: 1060, y: 280, w: 210, h: 135 }, scale) // 額外再檢一次，避免邊界案例
   const CURSOR_BLOCK_THRESHOLD = 0.6
 
   // 游標遮擋檢測（修正成兩塊 ROI 取最大值）
@@ -188,9 +207,10 @@ async function recognizeDeltaCR(imgPath: string): Promise<string | undefined> {
   }
 
   // 固定解析度 ROI
-  const delta = { x: 1170, y: 335, w: 50, h: 25 }
-  const cursorA = { x: 1055, y: 315, w: 210, h: 135 }
-  const cursorB = { x: 1060, y: 280, w: 210, h: 135 }
+  const scale = getScaleFactors(mat)
+  const delta = scaleRect({ x: 1170, y: 335, w: 50, h: 25 }, scale)
+  const cursorA = scaleRect({ x: 1055, y: 315, w: 210, h: 135 }, scale)
+  const cursorB = scaleRect({ x: 1060, y: 280, w: 210, h: 135 }, scale)
   const CURSOR_BLOCK_THRESHOLD = 0.6
 
   // 游標遮擋檢測（兩塊 ROI 取最大值，比對 cursor 模板）
@@ -271,23 +291,16 @@ async function recognizeBPGain(
     return
   }
 
-  // 固定解析度 ROI（如需通用化，可恢復自動縮放版本）
-  let x: number, y: number, w: number, h: number
-  let cursor_roi_x: number, cursor_roi_y: number, cursor_roi_w: number, cursor_roi_h: number
+  const scale = getScaleFactors(mat)
 
-  x = 1115
-  y = mode === '2pick' ? 295 : 200
-  w = 65
-  h = 30
+  // 固定解析度 ROI（隨螢幕尺寸縮放）
+  const bpRect = scaleRect({ x: 1115, y: mode === '2pick' ? 295 : 200, w: 65, h: 30 }, scale)
 
-  cursor_roi_x = 1010
-  cursor_roi_y = mode === '2pick' ? 245 : 150
-  cursor_roi_w = 210
-  cursor_roi_h = 135
+  const cursorRect = scaleRect({ x: 1010, y: mode === '2pick' ? 245 : 150, w: 210, h: 135 }, scale)
 
   // 游標遮擋檢測
   const cursorRoi = mat.getRegion(
-    new cv.Rect(cursor_roi_x, cursor_roi_y, cursor_roi_w, cursor_roi_h)
+    new cv.Rect(cursorRect.x, cursorRect.y, cursorRect.w, cursorRect.h)
   )
   const cursorMatch = matchTemplate(cursorRoi, prepareScaledTemplates(mat).cursor)
   console.log('[OCR] cursorMatch:', cursorMatch)
@@ -297,7 +310,7 @@ async function recognizeBPGain(
   }
 
   // 擷取 BP ROI 並二值化
-  const bpRoi = mat.getRegion(new cv.Rect(x, y, w, h))
+  const bpRoi = mat.getRegion(new cv.Rect(bpRect.x, bpRect.y, bpRect.w, bpRect.h))
   // 可視化面板背景，二值化門檻可微調（120~160）視你的畫面主題
   const bin = bpRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
@@ -443,68 +456,70 @@ function prepareScaledTemplates(fullGray: Mat): ScaledTemplates {
   }
   lastResolution = { w: cols, h: rows }
 
-  // 如果截屏不是基準，就先拉回 1280×720
-  const gray =
-    cols === BASE_WIDTH && rows === BASE_HEIGHT
-      ? fullGray
-      : fullGray.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
+  const scaleX = fullGray.cols / BASE_WIDTH
+  const scaleY = fullGray.rows / BASE_HEIGHT
 
-  const scaleX = gray.cols / BASE_WIDTH
-  const scaleY = gray.rows / BASE_HEIGHT
+  // 如果截屏不是基準，就先拉回 1280×720
+  // const gray =
+  //   cols === BASE_WIDTH && rows === BASE_HEIGHT
+  //     ? fullGray
+  //     : fullGray.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
+
+  const scale = Math.min(scaleX, scaleY)
 
   // 做一次性縮放
   scaled = {
     classes: original.classes.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     emblems: original.emblems.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     playOrder: original.playOrder.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     result: original.result.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     resultMid: original.resultMid.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     indicators: original.indicators.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     modesCPU: original.modesCPU.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     modesRanked: original.modesRanked.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     modes2Pick: original.modes2Pick.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     modesPlaza: original.modesPlaza.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     cursor: original.cursor.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     custom: original.custom.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     })),
     history: original.history.map(({ name, image }) => ({
       name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
+      image: image.resize(Math.round(image.rows * scale), Math.round(image.cols * scale))
     }))
   }
   return scaled
@@ -573,7 +588,7 @@ const THRESHOLD = {
   class: 0.7,
   emblem: 0.7,
   playOrder: 0.6,
-  ranked: 0.7,
+  ranked: 0.6,
   result: 0.7
 }
 
@@ -622,6 +637,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const rows = gray.rows
 
     const tmpls = prepareScaledTemplates(gray)
+    const scale = getScaleFactors(gray)
 
     const halfW = Math.floor(cols / 2)
     const halfH = Math.floor(rows / 2)
@@ -629,8 +645,16 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const rightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, rows))
     const topRightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, halfH))
 
-    const rankDetectArea = gray.getRegion(new cv.Rect(780, 205, 150, 60))
-    const twoPickDetectArea = gray.getRegion(new cv.Rect(780, 295, 180, 50))
+    let rankDetectArea
+    let twoPickDetectArea
+
+    const rankRect = scaleRect({ x: 780 - 20, y: 205 - 20, w: 150, h: 60 }, scale)
+    const twoPickRect = scaleRect({ x: 780 - 20, y: 295 - 20, w: 180, h: 50 }, scale)
+
+    rankDetectArea = gray.getRegion(new cv.Rect(rankRect.x, rankRect.y, rankRect.w, rankRect.h))
+    twoPickDetectArea = gray.getRegion(
+      new cv.Rect(twoPickRect.x, twoPickRect.y, twoPickRect.w, twoPickRect.h)
+    )
 
     // 歷史紀錄
     const historyDetect = matchTemplate(gray, tmpls.history)
@@ -663,9 +687,17 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
     // 階級模式：模板配對
     rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
+    // rankDetect = matchTemplate(topRightArea, tmpls.modesRanked)
 
     // 2Pick模式判斷：模板配對
     twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
+
+    // console.log('cc: ', cols)
+    // console.log('rr: ', rows)
+    console.log('sx: ', scale.scaleX)
+    console.log('sy: ', scale.scaleY)
+    console.log('rank: ', rankDetect)
+    console.log('twoPick: ', twoPickDetect)
 
     if (twoPickDetect.score > THRESHOLD.ranked) {
       // 2Pick模式判斷：BP修改
@@ -753,7 +785,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       if (shouldModifyMode && lastRowId > -1) {
         shouldModifyMode = false
         mode = 'ranked'
-        modifyMatchMode(mode).then(() => {
+        await modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
         })
         console.log(mode)
@@ -768,7 +800,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       if (cpuDetect.score > 0.7 && lastRowId > -1) {
         shouldModifyMode = false
         mode = 'cpu'
-        modifyMatchMode(mode).then(() => {
+        await modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
         })
         console.log(cpuDetect)
@@ -781,7 +813,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       if (plazaDetect.score > 0.7 && lastRowId > -1) {
         shouldModifyMode = false
         mode = 'weekendPlaza'
-        modifyMatchMode(mode).then(() => {
+        await modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
         })
       }
@@ -798,7 +830,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       if (rs && lastRowId > -1) {
         shouldModifyMode = false
         mode = 'custom'
-        modifyMatchMode(mode).then(() => {
+        await modifyMatchMode(mode).then(() => {
           port.postMessage({ type: 'modifyMode' })
         })
       }
@@ -932,7 +964,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isResultMidDetect = true
 
       const result = resultMidDetect.name === 'win'
-      modifyMatchResult(result).then(() => {
+      await modifyMatchResult(result).then(() => {
         port.postMessage({
           type: 'matchResult',
           data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
@@ -956,7 +988,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       inBattle = false
 
       const result = resultDetect.name === 'win'
-      modifyMatchResult(result).then(() => {
+      await modifyMatchResult(result).then(() => {
         port.postMessage({
           type: 'matchResult',
           data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
