@@ -128,4 +128,8 @@ model Match {
   @@index([my_class], map: "idx_match_my_class")
   @@index([oppo_class], map: "idx_match_oppo_class")
   @@index([mode, my_class, playedAt], map: "idx_match_ranked_myclass_playedAt")
+  @@index([my_deckId, playedAt], map: "idx_match_mydeck_playedAt")
+  @@index([result, my_deckId, playedAt], map: "idx_match_result_mydeck_playedAt")
+  @@index([current_cr, playedAt], map: "idx_match_currentcr_playedAt")
+  @@index([mode, playedAt], map: "idx_match_mode_playedAt")
 }

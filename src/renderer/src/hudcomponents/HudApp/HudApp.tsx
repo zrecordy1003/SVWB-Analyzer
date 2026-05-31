@@ -8,44 +8,45 @@ import {
   Divider,
   createTheme,
   ThemeProvider,
-  ToggleButtonGroup,
-  ToggleButton,
-  Chip
+  Chip,
+  CssBaseline
 } from '@mui/material'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import PushPinOutlinedIcon from '@mui/icons-material/PushPinOutlined'
 import OpacityIcon from '@mui/icons-material/Opacity'
 import CloseIcon from '@mui/icons-material/Close'
-import CategorySwitch, { ViewMode } from '../CategorySwitch/CategorySwitch'
+import CircleIcon from '@mui/icons-material/Circle'
+import type { ViewMode } from '../CategorySwitch/CategorySwitch'
 import Recent from './component/Recent'
-import Analyze from './component/Analyze'
 import type { ClassName, GameMode, Match } from '@prisma/client'
 import type { RankedWinrateByOpponent } from './component/Analyze'
 
-import { classes, classesMap, modes } from '@renderer/map/classMap'
-import ModeSwitch from '../ModeSwitch/ModeSwitch'
-import { BattleStatus } from 'src/main/analyzer'
+import { classesMap, modes } from '@renderer/map/classMap'
+import type { BattleStatus } from '@shared/types'
 
 // ---- 類型：把 view 與 filters 分離 ----
 type ViewTab = ViewMode // 'recent' | 'analyze' (依你的元件定義)
 
 const HudApp: React.FC = () => {
   // ---- 視圖狀態（控制顯示「近五場 / 分析」）----
-  const [viewTab, setViewTab] = useState<ViewTab>('recent')
+  const [viewTab] = useState<ViewTab>('recent')
   // const [viewTab, setViewTab] = useState('ranked')
 
   // ---- 資料狀態 ----
   const [recentList, setRecentList] = useState<Match[]>([])
-  const [analyzeData, setAnalyzeData] = useState<RankedWinrateByOpponent | null>(null)
+  const [, setAnalyzeData] = useState<RankedWinrateByOpponent | null>(null)
 
   // ---- HUD 外觀 ----
   const [hudOpacity, setHudOpacity] = useState<number>(0.85)
   const [isPinned, setIsPinned] = useState<boolean>(true)
   const [battleStatus, setBattleStatus] = useState<BattleStatus>()
+  const [isLoading, setIsLoading] = useState<boolean>(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // ---- 篩選條件（你新增的：職業／模式）----
   const [selectedClass, setSelectedClass] = useState<ClassName>('elf')
   const [selectedGameMode, setSelectedGameMode] = useState<GameMode>('ranked')
+  const loadSeqRef = useRef(0)
 
   const theme = useMemo(() => {
     // determine scrollbar colors based on mode
@@ -56,17 +57,27 @@ const HudApp: React.FC = () => {
 
     return createTheme({
       palette: {
-        mode: 'dark'
-        // primary: { main: '#1976d2' },
-        // secondary: { main: '#dc004e' }
+        mode: 'dark',
+        background: {
+          default: 'oklch(13% 0.012 255)',
+          paper: 'oklch(18% 0.014 255)'
+        },
+        text: {
+          primary: 'oklch(96% 0.006 250)',
+          secondary: 'oklch(76% 0.018 250)'
+        },
+        primary: { main: '#66D8F5' },
+        secondary: { main: '#E87AC5' }
       },
       components: {
         MuiCssBaseline: {
           styleOverrides: {
             // Global background and text color transition
             body: {
-              fontFamily: '"Noto Sans TC", "Roboto", sans-serif',
-              transition: 'background-color 0.3s, color 0.3s'
+              fontFamily:
+                '"Noto Sans TC", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
+              backgroundColor: 'transparent',
+              transition: 'background-color 180ms ease-out, color 180ms ease-out'
             },
             // Custom scrollbar styling with transition
             '*::-webkit-scrollbar': {
@@ -138,15 +149,26 @@ const HudApp: React.FC = () => {
 
   // 資料載入
   const loadDataFor = useCallback(async (tab: ViewTab, myClass: ClassName, gameMode: GameMode) => {
-    if (tab === 'recent') {
-      const data = await window.matches?.fetchRecent(5)
-      setRecentList(data ?? [])
-    } else {
-      const stats = await window.matches.getRankedWinrate({
-        myClass,
-        gameMode: gameMode
-      })
-      setAnalyzeData(stats)
+    const seq = ++loadSeqRef.current
+    setIsLoading(true)
+    setLoadError(null)
+
+    try {
+      if (tab === 'recent') {
+        const data = await window.matches?.fetchRecent(5)
+        if (seq === loadSeqRef.current) setRecentList(data ?? [])
+      } else {
+        const stats = await window.matches.getRankedWinrate({
+          myClass,
+          gameMode: gameMode
+        })
+        if (seq === loadSeqRef.current) setAnalyzeData(stats)
+      }
+    } catch (error) {
+      console.warn('[HUD] failed to load data:', error)
+      if (seq === loadSeqRef.current) setLoadError('資料讀取失敗')
+    } finally {
+      if (seq === loadSeqRef.current) setIsLoading(false)
     }
   }, [])
 
@@ -177,49 +199,96 @@ const HudApp: React.FC = () => {
     if (typeof result === 'boolean') setIsPinned(result)
   }
 
-  useEffect(() => {
-    if (battleStatus?.inBattle) {
-      window.electron.ipcRenderer.invoke('')
-    }
-  }, [battleStatus])
+  const battleClassLabel = battleStatus?.ownClass
+    ? classesMap[battleStatus.ownClass]?.label
+    : undefined
+  const enemyClassLabel = battleStatus?.enemyClass
+    ? classesMap[battleStatus.enemyClass]?.label
+    : undefined
+  const isInBattle = battleStatus?.inBattle === true
 
   return (
     <ThemeProvider theme={theme}>
+      <CssBaseline />
       <Box
         sx={{
-          p: 2,
-          border: '1px solid gray',
-          backdropFilter: 'blur(8px)',
-          backgroundColor: 'rgba(20,20,20,0.65)',
-          color: '#fff',
+          p: 1.25,
+          border: '1px solid rgba(214,226,244,0.18)',
+          borderRadius: 2,
+          boxShadow: '0 18px 55px rgba(0,0,0,0.42)',
+          backdropFilter: 'blur(14px) saturate(1.08)',
+          background: 'linear-gradient(180deg, rgba(26,31,39,0.82), rgba(15,18,24,0.74))',
+          color: 'text.primary',
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
-          gap: 2,
+          gap: 1,
           WebkitAppRegion: 'drag'
         }}
         tabIndex={-1}
       >
         {/* Header */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="subtitle1" sx={{ flex: 1, fontWeight: 600 }}>
-            近期數據
-          </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+              <CircleIcon
+                sx={{
+                  fontSize: 9,
+                  color: isInBattle ? '#75E2A8' : 'rgba(214,226,244,0.42)',
+                  filter: isInBattle ? 'drop-shadow(0 0 5px rgba(117,226,168,0.5))' : 'none'
+                }}
+              />
+              <Typography
+                variant="subtitle2"
+                sx={{
+                  fontWeight: 750,
+                  letterSpacing: 0,
+                  lineHeight: 1.15,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {isInBattle ? '對戰中' : '近期對戰'}
+              </Typography>
+            </Box>
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                color: 'text.secondary',
+                lineHeight: 1.25,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {isInBattle && battleClassLabel && enemyClassLabel
+                ? `${battleClassLabel} vs ${enemyClassLabel}`
+                : '最近 5 場紀錄'}
+            </Typography>
+          </Box>
 
           {/* 透明度控制 */}
           <Box
             sx={{
               display: 'flex',
               alignItems: 'center',
-              gap: 1,
+              gap: 0.5,
               WebkitAppRegion: 'no-drag',
-              '&:hover .hud-slider': { opacity: 1, width: '50px' }
+              px: 0.5,
+              py: 0.25,
+              borderRadius: 1,
+              bgcolor: 'rgba(214,226,244,0.06)',
+              border: '1px solid rgba(214,226,244,0.08)'
             }}
           >
-            <OpacityIcon fontSize="small" />
+            <Tooltip title="透明度" placement="bottom">
+              <OpacityIcon sx={{ fontSize: 17, color: 'text.secondary' }} />
+            </Tooltip>
             <Slider
               className="hud-slider"
               size="small"
@@ -229,9 +298,18 @@ const HudApp: React.FC = () => {
               value={hudOpacity}
               onChange={handleOpacityChange}
               sx={{
-                width: 0, // 預設收起
-                opacity: 0, // 預設隱藏
-                transition: 'all 0.3s ease'
+                width: 58,
+                opacity: 0.82,
+                color: '#66D8F5',
+                transition: 'opacity 160ms ease-out',
+                '&:hover, &:focus-within': { opacity: 1 },
+                '& .MuiSlider-thumb': {
+                  width: 10,
+                  height: 10
+                },
+                '& .MuiSlider-rail': {
+                  opacity: 0.32
+                }
               }}
             />
           </Box>
@@ -241,106 +319,109 @@ const HudApp: React.FC = () => {
               onClick={togglePinned}
               sx={{
                 WebkitAppRegion: 'no-drag',
-                '& svg': { transform: 'rotate(0deg)', transition: 'transform .3s ease' },
-                '&:hover svg, &:focus-visible svg': { transform: 'rotate(30deg)' },
+                color: isPinned ? '#66D8F5' : 'text.secondary',
+                bgcolor: isPinned ? 'rgba(102,216,245,0.11)' : 'rgba(214,226,244,0.05)',
+                border: '1px solid rgba(214,226,244,0.08)',
+                '&:hover': {
+                  bgcolor: isPinned ? 'rgba(102,216,245,0.18)' : 'rgba(214,226,244,0.1)'
+                },
+                '& svg': { transform: 'rotate(0deg)', transition: 'transform 180ms ease-out' },
+                '&:hover svg, &:focus-visible svg': { transform: 'rotate(24deg)' },
                 '@media (prefers-reduced-motion: reduce)': { '& svg': { transition: 'none' } }
               }}
-              // color="primary"
             >
               {isPinned ? <PushPinIcon /> : <PushPinOutlinedIcon />}
             </IconButton>
           </Tooltip>
 
-          <IconButton
-            size="small"
-            onClick={() => window.hud?.hide()}
-            sx={{
-              WebkitAppRegion: 'no-drag',
-              '& svg': { transform: 'rotate(0deg)', transition: 'transform .3s ease' },
-              '&:hover svg, &:focus-visible svg': { transform: 'rotate(90deg)' },
-              '@media (prefers-reduced-motion: reduce)': { '& svg': { transition: 'none' } }
-            }}
-            // color="primary"
-          >
-            <CloseIcon />
-          </IconButton>
+          <Tooltip title="隱藏 HUD" placement="bottom">
+            <IconButton
+              size="small"
+              onClick={() => window.hud?.hide()}
+              sx={{
+                WebkitAppRegion: 'no-drag',
+                color: 'text.secondary',
+                bgcolor: 'rgba(214,226,244,0.05)',
+                border: '1px solid rgba(214,226,244,0.08)',
+                '&:hover': {
+                  color: 'oklch(96% 0.006 250)',
+                  bgcolor: 'rgba(238,115,115,0.15)',
+                  borderColor: 'rgba(238,115,115,0.22)'
+                },
+                '& svg': { transform: 'rotate(0deg)', transition: 'transform 180ms ease-out' },
+                '&:hover svg, &:focus-visible svg': { transform: 'rotate(90deg)' },
+                '@media (prefers-reduced-motion: reduce)': { '& svg': { transition: 'none' } }
+              }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Tooltip>
         </Box>
 
-        {battleStatus && battleStatus?.inBattle === true && (
-          <Box display={'flex'} alignItems={'center'} justifyContent={'center'} gap={1}>
-            <Typography sx={{ color: classesMap[battleStatus.ownClass!].color }}>
-              {classesMap[battleStatus.ownClass!].label}
+        {isInBattle && battleStatus?.ownClass && battleStatus?.enemyClass && (
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
+              alignItems: 'center',
+              gap: 0.75,
+              px: 1,
+              py: 0.75,
+              borderRadius: 1.25,
+              bgcolor: 'rgba(214,226,244,0.055)',
+              border: '1px solid rgba(214,226,244,0.1)'
+            }}
+          >
+            <Typography
+              variant="body2"
+              sx={{
+                color: classesMap[battleStatus.ownClass].color,
+                fontWeight: 700,
+                textAlign: 'right',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {classesMap[battleStatus.ownClass].label}
             </Typography>
 
             <Chip
+              size="small"
               label={battleStatus.playOrder === 'first' ? '先攻' : '後攻'}
-              slotProps={{
-                label: {
-                  sx: {
-                    color: battleStatus.playOrder === 'first' ? 'primary.main' : 'secondary.main'
-                  }
-                }
+              sx={{
+                height: 22,
+                fontWeight: 700,
+                bgcolor:
+                  battleStatus.playOrder === 'first'
+                    ? 'rgba(102,216,245,0.16)'
+                    : 'rgba(232,122,197,0.16)',
+                color: battleStatus.playOrder === 'first' ? '#66D8F5' : '#E87AC5',
+                border: '1px solid rgba(214,226,244,0.1)'
               }}
             />
 
-            <Typography sx={{ color: classesMap[battleStatus.enemyClass!].color }}>
-              {classesMap[battleStatus.enemyClass!].label}
+            <Typography
+              variant="body2"
+              sx={{
+                color: classesMap[battleStatus.enemyClass].color,
+                fontWeight: 700,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {classesMap[battleStatus.enemyClass].label}
             </Typography>
           </Box>
         )}
 
-        {/* 視圖切換（只控制「顯示哪一頁」） */}
-        {/* <ViewSwitch value={viewTab} onChange={setViewTab} /> */}
-        {/* <Box display={'flex'} justifyContent={'center'}>
-          <CategorySwitch value={viewTab} onChange={setViewTab} />
-        </Box> */}
-
-        {/* 篩選列：職業 / 模式（影響 Analyze 的查詢） */}
-        {/* <Box
-          sx={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 1,
-            WebkitAppRegion: 'no-drag'
-          }}
-        >
-          <ToggleButtonGroup
-            size="small"
-            value={selectedClass}
-            exclusive
-            onChange={(_, val) => val && setSelectedClass(val)}
-            sx={{
-              '.Mui-selected': {
-                bgcolor: classesMap[selectedClass].bgColor
-              }
-            }}
-          >
-            {classes.map((c) => (
-              <ToggleButton key={c.id} value={c.id}>
-                <Typography sx={{ color: c.color }}>{c.label}</Typography>
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-
-          <ToggleButtonGroup
-            size="small"
-            value={selectedGameMode}
-            exclusive
-            onChange={(_, val) => val && setSelectedGameMode(val)}
-          >
-            {modes.map((m) => (
-              <ToggleButton key={m.id} value={m.id}>
-                <Typography color={m.color}>{m.label}</Typography>
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
-        </Box> */}
-        {/* <ModeSwitch viewTab={viewTab} setViewTab={setViewTab} /> */}
-
-        <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />
+        <Divider sx={{ borderColor: 'rgba(214,226,244,0.1)' }} />
 
         {/* 內容 */}
-        {viewTab === 'recent' && <Recent fetchData={recentList} />}
+        {viewTab === 'recent' && (
+          <Recent fetchData={recentList} isLoading={isLoading} error={loadError} />
+        )}
         {/* {viewTab === 'analyze' && <Analyze data={analyzeData} height={200} sortBy="total" />} */}
       </Box>
     </ThemeProvider>

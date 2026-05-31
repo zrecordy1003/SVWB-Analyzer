@@ -31,7 +31,9 @@ export default tseslint.config(
           varsIgnorePattern: '^_',
           argsIgnorePattern: '^_'
         }
-      ]
+      ],
+      '@typescript-eslint/explicit-function-return-type': 'off',
+      '@typescript-eslint/no-explicit-any': 'off'
     }
   },
   eslintConfigPrettier

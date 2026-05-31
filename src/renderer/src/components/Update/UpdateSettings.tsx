@@ -1,5 +1,5 @@
 /* UpdateSettings.tsx */
-/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Dialog,
@@ -71,23 +71,20 @@ const UpdateSettings: React.FC = () => {
         setInfo(ii)
         setPhase('downloaded')
       })
-      sessionUnsubs.current.push(offProgress, offDownloaded)[
-        // 一次性監聽只需用到一次
-        (offNone, offError)
-      ].forEach((off) => off && off())
+      sessionUnsubs.current.push(offProgress, offDownloaded)
+      ;[offNone, offError].forEach((off) => off())
     })
     const offNone = window.updates.onNone((i) => {
       setInfo(i)
       setPhase('none') // 不開 Dialog
-      setLastNone({ version: i?.version })[
-        // 清掉其他一次性監聽
-        (offAvailable, offError)
-      ].forEach((off) => off && off())
+      setLastNone({ version: i?.version })
+      ;[offAvailable, offError].forEach((off) => off())
     })
     const offError = window.updates.onError((err) => {
       setError(err)
       setPhase('error')
-      setOpen(true)[(offAvailable, offNone)].forEach((off) => off && off())
+      setOpen(true)
+      ;[offAvailable, offNone].forEach((off) => off())
     })
 
     // 保存一次性反註冊（若使用者中途關閉設定頁）

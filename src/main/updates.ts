@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, BrowserWindow, ipcMain } from 'electron'
 import Store from 'electron-store'
 

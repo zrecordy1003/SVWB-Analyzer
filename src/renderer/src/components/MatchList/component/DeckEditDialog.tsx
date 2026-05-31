@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/renderer/components/matches/DeckEditDialog.tsx
 import {
   Dialog,

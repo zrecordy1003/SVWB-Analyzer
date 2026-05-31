@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { BrowserWindow } from 'electron'
 
 export function broadcast(channel: string, ...args: any[]): void {

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { BrowserWindow, ipcMain } from 'electron'
 import path from 'path'
 

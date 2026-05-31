@@ -10,18 +10,13 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
-  IconButton,
   ListSubheader,
   Stack,
   TextField,
-  Tooltip,
   Typography,
   Button
 } from '@mui/material'
 import { createFilterOptions } from '@mui/material/Autocomplete'
-import AddIcon from '@mui/icons-material/Add'
-import EditIcon from '@mui/icons-material/Edit'
-import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import type { ClassName } from '@prisma/client'
 import DeckEditDialog from './DeckEditDialog'
 import { classesMap } from '@renderer/map/classMap'
@@ -100,7 +95,7 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
   const [editOpen, setEditOpen] = React.useState<null | Option>(null)
   const [confirmOpen, setConfirmOpen] = React.useState<null | Option>(null)
   const [deleting, setDeleting] = React.useState(false)
-  const [createCategoryId, setCreateCategoryId] = React.useState<string | ''>('')
+  const [createCategoryId] = React.useState<string | ''>('')
 
   // ---------- Load data once ----------
   React.useEffect(() => {
@@ -139,13 +134,6 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
   }, [])
 
   // ---------- Derived maps ----------
-  /** 名稱 -> id，用於群組右側的「在此分類新增」 */
-  const catNameToId = React.useMemo(() => {
-    const m = new Map<string, string>()
-    categories.forEach((c) => m.set(c.name, c.id))
-    return m
-  }, [categories])
-
   /** id -> sortIndex（未分類視為最大） */
   const catSortIndex = React.useMemo(() => {
     const m = new Map<string, number>()
@@ -169,9 +157,6 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
     () => filteredOptions.find((o) => o.id === value) ?? null,
     [filteredOptions, value]
   )
-
-  // 排序後第一個分類（當空清單新增時的預設分類）
-  const firstSortedCategoryId = categories[0]?.id ?? ''
 
   // ---------- Handlers ----------
   /** 新增 Deck 後：立刻加入 options、並把物件回傳給父層（確保 SummaryHeader 即時顯示 name） */

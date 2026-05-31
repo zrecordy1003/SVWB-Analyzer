@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useMemo } from 'react'
 import { Card, CardContent, Box, Typography } from '@mui/material'
 import { Bar } from 'react-chartjs-2'
@@ -224,18 +223,34 @@ const coloredTicksPlugin = {
 // }
 
 const Analyze: React.FC<AnalyzeProps> = ({ data: stats, height = 440, sortBy = 'total' }) => {
-  if (!stats || !stats.byOpponent || Object.keys(stats.byOpponent).length === 0) {
-    return (
-      <Box display={'flex'} justifyContent={'center'} p={2}>
-        <Typography variant="body2" color="error">
-          尚無資料。
-        </Typography>
-      </Box>
-    )
-  }
-
   // 轉 Chart.js 的資料：total=0 → null，不畫柱／交由 emptySideMarker 顯示「尚無資料」
   const chartData = useMemo(() => {
+    if (!stats?.byOpponent || Object.keys(stats.byOpponent).length === 0) {
+      return {
+        labels: [],
+        datasets: [
+          {
+            label: '先攻',
+            data: [],
+            rawVals: [],
+            backgroundColor: FIRST_COLOR,
+            borderRadius: 6,
+            wins: [],
+            totals: []
+          },
+          {
+            label: '後攻',
+            data: [],
+            rawVals: [],
+            backgroundColor: SECOND_COLOR,
+            borderRadius: 6,
+            wins: [],
+            totals: []
+          }
+        ] as any
+      }
+    }
+
     const rows = Object.entries(stats.byOpponent).map(([oppKey, s]) => {
       const label = classesMap[oppKey as keyof typeof classesMap]?.label ?? oppKey
 
@@ -351,6 +366,16 @@ const Analyze: React.FC<AnalyzeProps> = ({ data: stats, height = 440, sortBy = '
     }),
     [leftPadding]
   )
+
+  if (!stats || !stats.byOpponent || Object.keys(stats.byOpponent).length === 0) {
+    return (
+      <Box display={'flex'} justifyContent={'center'} p={2}>
+        <Typography variant="body2" color="error">
+          尚無資料。
+        </Typography>
+      </Box>
+    )
+  }
 
   const period =
     stats.start && stats.end

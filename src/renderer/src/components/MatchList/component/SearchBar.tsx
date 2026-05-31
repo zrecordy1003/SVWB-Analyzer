@@ -1,14 +1,10 @@
 // src/renderer/components/SearchBar/SearchBar.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Autocomplete,
   Box,
-  Button,
   Checkbox,
   Chip,
-  Divider,
-  Paper,
-  Stack,
   TextField,
   Typography,
   ToggleButton,
@@ -24,14 +20,14 @@ import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
 import { zhTW as dfZhTW } from 'date-fns/locale'
 import type { GameMode } from '@prisma/client'
 import { classes, classesMap, modes, modesMap } from '@renderer/map/classMap'
-import type { RangeKey } from 'src/main/ipc/helper'
+import type { RangeKey } from '@shared/types'
 
 // ==== 外部提供資料型別（與 hook 對齊）====
 export type DeckLite = {
   id: number
   name: string
   classId: string | number | null
-  deckCategoryId: number | null
+  deckCategoryId: string | null
   categoryName?: string | null
   categorySort?: number | null
 }
@@ -104,11 +100,6 @@ function inflateClasses(ids: string[]): ClassType[] {
 function deflateClasses(objs: ClassType[]): string[] {
   return objs.map((c) => String(c.id))
 }
-function toSafeCR(val: number, min: number, max: number): number {
-  if (Number.isNaN(val)) return min
-  return Math.min(max, Math.max(min, Math.round(val)))
-}
-
 type Props = {
   filters: Filters
   onFiltersChange: OnFiltersChange
@@ -257,7 +248,6 @@ const SearchBar = ({
       crMax: crMaxSafe
     }
     settingsSet(SETTINGS_KEY, payload).catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     rangeKey,
     my,
@@ -370,11 +360,6 @@ const SearchBar = ({
     onFiltersChange({ crMin: min, crMax: max }) // ★ 點預設視同一次提交
   }
 
-  const handleCRSlider = (_: Event, value: number | number[]) => {
-    const [minV, maxV] = value as number[]
-    onFiltersChange({ crMin: minV, crMax: maxV })
-  }
-
   return (
     <Box>
       {/* 第一排：職業 / 模式 */}
@@ -405,23 +390,26 @@ const SearchBar = ({
             const visible = value.slice(0, limit)
             const extra = value.length - limit
             return [
-              ...visible.map((opt, idx) => (
-                <Chip
-                  key={opt.id}
-                  label={opt.label}
-                  {...getTagProps({ index: idx })}
-                  sx={{
-                    background: `${opt.color}22`,
-                    color: opt.color,
-                    fontWeight: 600,
-                    borderRadius: '1.3em',
-                    mr: 0.5,
-                    mb: 0.5,
-                    fontSize: '0.95em',
-                    border: 'none'
-                  }}
-                />
-              )),
+              ...visible.map((opt, idx) => {
+                const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                return (
+                  <Chip
+                    key={opt.id}
+                    label={opt.label}
+                    {...tagProps}
+                    sx={{
+                      background: `${opt.color}22`,
+                      color: opt.color,
+                      fontWeight: 600,
+                      borderRadius: '1.3em',
+                      mr: 0.5,
+                      mb: 0.5,
+                      fontSize: '0.95em',
+                      border: 'none'
+                    }}
+                  />
+                )
+              }),
               extra > 0 && <Chip key="extra" label={`+${extra}`} />
             ].filter(Boolean)
           }}
@@ -455,23 +443,26 @@ const SearchBar = ({
             const visible = value.slice(0, limit)
             const extra = value.length - limit
             return [
-              ...visible.map((opt, idx) => (
-                <Chip
-                  key={opt.id}
-                  label={opt.label}
-                  {...getTagProps({ index: idx })}
-                  sx={{
-                    background: `${opt.color}22`,
-                    color: opt.color,
-                    fontWeight: 600,
-                    borderRadius: '1.3em',
-                    mr: 0.5,
-                    mb: 0.5,
-                    fontSize: '0.95em',
-                    border: 'none'
-                  }}
-                />
-              )),
+              ...visible.map((opt, idx) => {
+                const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                return (
+                  <Chip
+                    key={opt.id}
+                    label={opt.label}
+                    {...tagProps}
+                    sx={{
+                      background: `${opt.color}22`,
+                      color: opt.color,
+                      fontWeight: 600,
+                      borderRadius: '1.3em',
+                      mr: 0.5,
+                      mb: 0.5,
+                      fontSize: '0.95em',
+                      border: 'none'
+                    }}
+                  />
+                )
+              }),
               extra > 0 && <Chip key="extra" label={`+${extra}`} />
             ].filter(Boolean)
           }}
@@ -486,7 +477,9 @@ const SearchBar = ({
           getOptionLabel={(opt) => opt.label}
           isOptionEqualToValue={(opt, val) => opt.id === val.id}
           value={mode ? (modes.find((opt) => opt.id === mode) ?? null) : null}
-          onChange={(_, newVal) => onFiltersChange({ mode: newVal?.id ?? null })}
+          onChange={(_, newVal) =>
+            onFiltersChange({ mode: (newVal?.id as GameMode | undefined) ?? null })
+          }
           renderInput={(params) => (
             <TextField
               {...params}
@@ -664,14 +657,12 @@ const SearchBar = ({
             const visible = value.slice(0, limit)
             const extra = value.length - limit
             return [
-              ...visible.map((opt, idx) => (
-                <Chip
-                  key={opt.id}
-                  label={opt.name}
-                  {...getTagProps({ index: idx })}
-                  sx={{ mr: 0.5, mb: 0.5 }}
-                />
-              )),
+              ...visible.map((opt, idx) => {
+                const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                return (
+                  <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
+                )
+              }),
               extra > 0 && <Chip key="extra" label={`+${extra}`} />
             ].filter(Boolean)
           }}
@@ -745,7 +736,7 @@ const SearchBar = ({
                 min={CR_MIN_BOUND}
                 max={CR_MAX_BOUND}
                 step={CR_STEP}
-                onChange={(_, v) => setCrDraft(v as number[])} // ★ 只改草稿，不查詢
+                onChange={(_, v) => setCrDraft(v as [number, number])} // ★ 只改草稿，不查詢
                 onChangeCommitted={(_, v) => {
                   // ★ 放開後才提交 -> 觸發查詢
                   const [minV, maxV] = v as number[]

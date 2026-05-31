@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/renderer/components/matches/MatchList.tsx
 import React, { useEffect, useRef, useState, ChangeEvent } from 'react'
 import {
@@ -25,7 +24,6 @@ import LooksOneTwoToneIcon from '@mui/icons-material/LooksOneTwoTone'
 import LooksTwoTwoToneIcon from '@mui/icons-material/LooksTwoTwoTone'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
-import NoteAltOutlinedIcon from '@mui/icons-material/NoteAltOutlined'
 import WbSunnyIcon from '@mui/icons-material/WbSunny'
 import NightsStayIcon from '@mui/icons-material/NightsStay'
 import BrightnessHighIcon from '@mui/icons-material/BrightnessHigh'
@@ -35,12 +33,12 @@ import SunnySnowingIcon from '@mui/icons-material/SunnySnowing'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 
 import { classesMap, modesMap } from '@renderer/map/classMap'
-import { Match } from '@prisma/client'
+import { Deck, Match } from '@prisma/client'
 import SearchBar from './component/SearchBar'
 import MatchEditDialog from './component/MatchEditDialog'
 import ConfirmDialog from '../Common/ConfirmDialog'
 import { useDecksTags } from '../../hooks/useDecksTags'
-import type { QueryPayload } from 'src/main/ipc/matches'
+import type { QueryPayload } from '@shared/types'
 
 /** --- UI 常數（固定欄寬，避免換行） --- */
 const COL_W = {
@@ -121,9 +119,25 @@ function buildPayload(f: any): QueryPayload {
 
 /** 額外資料：避免 N+1 改為列表載入後批次抓 */
 type MatchExtras = { tags: { id: number; name: string }[]; note: string | null }
+type MatchRow = Match & {
+  my_deck?: Deck | null
+  oppo_deck?: Deck | null
+  tags?: { tag: { id: number; name: string } }[]
+}
+
+function buildExtrasMap(rows: MatchRow[]): Record<number, MatchExtras> {
+  const map: Record<number, MatchExtras> = {}
+  rows.forEach((row) => {
+    map[row.id] = {
+      tags: (row.tags ?? []).map((x) => x.tag),
+      note: row.note ?? null
+    }
+  })
+  return map
+}
 
 const MatchList = (): React.JSX.Element => {
-  const { allDecks, allTags, allCategories, refreshDecks, refreshTags } = useDecksTags()
+  const { allDecks, allTags, refreshDecks, refreshTags } = useDecksTags()
   // filter state
   const today = new Date()
   const [filters, setFilters] = useState<SearchFilters>({
@@ -136,7 +150,7 @@ const MatchList = (): React.JSX.Element => {
   })
   const onFiltersChange: OnFiltersChange = (patch) => setFilters((f: any) => ({ ...f, ...patch }))
 
-  const [rows, setRows] = useState<Match[]>([])
+  const [rows, setRows] = useState<MatchRow[]>([])
   const [totalCount, setTotalCount] = useState<number>(0)
   const [page, setPage] = useState<number>(0)
   const [rowsPerPage, setRowsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0])
@@ -149,6 +163,7 @@ const MatchList = (): React.JSX.Element => {
   useEffect(() => void (pageRef.current = page), [page])
   const rowsPerPageRef = useRef(rowsPerPage)
   useEffect(() => void (rowsPerPageRef.current = rowsPerPage), [rowsPerPage])
+  const filterQueryKeyRef = useRef('')
 
   // 編輯 / 刪除
   const [editId, setEditId] = useState<number | null>(null)
@@ -171,20 +186,31 @@ const MatchList = (): React.JSX.Element => {
   const fetchPage = async (pageIndex: number, pageSize: number, f: any): Promise<void> => {
     const currentReq = ++reqIdRef.current
     const payload = { pageIndex, pageSize, ...buildPayload(f) }
-    const data: Match[] = await window.electron?.ipcRenderer.invoke('matches:getPage', payload)
-    if (currentReq === reqIdRef.current) setRows(data)
+    const data: MatchRow[] = await window.electron?.ipcRenderer.invoke('matches:getPage', payload)
+    if (currentReq === reqIdRef.current) {
+      setRows(data)
+      setExtrasMap(buildExtrasMap(data))
+    }
   }
 
-  // 初/變更條件 → 撈列表與計數
+  // 初始、變更條件 → 重算總數。條件變更時先回到第一頁，避免重複查詢。
   useEffect(() => {
-    setPage(0)
-    fetchFilteredCount(debouncedFilters)
-    fetchPage(0, rowsPerPage, debouncedFilters)
-  }, [debouncedFilters, rowsPerPage])
+    const queryKey = JSON.stringify({ filters: debouncedFilters, rowsPerPage })
+    const queryChanged = filterQueryKeyRef.current !== queryKey
+    if (!queryChanged) return
+    if (page !== 0) {
+      setPage(0)
+      return
+    }
 
+    filterQueryKeyRef.current = queryKey
+    fetchFilteredCount(debouncedFilters)
+  }, [debouncedFilters, rowsPerPage, page])
+
+  // 換頁只需要重抓當頁資料，不需要重算 count。
   useEffect(() => {
     fetchPage(page, rowsPerPage, debouncedFilters)
-  }, [page])
+  }, [page, rowsPerPage, debouncedFilters])
 
   // 外部通知需要重撈
   useEffect(() => {
@@ -197,37 +223,6 @@ const MatchList = (): React.JSX.Element => {
       unsub && unsub()
     }
   }, [])
-
-  // 列表變更後批次抓 extras（避免 Row 內各自打 API）
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      if (!rows?.length) {
-        setExtrasMap({})
-        return
-      }
-      const ids = rows.map((r) => r.id)
-      const fetched = await Promise.all(
-        ids.map((id) =>
-          window.electron.ipcRenderer
-            .invoke('matches:getById', id)
-            .then((m) => ({
-              id,
-              tags: (m?.tags ?? []).map((x: any) => x.tag) as { id: number; name: string }[],
-              note: (m?.note ?? null) as string | null
-            }))
-            .catch(() => ({ id, tags: [], note: null }))
-        )
-      )
-      if (cancelled) return
-      const map: Record<number, MatchExtras> = {}
-      fetched.forEach(({ id, tags, note }) => (map[id] = { tags, note }))
-      setExtrasMap(map)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [rows])
 
   const handleChangePage = (_: unknown, newPage: number): void => setPage(newPage)
   const handleChangeRowsPerPage = (e: ChangeEvent<HTMLInputElement>): void => {

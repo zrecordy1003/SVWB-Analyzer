@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { windowManager } from 'node-window-manager'
 import type { Window as WindowHandle } from 'node-window-manager'
 import { execFile } from 'node:child_process'

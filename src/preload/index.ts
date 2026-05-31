@@ -1,8 +1,7 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { contextBridge, ipcRenderer, shell } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ClassName } from '@prisma/client'
-import type { RankedWinrateByOpponent } from '../main/ipc/helper.js'
+import type { RankedWinrateByOpponent } from '../shared/types.js'
 
 // Custom APIs for renderer
 const api = {}

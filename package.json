@@ -11,12 +11,14 @@
     "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "start": "prisma format && prisma migrate dev && electron-vite preview",
     "dev": "prisma format && prisma migrate dev && electron-vite dev",
-    "build": "prisma format && prisma migrate dev && prisma generate && electron-vite build",
+    "build": "prisma format && prisma generate && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
+    "build:unpack": "pnpm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
@@ -67,8 +69,13 @@
         "to": "icon.png"
       },
       {
-        "from": "resources/opencv",
-        "to": "opencv"
+        "from": "resources/opencv/bin",
+        "to": "opencv/bin",
+        "filter": [
+          "opencv_world4110.dll",
+          "opencv_videoio_ffmpeg4110_64.dll",
+          "opencv_videoio_msmf4110_64.dll"
+        ]
       },
       {
         "from": "resources/templates",
@@ -133,7 +140,8 @@
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.2.6",
-    "vite-plugin-compression": "^0.5.1"
+    "vite-plugin-compression": "^0.5.1",
+    "vitest": "^4.1.7"
   },
   "opencv4nodejs": {
     "disableAutoBuild": "1"

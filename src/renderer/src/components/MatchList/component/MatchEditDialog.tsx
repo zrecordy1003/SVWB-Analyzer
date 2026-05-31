@@ -18,11 +18,7 @@ import {
   Autocomplete,
   IconButton,
   Tooltip,
-  Paper,
-  Stack,
-  List,
-  ListItem,
-  ListItemSecondaryAction
+  Paper
 } from '@mui/material'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -78,129 +74,6 @@ const ResultSelect: React.FC<{
     </Select>
   </FormControl>
 )
-
-/** ——— 標籤管理 Dialog：改名 / 刪除（會呼叫後端 tags:update / tags:delete） ——— */
-const TagManagerDialog: React.FC<{
-  open: boolean
-  onClose: () => void
-  tags: Tag[]
-  onUpdated: (newAll: Tag[], deletedIds?: number[]) => void
-}> = ({ open, onClose, tags, onUpdated }) => {
-  const [rows, setRows] = useState<Array<Tag & { _name: string; _saving?: boolean }>>([])
-  const [busyId, setBusyId] = useState<number | null>(null)
-  const [errMsg, setErrMsg] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (open) {
-      const sorted = [...tags].sort((a, b) => a.name.localeCompare(b.name))
-      setRows(sorted.map((t) => ({ ...t, _name: t.name })))
-      setErrMsg(null)
-      setBusyId(null)
-    }
-  }, [open, tags])
-
-  const rename = async (id: number, newNameRaw: string) => {
-    const newName = newNameRaw.trim()
-    if (!newName) return
-    if (rows.some((r) => r.id !== id && r._name.toLowerCase() === newName.toLowerCase())) {
-      setErrMsg('名稱重複')
-      return
-    }
-    try {
-      setBusyId(id)
-      const updated: Tag = await window.electron.ipcRenderer.invoke('tags:update', {
-        id,
-        name: newName
-      })
-      setRows((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, name: updated.name, _name: updated.name } : r))
-      )
-      setErrMsg(null)
-      onUpdated(rows.map((r) => (r.id === id ? { ...r, name: newName } : r)))
-    } catch (e: any) {
-      setErrMsg(e?.message ?? '更新失敗')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  const remove = async (id: number) => {
-    const ok = confirm('確定要刪除此標籤？（會從所有對戰紀錄上移除）')
-    if (!ok) return
-    try {
-      setBusyId(id)
-      await window.electron.ipcRenderer.invoke('tags:delete', id)
-      const next = rows.filter((r) => r.id !== id)
-      setRows(next)
-      setErrMsg(null)
-      onUpdated(next, [id])
-    } catch (e: any) {
-      setErrMsg(e?.message ?? '刪除失敗')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
-      <DialogTitle>管理標籤</DialogTitle>
-      <DialogContent dividers>
-        {errMsg && (
-          <Typography color="error" variant="body2" sx={{ mb: 1 }}>
-            {errMsg}
-          </Typography>
-        )}
-        <List dense>
-          {rows.map((r) => {
-            const dirty = r._name.trim() !== r.name
-            return (
-              <ListItem key={r.id} disableGutters sx={{ gap: 1 }}>
-                <TextField
-                  size="small"
-                  value={r._name}
-                  onChange={(e) =>
-                    setRows((prev) =>
-                      prev.map((x) => (x.id === r.id ? { ...x, _name: e.target.value } : x))
-                    )
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && dirty && !busyId) void rename(r.id, r._name)
-                  }}
-                  fullWidth
-                />
-                <Button
-                  size="small"
-                  disabled={!dirty || busyId === r.id}
-                  onClick={() => void rename(r.id, r._name)}
-                >
-                  儲存
-                </Button>
-                <ListItemSecondaryAction>
-                  <IconButton
-                    edge="end"
-                    color="error"
-                    disabled={busyId === r.id}
-                    onClick={() => void remove(r.id)}
-                  >
-                    <DeleteIcon />
-                  </IconButton>
-                </ListItemSecondaryAction>
-              </ListItem>
-            )
-          })}
-          {rows.length === 0 && (
-            <Typography variant="body2" color="text.secondary">
-              尚無標籤
-            </Typography>
-          )}
-        </List>
-      </DialogContent>
-      <DialogActions>
-        <Button onClick={onClose}>關閉</Button>
-      </DialogActions>
-    </Dialog>
-  )
-}
 
 /** ——— TagEditor：下拉清單內按鈕觸發 Dialog 的編輯／刪除 ——— */
 const TagEditor: React.FC<{
@@ -598,7 +471,7 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
                       onChange={(e) =>
                         setData({
                           ...data,
-                          play_order: (e.target.value || null) as PlayOrder | null
+                          play_order: (e.target.value || data.play_order) as PlayOrder
                         })
                       }
                     >

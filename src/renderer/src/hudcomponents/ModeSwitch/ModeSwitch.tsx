@@ -1,7 +1,12 @@
 import { ToggleButton, ToggleButtonGroup, Typography } from '@mui/material'
 import React from 'react'
 
-const ModeSwitch: React.FC = ({ viewTab, setViewTab }) => {
+type Props = {
+  viewTab: string
+  setViewTab: (value: string) => void
+}
+
+const ModeSwitch: React.FC<Props> = ({ viewTab, setViewTab }) => {
   return (
     <>
       <ToggleButtonGroup

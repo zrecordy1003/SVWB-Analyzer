@@ -1,16 +1,11 @@
 import { app, BrowserWindow, MessageChannelMain, Notification, utilityProcess } from 'electron'
 import forkPath from './forkedImageAnalyzer?modulePath'
-import path from 'path'
-import { ClassName, PlayOrder } from '@prisma/client'
 import { broadcast } from './utils/broadcast.js'
 import Store from 'electron-store'
+import { getCaptureImagePath, getTesseractCacheDir } from './paths.js'
+import type { BattleStatus } from '../shared/types.js'
 
-export interface BattleStatus {
-  inBattle: boolean
-  ownClass: ClassName | null
-  enemyClass: ClassName | null
-  playOrder: PlayOrder | null
-}
+export type { BattleStatus } from '../shared/types.js'
 
 let battleStatus: BattleStatus = {
   inBattle: false,
@@ -24,7 +19,6 @@ let isStarting = false
 
 const store = new Store()
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function startAnalyzer(_mainWindow: BrowserWindow): void {
   console.log('[Main] analyze-image triggered')
 
@@ -39,10 +33,8 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
   }
   isStarting = true
 
-  const imagePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-    : // : path.join(__dirname, '../../resources', 'test.png')
-      path.join(__dirname, '../../tools', 'svwb.png')
+  const imagePath = getCaptureImagePath()
+  const cacheDir = getTesseractCacheDir()
 
   const { port1, port2 } = new MessageChannelMain()
 
@@ -61,7 +53,13 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
     })
 
     child.postMessage(
-      { type: 'init', imagePath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath },
+      {
+        type: 'init',
+        imagePath,
+        cacheDir,
+        isPackaged: app.isPackaged,
+        resourcesPath: process.resourcesPath
+      },
       [port1]
     )
 

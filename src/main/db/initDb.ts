@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app } from 'electron'
 import path from 'path'
 import fs from 'fs/promises'
@@ -21,7 +20,7 @@ function getDbPath(): string {
   return path.join(getDbDir(), 'app.db')
 }
 
-function toDbUrl(p: string): string {
+export function toDbUrl(p: string): string {
   return `file:${p.replace(/\\/g, '/')}`
 }
 
@@ -106,17 +105,30 @@ function backupDb(dbPath: string): void {
 
 export async function initDatabase(): Promise<void> {
   // 1) 決定 DB 路徑與 URL，並設到 env（確保之後 import 的 client 也用同一路徑）
-  const dbPath = getDbPath()
+  await initDatabaseAt({
+    dbPath: getDbPath(),
+    migrationsDir: getMigrationsDir(),
+    backup: true
+  })
+}
+
+export async function initDatabaseAt(options: {
+  dbPath: string
+  migrationsDir: string
+  backup?: boolean
+}): Promise<void> {
+  const dbPath = options.dbPath
+  await fs.mkdir(path.dirname(dbPath), { recursive: true })
   const dbUrl = toDbUrl(dbPath)
   process.env.DATABASE_URL = dbUrl
 
-  // 2) 僅在這裡建立「唯一」的 PrismaClient
+  // 2) 建立 migration 專用 PrismaClient；app runtime client 仍由 prismaClient.ts 管理。
   const prisma = new PrismaClient({
     datasources: { db: { url: dbUrl } }
   })
 
   // 3) 檢查 migrations 檔案
-  const dir = getMigrationsDir()
+  const dir = options.migrationsDir
   const files = await fs.readdir(dir)
   const migrations = files
     .filter((f) => /^\d{3}_.+\.sql$/i.test(f))
@@ -135,7 +147,7 @@ export async function initDatabase(): Promise<void> {
 
   // 6) 只在「有未套用的 migration」時備份
   const hasPending = migrations.some((m) => !applied.has(m.version))
-  if (hasPending) backupDb(dbPath)
+  if (hasPending && options.backup !== false) backupDb(dbPath)
 
   // 7) 逐一套用未套用的 migration
   for (const m of migrations) {

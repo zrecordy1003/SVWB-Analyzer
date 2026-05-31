@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { IpcRenderer } from '@electron-toolkit/preload'
 import type { ClassName, GameMode } from '@prisma/client'
-import type { RangeKey } from 'src/main/ipc/helper'
+import type { RangeKey, RankedWinrateByOpponent } from '@shared/types'
 
 export {}
 

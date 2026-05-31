@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/renderer/components/Analyzer.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -24,13 +23,13 @@ import LineChart from './component/LineChart'
 import { useDecksTags } from '../../hooks/useDecksTags'
 
 import type { ClassName, GameMode } from '@prisma/client'
-import type { RangeKey, RankedWinrateByOpponent } from 'src/main/ipc/helper'
+import type { RangeKey, RankedWinrateByOpponent } from '@shared/types'
 
 type DeckLite = {
   id: number
   name: string
   classId: string | number | null
-  deckCategoryId?: number | null
+  deckCategoryId?: string | null
   categoryName?: string | null
   categorySort?: number | null
 }
@@ -587,14 +586,12 @@ const Analyzer: React.FC = () => {
               const visible = value.slice(0, limit)
               const extra = value.length - limit
               return [
-                ...visible.map((opt, idx) => (
-                  <Chip
-                    key={opt.id}
-                    label={opt.name}
-                    {...getTagProps({ index: idx })}
-                    sx={{ mr: 0.5, mb: 0.5 }}
-                  />
-                )),
+                ...visible.map((opt, idx) => {
+                  const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                  return (
+                    <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
+                  )
+                }),
                 extra > 0 && <Chip key="extra" label={`+${extra}`} />
               ].filter(Boolean) as React.ReactNode[]
             }}
@@ -626,14 +623,12 @@ const Analyzer: React.FC = () => {
               const visible = value.slice(0, limit)
               const extra = value.length - limit
               return [
-                ...visible.map((opt, idx) => (
-                  <Chip
-                    key={opt.id}
-                    label={opt.name}
-                    {...getTagProps({ index: idx })}
-                    sx={{ mr: 0.5, mb: 0.5 }}
-                  />
-                )),
+                ...visible.map((opt, idx) => {
+                  const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                  return (
+                    <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
+                  )
+                }),
                 extra > 0 && <Chip key="extra" label={`+${extra}`} />
               ].filter(Boolean) as React.ReactNode[]
             }}
@@ -688,7 +683,7 @@ const Analyzer: React.FC = () => {
                 min={CR_MIN_BOUND}
                 max={CR_MAX_BOUND}
                 step={CR_STEP}
-                onChange={(_, v) => setCrDraft(v as number[])} // 拖曳不送出
+                onChange={(_, v) => setCrDraft(v as [number, number])} // 拖曳不送出
                 onChangeCommitted={(_, v) => {
                   const [minV, maxV] = v as number[]
                   setCrMin(minV)

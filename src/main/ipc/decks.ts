@@ -1,7 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { ipcMain } from 'electron'
 import type { Prisma, PrismaClient, ClassName, Deck, DeckCategory } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
+import { getStatsCacheVersion, invalidateStatsCaches } from '../statsCache.js'
+import { broadcast } from '../utils/broadcast.js'
 import { RangeKey } from './helper.js'
 
 /* ================================
@@ -30,6 +31,28 @@ type Res<T> = Ok<T> | Err
 
 type Tx = Prisma.TransactionClient
 type Db = PrismaClient | Tx
+type DeckStatsRow = {
+  deckId: number
+  total: number
+  wins: number
+  winRate: number
+}
+type ReferenceDataScope = 'decks' | 'tags' | 'categories' | 'all'
+
+const STATS_CACHE_TTL_MS = 3000
+const deckStatsCache = new Map<string, { expiresAt: number; value: DeckStatsRow[] }>()
+
+function statsCacheKey(params: Record<string, unknown>): string {
+  return JSON.stringify(params, (_key, value) => {
+    if (value instanceof Date) return value.getTime()
+    if (Array.isArray(value)) return [...value].sort()
+    return value
+  })
+}
+
+function notifyReferenceDataChanged(scope: ReferenceDataScope): void {
+  broadcast('reference-data:changed', { scope })
+}
 
 /* ================================
  * 小工具：統一錯誤處理 / 資料驗證 / 輔助
@@ -53,7 +76,7 @@ const coerceCategoryId = (v?: string | null): string | null => {
 
 // 名稱校驗（後端底線：不可為空；若你想限制長度，調整 MAX_NAME_LEN）
 const MAX_NAME_LEN = 64
-const assertValidName = (name?: string) => {
+const assertValidName = (name?: string): string => {
   const n = (name ?? '').trim()
   if (!n) throw new Error('INVALID_INPUT:Name is required')
   if (n.length > MAX_NAME_LEN) throw new Error('INVALID_INPUT:Name too long')
@@ -69,10 +92,10 @@ async function ensureCategoryExists(db: Db, categoryId?: string | null): Promise
 }
 
 // 不分大小寫重名檢查（同職業 + 同分類）
-const norm = (s: string) => s.trim().toLocaleLowerCase()
+const norm = (s: string): string => s.trim().toLocaleLowerCase()
 async function hasNameDuplicateCI(
   db: Db,
-  params: { cls: ClassName; categoryId: string | null; name: string; excludeId?: number }
+  params: { cls: string; categoryId: string | null; name: string; excludeId?: number }
 ): Promise<boolean> {
   const rows = await db.deck.findMany({
     where: { class: params.cls, categoryId: params.categoryId },
@@ -94,7 +117,11 @@ const toDateSafe = (v: unknown): Date | null => {
   return isNaN(d.getTime()) ? null : d
 }
 
-const computeRange = (p: { rangeKey?: RangeKey; start?: any; end?: any }): {
+const computeRange = (p: {
+  rangeKey?: RangeKey
+  start?: any
+  end?: any
+}): {
   start?: Date
   end?: Date
 } => {
@@ -185,18 +212,18 @@ export function registerDecksIpc(): void {
         start?: string | number | Date | null
         end?: string | number | Date | null
       } = {}
-    ): Promise<
-      Res<
-        Array<{
-          deckId: number
-          total: number
-          wins: number
-          winRate: number
-        }>
-      >
-    > =>
+    ): Promise<Res<DeckStatsRow[]>> =>
       wrap(async () => {
         const { start, end } = computeRange(params)
+        const cacheKey = statsCacheKey({
+          version: getStatsCacheVersion(),
+          deckIds: params.deckIds ?? [],
+          start: start?.getTime() ?? null,
+          end: end?.getTime() ?? null
+        })
+        const cached = deckStatsCache.get(cacheKey)
+        if (cached && cached.expiresAt > Date.now()) return cached.value
+
         const where: Prisma.MatchWhereInput = {
           my_deckId: { not: null },
           result: { not: null }
@@ -206,28 +233,33 @@ export function registerDecksIpc(): void {
         else if (start) where.playedAt = { gte: start }
         else if (end) where.playedAt = { lte: end }
 
-        const totals = await prisma.match.groupBy({
-          by: ['my_deckId'],
+        const grouped = await prisma.match.groupBy({
+          by: ['my_deckId', 'result'],
           where,
           _count: { _all: true }
         })
-        const wins = await prisma.match.groupBy({
-          by: ['my_deckId'],
-          where: { ...where, result: true },
-          _count: { _all: true }
+
+        const stats = new Map<number, { total: number; wins: number }>()
+        grouped.forEach((row) => {
+          if (row.my_deckId == null) return
+          const current = stats.get(row.my_deckId) ?? { total: 0, wins: 0 }
+          const count = row._count._all
+          current.total += count
+          if (row.result === true) current.wins += count
+          stats.set(row.my_deckId, current)
         })
 
-        return totals.map((row) => {
-          const win = wins.find((w) => w.my_deckId === row.my_deckId)?._count._all ?? 0
-          const total = row._count._all
-          const rate = total > 0 ? +((win / total) * 100).toFixed(2) : 0
+        const result = Array.from(stats.entries()).map(([deckId, { total, wins }]) => {
+          const rate = total > 0 ? +((wins / total) * 100).toFixed(2) : 0
           return {
-            deckId: row.my_deckId!,
+            deckId,
             total,
-            wins: win,
+            wins,
             winRate: rate
           }
         })
+        deckStatsCache.set(cacheKey, { expiresAt: Date.now() + STATS_CACHE_TTL_MS, value: result })
+        return result
       })
   )
 
@@ -237,7 +269,10 @@ export function registerDecksIpc(): void {
     async (_e, input: { name: string }): Promise<Res<DeckCategory>> =>
       wrap(async () => {
         const name = assertValidName(input?.name)
-        return prisma.deckCategory.create({ data: { name } })
+        const created = await prisma.deckCategory.create({ data: { name } })
+        invalidateStatsCaches()
+        notifyReferenceDataChanged('categories')
+        return created
       })
   )
 
@@ -251,7 +286,7 @@ export function registerDecksIpc(): void {
 
         const categoryId = coerceCategoryId(input.categoryId)
 
-        return prisma.$transaction(async (tx) => {
+        const created = await prisma.$transaction(async (tx) => {
           await ensureCategoryExists(tx, categoryId)
 
           // 不分大小寫重名檢查（同職業 + 同分類）
@@ -276,6 +311,9 @@ export function registerDecksIpc(): void {
           })
           return created
         })
+        invalidateStatsCaches()
+        notifyReferenceDataChanged('decks')
+        return created
       })
   )
 
@@ -287,7 +325,7 @@ export function registerDecksIpc(): void {
         const { id } = input
         if (!id) throw new Error('INVALID_INPUT:ID is required')
 
-        return prisma.$transaction(async (tx) => {
+        const updated = await prisma.$transaction(async (tx) => {
           const current = await tx.deck.findUnique({ where: { id } })
           if (!current) throw new Error('NOT_FOUND:Deck')
 
@@ -336,6 +374,9 @@ export function registerDecksIpc(): void {
           })
           return updated
         })
+        invalidateStatsCaches()
+        notifyReferenceDataChanged('decks')
+        return updated
       })
   )
 
@@ -345,6 +386,8 @@ export function registerDecksIpc(): void {
     async (_e, { id }: { id: number }): Promise<Res<{ success: true }>> =>
       wrap(async () => {
         await prisma.deck.delete({ where: { id } })
+        invalidateStatsCaches()
+        notifyReferenceDataChanged('decks')
         return { success: true }
       })
   )
@@ -354,13 +397,16 @@ export function registerDecksIpc(): void {
     'decks:setDefaultForClass',
     async (_e, { deckId }: { deckId: number }): Promise<Res<Deck>> =>
       wrap(async () => {
-        return prisma.$transaction(async (tx) => {
+        const updated = await prisma.$transaction(async (tx) => {
           const deck = await tx.deck.findUnique({ where: { id: deckId } })
           if (!deck) throw new Error('NOT_FOUND:Deck')
           await tx.deck.updateMany({ where: { class: deck.class }, data: { isDefault: false } })
           const updated = await tx.deck.update({ where: { id: deckId }, data: { isDefault: true } })
           return updated
         })
+        invalidateStatsCaches()
+        notifyReferenceDataChanged('decks')
+        return updated
       })
   )
 

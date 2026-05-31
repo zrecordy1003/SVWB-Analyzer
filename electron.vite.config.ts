@@ -57,8 +57,7 @@ export default defineConfig({
               '@mui/icons-material',
               '@emotion/react',
               '@emotion/styled'
-            ],
-            'vendor-ocr': ['tesseract.js']
+            ]
           }
         },
         input: {

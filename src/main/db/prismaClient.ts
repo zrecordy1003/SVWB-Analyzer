@@ -13,3 +13,9 @@ export function getPrisma(): PrismaClient {
   }
   return _prisma
 }
+
+export async function resetPrismaForTests(): Promise<void> {
+  if (!_prisma) return
+  await _prisma.$disconnect()
+  _prisma = null
+}

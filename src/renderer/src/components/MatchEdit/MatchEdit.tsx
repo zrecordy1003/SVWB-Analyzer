@@ -1,10 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Box,
   Card,
   CardHeader,
   CardContent,
-  CardActions,
   IconButton,
   Chip,
   Typography,
@@ -133,7 +132,7 @@ function InlineBPField(props: {
     if (editing) {
       setDraft(props.value === null || props.value === undefined ? '' : String(props.value))
     }
-  }, [editing])
+  }, [editing, props.value])
 
   const commit = async () => {
     // empty => null，數字格式允許正/負/零
@@ -298,9 +297,10 @@ function NotesAndTags(props: {
               value={draftTags}
               onChange={(_, value) => setDraftTags(value)}
               renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <Chip variant="outlined" label={option} {...getTagProps({ index })} />
-                ))
+                value.map((option, index) => {
+                  const { key, ...tagProps } = getTagProps({ index })
+                  return <Chip key={key} variant="outlined" label={option} {...tagProps} />
+                })
               }
               renderInput={(params) => (
                 <TextField {...params} label="標籤（可自訂，Enter 建立）" placeholder="新增標籤" />
@@ -607,7 +607,7 @@ export default function MatchEdit() {
       setMatches(ms)
     }
     load()
-  }, [])
+  }, [ipc])
 
   const filteredMatches = useMemo(() => {
     if (!onlyToday) return matches
@@ -624,7 +624,7 @@ export default function MatchEdit() {
     try {
       const res = await updateBP(ipc, matchId, nextBP)
       setMatches((cur) => cur.map((m) => (m.id === matchId ? res : m)))
-    } catch (e) {
+    } catch {
       // rollback
       setMatches(prev)
     }

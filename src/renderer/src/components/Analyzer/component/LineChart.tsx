@@ -1,6 +1,5 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useMemo } from 'react'
-import { Card, CardContent, Box, Typography, Divider, Chip } from '@mui/material'
+import { Card, CardContent, Box, Typography, Divider } from '@mui/material'
 import { Bar } from 'react-chartjs-2'
 import {
   Chart as ChartJS,
@@ -12,12 +11,11 @@ import {
   Chart
 } from 'chart.js'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
-import { Tooltip as MUITooltip } from '@mui/material'
 
 import { classesMap } from '@renderer/map/classMap'
 
 // import type { ClassName } from '@prisma/client'
-import type { RankedWinrateByOpponent } from 'src/main/ipc/helper'
+import type { RankedWinrateByOpponent } from '@shared/types'
 
 // type Stat = { wins: number; total: number; winRate: number }
 // type SideStats = { first: Stat; second: Stat; all: Stat }
@@ -254,38 +252,17 @@ const coloredTicksPlugin = {
 // }
 
 const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy = 'total' }) => {
-  if (!stats || !stats.byOpponent || Object.keys(stats.byOpponent).length === 0) {
-    return (
-      <Box
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
-        p={4}
-        gap={1.5}
-        sx={{
-          border: '1px dashed',
-          borderColor: 'rgba(255,255,255,0.2)',
-          borderRadius: 2,
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          minHeight: 200
-        }}
-      >
-        <InfoOutlinedIcon color="disabled" sx={{ fontSize: 40, opacity: 0.6 }} />
-
-        <Typography variant="body1" sx={{ opacity: 0.8 }}>
-          尚無資料
-        </Typography>
-
-        <Typography variant="caption" sx={{ opacity: 0.6, textAlign: 'center' }}>
-          完成更多對戰後，即可查看統計數據
-        </Typography>
-      </Box>
-    )
-  }
-
   // 轉 Chart.js 的資料：total=0 → null，不畫柱／交由 emptySideMarker 顯示「尚無資料」
   const chartData = useMemo(() => {
+    if (!stats?.byOpponent) {
+      return {
+        labels: [],
+        _bottomLabels: [],
+        _bottomColors: [],
+        datasets: []
+      } as any
+    }
+
     const rows = Object.entries(stats.byOpponent).map(([oppKey, s]) => {
       const label = classesMap[oppKey as keyof typeof classesMap]?.label ?? oppKey
 
@@ -370,7 +347,7 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
     const wTop = measureMaxLabelWidthWithFont(labels, LABEL_FONT)
     const wBot = measureMaxLabelWidthWithFont(bot, SUB_FONT)
     return Math.max(40, Math.max(wTop, wBot) + 18)
-  }, [chartData.labels, (chartData as any)._bottomLabels])
+  }, [chartData])
 
   const bottomStuff = useMemo(() => {
     const dAny: any = chartData
@@ -424,6 +401,36 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
     }),
     [leftPadding, bottomStuff.bottomLabels, bottomStuff.bottomColors]
   )
+
+  if (!stats || !stats.byOpponent || Object.keys(stats.byOpponent).length === 0) {
+    return (
+      <Box
+        display="flex"
+        flexDirection="column"
+        alignItems="center"
+        justifyContent="center"
+        p={4}
+        gap={1.5}
+        sx={{
+          border: '1px dashed',
+          borderColor: 'rgba(255,255,255,0.2)',
+          borderRadius: 2,
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          minHeight: 200
+        }}
+      >
+        <InfoOutlinedIcon color="disabled" sx={{ fontSize: 40, opacity: 0.6 }} />
+
+        <Typography variant="body1" sx={{ opacity: 0.8 }}>
+          尚無資料
+        </Typography>
+
+        <Typography variant="caption" sx={{ opacity: 0.6, textAlign: 'center' }}>
+          完成更多對戰後，即可查看統計數據
+        </Typography>
+      </Box>
+    )
+  }
 
   const period =
     stats.start && stats.end

@@ -1,24 +1,23 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { PrismaClient, ClassName, GameMode, PlayOrder } from '@prisma/client'
+import { ClassName, GameMode, PlayOrder } from '@prisma/client'
+import { getPrisma } from '../db/prismaClient.js'
+import { getStatsCacheVersion } from '../statsCache.js'
+import type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
+
+export type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
 
 type Stat = { wins: number; total: number; winRate: number }
 type SideStats = { first: Stat; second: Stat; all: Stat }
-export type RankedWinrateByOpponent = {
-  myClass: ClassName
-  start: number | null // 傳回毫秒（若有給）
-  end: number | null // 傳回「含當天」的結束毫秒（若有給）
-  byOpponent: Record<string, SideStats>
-  overall: SideStats
-  myDecks?: { id: number; name: string }[]
-  tags?: { id: number; name: string }[]
-  crMin: number | null
-  crMax: number | null
+
+const STATS_CACHE_TTL_MS = 3000
+const rankedWinrateCache = new Map<string, { expiresAt: number; value: RankedWinrateByOpponent }>()
+
+function statsCacheKey(params: Record<string, unknown>): string {
+  return JSON.stringify(params, (_key, value) => {
+    if (value instanceof Date) return value.getTime()
+    if (Array.isArray(value)) return [...value].sort()
+    return value
+  })
 }
-
-export type RangeKey = 'today' | '7d' | '30d' | 'all' | 'custom'
-
-// 建議在模組層共用 PrismaClient（或你有既有單例就用你的）
-const prisma = new PrismaClient()
 
 /** 取得 ranked 對戰：指定 myClass、可選日期區間；依對手職業 × 先/後手 統計勝率 */
 export async function getRankedWinrateByOpponent(params: {
@@ -32,6 +31,7 @@ export async function getRankedWinrateByOpponent(params: {
   crMin?: number
   crMax?: number
 }): Promise<RankedWinrateByOpponent> {
+  const prisma = getPrisma()
   const { myClass, rangeKey } = params
 
   // 1) 先把顧客傳入的 start/end 轉成 Date（若有）
@@ -76,36 +76,36 @@ export async function getRankedWinrateByOpponent(params: {
     if (typeof params.crMax === 'number') whereBase.current_cr.lte = params.crMax
   }
 
-  // 4) groupBy：總場數
-  const totals = await prisma.match.groupBy({
-    by: ['oppo_class', 'play_order'],
+  const cacheKey = statsCacheKey({
+    version: getStatsCacheVersion(),
+    myClass,
+    gameMode: params.gameMode ?? GameMode.ranked,
+    start: startDate?.getTime() ?? null,
+    end: endDateExclusive?.getTime() ?? null,
+    myDeckIds: params.myDeckIds ?? [],
+    tagIds: params.tagIds ?? [],
+    crMin: params.crMin ?? null,
+    crMax: params.crMax ?? null
+  })
+  const cached = rankedWinrateCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.value
+
+  // 4) 一次 groupBy 取得總場數與勝場數，避免 totals/wins 分成兩次查詢。
+  const grouped = await prisma.match.groupBy({
+    by: ['oppo_class', 'play_order', 'result'],
     where: whereBase,
     _count: { _all: true } as const
   })
-
-  // 5) groupBy：勝場數
-  const wins = await prisma.match.groupBy({
-    by: ['oppo_class', 'play_order'],
-    where: { ...whereBase, result: true },
-    _count: { _all: true } as const
-  })
-
-  // 6) 彙整
-  const winMap = new Map<string, number>()
-  for (const r of wins) {
-    const side = r.play_order === PlayOrder.first ? 'first' : 'second'
-    winMap.set(`${r.oppo_class}|${side}`, Number((r._count as any)?._all ?? 0))
-  }
 
   const empty: Stat = { wins: 0, total: 0, winRate: 0 }
   const byOpponent: Record<string, SideStats> = {}
   const overall: SideStats = { first: { ...empty }, second: { ...empty }, all: { ...empty } }
 
-  for (const r of totals) {
+  for (const r of grouped) {
     const opp = String(r.oppo_class)
     const side = r.play_order === PlayOrder.first ? ('first' as const) : ('second' as const)
     const total = Number((r._count as any)?._all ?? 0)
-    const w = winMap.get(`${opp}|${side}`) ?? 0
+    const w = r.result === true ? total : 0
 
     byOpponent[opp] ??= { first: { ...empty }, second: { ...empty }, all: { ...empty } }
 
@@ -157,7 +157,7 @@ export async function getRankedWinrateByOpponent(params: {
       .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
   }
 
-  return {
+  const result = {
     myClass,
     start: startDate ? startDate.getTime() : null,
     end: endDateExclusive ? endDateExclusive.getTime() - 1 : null,
@@ -168,6 +168,8 @@ export async function getRankedWinrateByOpponent(params: {
     crMin: typeof params.crMin === 'number' ? params.crMin : null,
     crMax: typeof params.crMax === 'number' ? params.crMax : null
   }
+  rankedWinrateCache.set(cacheKey, { expiresAt: Date.now() + STATS_CACHE_TTL_MS, value: result })
+  return result
 }
 
 /* ---------- helpers ---------- */
