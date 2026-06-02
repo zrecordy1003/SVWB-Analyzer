@@ -3,7 +3,14 @@ import fs from 'fs'
 import path from 'path'
 import cv from '@u4/opencv4nodejs'
 import { createWorker, OEM, PSM } from 'tesseract.js'
-import { getGameRect, getRegionSafe, getScaleFactors, scaleRect } from './recognition/geometry.js'
+import {
+  clampRectToMat,
+  getGameRect,
+  getRegionSafe,
+  getScaleFactors,
+  scaleRect,
+  type RectLike
+} from './recognition/geometry.js'
 import {
   configureTemplateMatchingDebug,
   loadTemplates,
@@ -49,11 +56,11 @@ function topRightAreaRect(gameRect: { x: number; y: number; w: number; h: number
 }
 
 function rectFromModeAnchor(params: {
-  baseRect: { x: number; y: number; w: number; h: number }
+  baseRect: RectLike
   anchor?: AnchorResult
-  anchorBaseRect: { x: number; y: number; w: number; h: number }
+  anchorBaseRect: RectLike
   scale: ReturnType<typeof getScaleFactors>
-}): { x: number; y: number; w: number; h: number } {
+}): RectLike {
   if (!params.anchor) return scaleRect(params.baseRect, params.scale)
   return anchorAwareRect({
     baseRect: params.baseRect,
@@ -61,6 +68,49 @@ function rectFromModeAnchor(params: {
     expectedAnchorBase: params.anchorBaseRect,
     scale: params.scale
   })
+}
+
+function getOcrRegionOrFallback(params: {
+  mat: cv.Mat
+  rect: RectLike
+  fallbackRect: RectLike
+  label: string
+  minWidth?: number
+  minHeight?: number
+}): cv.Mat | null {
+  const minWidth = params.minWidth ?? 3
+  const minHeight = params.minHeight ?? 8
+  const rect = clampRectToMat(params.rect, params.mat)
+
+  if (rect.width >= minWidth && rect.height >= minHeight) {
+    return params.mat.getRegion(rect)
+  }
+
+  const fallback = clampRectToMat(params.fallbackRect, params.mat)
+  if (fallback.width >= minWidth && fallback.height >= minHeight) {
+    debugLog('[OCR] anchor ROI too small, fallback to fixed ROI:', {
+      label: params.label,
+      rect: params.rect,
+      clipped: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+      fallback: {
+        x: fallback.x,
+        y: fallback.y,
+        w: fallback.width,
+        h: fallback.height
+      },
+      frame: { w: params.mat.cols, h: params.mat.rows }
+    })
+    return params.mat.getRegion(fallback)
+  }
+
+  console.warn('[OCR] skip tiny ROI:', {
+    label: params.label,
+    rect: params.rect,
+    clipped: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
+    fallback: { x: fallback.x, y: fallback.y, w: fallback.width, h: fallback.height },
+    frame: { w: params.mat.cols, h: params.mat.rows }
+  })
+  return null
 }
 
 let original: TemplateGroups
@@ -195,6 +245,7 @@ async function recognizeCurrentCR(
   const scale = getScaleFactors(gameRect)
 
   // 固定解析度 ROI（會依螢幕比例縮放）
+  const currentFallback = scaleRect(CURRENT_CR_BASE_RECT, scale)
   const current = rectFromModeAnchor({
     baseRect: CURRENT_CR_BASE_RECT,
     anchor,
@@ -227,7 +278,13 @@ async function recognizeCurrentCR(
   }
 
   // 擷取 + 二值化
-  const currentCrRoi = getRegionSafe(mat, current)
+  const currentCrRoi = getOcrRegionOrFallback({
+    mat,
+    rect: current,
+    fallbackRect: currentFallback,
+    label: 'currentCR'
+  })
+  if (!currentCrRoi) return ''
   const bin = currentCrRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
 
@@ -245,6 +302,10 @@ async function recognizeCurrentCR(
       .replace(/[Oo]/g, '0')
       .replace(/\s+/g, '')
 
+    if (normalized === '') {
+      debugLog('[OCR] currentCR empty after normalize')
+      return ''
+    }
     if (!/^[-+]?\d+$/.test(normalized)) {
       console.warn('[OCR] currentCR invalid after normalize:', JSON.stringify(normalized))
       return '' // 視為本次無效
@@ -283,6 +344,7 @@ async function recognizeDeltaCR(
   // 固定解析度 ROI
   const gameRect = getGameRect(mat)
   const scale = getScaleFactors(gameRect)
+  const deltaFallback = scaleRect(DELTA_CR_BASE_RECT, scale)
   const delta = rectFromModeAnchor({
     baseRect: DELTA_CR_BASE_RECT,
     anchor,
@@ -315,7 +377,13 @@ async function recognizeDeltaCR(
   }
 
   // 擷取 + 二值化
-  const deltaCrRoi = getRegionSafe(mat, delta)
+  const deltaCrRoi = getOcrRegionOrFallback({
+    mat,
+    rect: delta,
+    fallbackRect: deltaFallback,
+    label: 'deltaCR'
+  })
+  if (!deltaCrRoi) return ''
   const bin = deltaCrRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
 
@@ -337,6 +405,10 @@ async function recognizeDeltaCR(
       .replace(/o/g, '0')
       .trim()
 
+    if (normalized === '') {
+      debugLog('[OCR] deltaCR empty after normalize')
+      return ''
+    }
     if (!/^[-+]?\d+$/.test(normalized)) {
       console.warn('[OCR] invalid format after normalize:', JSON.stringify(normalized))
       return '' // 視為本次無效，讓上層跳過
@@ -379,8 +451,10 @@ async function recognizeBPGain(
 
   // 固定解析度 ROI（隨螢幕尺寸縮放）
   const anchorBaseRect = mode === '2pick' ? TWO_PICK_MODE_BASE_RECT : RANKED_MODE_BASE_RECT
+  const bpBaseRect = mode === '2pick' ? TWO_PICK_BP_BASE_RECT : RANKED_BP_BASE_RECT
+  const bpFallbackRect = scaleRect(bpBaseRect, scale)
   const bpRect = rectFromModeAnchor({
-    baseRect: mode === '2pick' ? TWO_PICK_BP_BASE_RECT : RANKED_BP_BASE_RECT,
+    baseRect: bpBaseRect,
     anchor,
     anchorBaseRect,
     scale
@@ -409,7 +483,13 @@ async function recognizeBPGain(
   }
 
   // 擷取 BP ROI 並二值化
-  const bpRoi = getRegionSafe(mat, bpRect)
+  const bpRoi = getOcrRegionOrFallback({
+    mat,
+    rect: bpRect,
+    fallbackRect: bpFallbackRect,
+    label: mode === '2pick' ? '2pickBP' : 'rankedBP'
+  })
+  if (!bpRoi) return ''
   // 可視化面板背景，二值化門檻可微調（120~160）視你的畫面主題
   const bin = bpRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
@@ -432,6 +512,10 @@ async function recognizeBPGain(
       .replace(/o/g, '0')
       .trim()
 
+    if (normalized === '') {
+      debugLog('[OCR] BP empty after normalize')
+      return ''
+    }
     if (!/^[-+]?\d+$/.test(normalized)) {
       console.warn('[OCR] invalid format after normalize:', JSON.stringify(normalized))
       return '' // 視為本次無效，讓上層跳過

@@ -64,7 +64,7 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
     )
 
     port2.on('message', (e) => {
-      console.log('[Child] message from forked process')
+      if (process.env.DEBUG_ANALYZER === '1') console.log('[Child] message from forked process')
       const { type, data, notification } = e.data
       switch (type) {
         case 'inBattle':
