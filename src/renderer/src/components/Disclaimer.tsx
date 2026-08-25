@@ -8,8 +8,10 @@ const Disclaimer = (): React.JSX.Element => {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', fontSize: '0.9rem', color: 'gray' }}>
+      <span>© Cygames, Inc. Shadowverse: Worlds Beyond 為 Cygames 的商標。</span>
       <span>本網站／應用程式與 Cygames 並無合作、推薦、贊助或個別承認關係。</span>
       <span>Cygames 對本網站／應用程式之營運與內容不負任何責任。</span>
+      <span>對 Cygames 商標及其他智慧財產的使用，須遵守 Cygames Content Guidelines。</span>
       {/* <span>對 Cygames 商標及其他智慧財產之使用，必須遵守 Cygames 粉絲素材的服務協議。</span> */}
       {/* <span>
         關於 Cygames 的詳細資訊請見該公司網站（

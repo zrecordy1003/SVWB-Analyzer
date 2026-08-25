@@ -4,239 +4,86 @@
 [![GitHub Downloads (latest release)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/latest/total)](https://github.com/zrecordy1003/SVWB-Analyzer/releases/latest)
 [![GitHub Release (latest)](https://img.shields.io/github/v/release/zrecordy1003/SVWB-Analyzer)](https://github.com/zrecordy1003/SVWB-Analyzer/releases/latest)
 
-ShadowverseWB Analyzer is a desktop companion app for Shadowverse: Worlds Beyond. It captures game
-screenshots, recognizes match information with OpenCV and OCR, stores match records locally, and
-provides dashboards for match history and deck analysis.
+> 正式支援 Windows 10 1903+／Windows 11 x64。請先安裝 Git LFS；OpenCV 執行期 DLL 與 OCR 資料由 LFS 管理。
 
-The app is built with Electron, React, MUI, OpenCV4NodeJS, Tesseract.js, Prisma, and SQLite.
+## 文件導覽
 
-## Features
+| 目的                                    | 文件                                                |
+| --------------------------------------- | --------------------------------------------------- |
+| 在另一台 Windows 裝置 clone、設定並啟動 | [Windows 開發環境與首次執行](docs/windows-setup.md) |
+| 在 Mac 上進行程式、UI 或文件開發        | [macOS 開發環境與限制](docs/macos-setup.md)         |
+| 瞭解程式模組、資料與辨識流程            | [架構說明](docs/architecture.md)                    |
+| 建立 Windows 安裝程式與發布版本         | [Windows 發行流程](docs/releasing.md)               |
+| 修改程式、辨識或資料庫                  | [貢獻指南](CONTRIBUTING.md)                         |
+| 編譯 Rust 截圖器                        | [截圖器文件](tools/capture/README.md)               |
+| 授權、遊戲素材與安全性回報              | [授權與政策](#授權與官方素材)                       |
 
-- Automatic screenshot capture for the game window.
-- Template matching for class, emblem, play order, mode, result, and battle-state signals.
-- OCR for BP and CR-related values.
-- Local match database with Prisma and SQLite.
-- Match list, filters, tags, notes, and edit flows.
-- Deck analysis and matchup summaries.
-- HUD overlay with recent matches and live battle status.
-- Runtime-safe storage under Electron `userData`, so the app does not need to write into the install directory.
+## Windows 快速開始
 
-## Current Status
-
-High-priority stability and performance work has been implemented:
-
-- Read-only install directory safety.
-- Shared Prisma client usage.
-- Reduced MatchList duplicate loading and N+1 IPC calls.
-- Short-lived stats caches with write invalidation.
-- Reused OCR worker lifecycle.
-- Dynamic analyzer polling intervals.
-- Window-size-aware recognition geometry.
-- Partial anchor-aware recognition for high-risk mode/OCR/result areas.
-- Smaller OpenCV production packaging.
-- Unit and smoke tests for recognition, migrations, IPC flows, query plans, and stats cache.
-
-Remaining high-risk work:
-
-- Real gameplay validation.
-- Screenshot fixture-based analyzer tests.
-- Packaged app smoke testing.
-- More query-plan coverage for ranked winrate, deck aggregation, and CR range queries.
-
-See [docs/project-status-roadmap.md](docs/project-status-roadmap.md) for the full roadmap.
-
-## Project Structure
-
-```text
-src/main/
-  analyzer.ts                 Analyzer process orchestration
-  forkedImageAnalyzer.ts       Main recognition/analyzer flow
-  hud.ts                      HUD BrowserWindow setup
-  paths.ts                    userData runtime paths
-  manageCaptureTool.ts        Runtime capture tool copy/spawn logic
-  db/                         Database initialization and shared Prisma client
-  ipc/                        Main-process IPC handlers
-  recognition/                Geometry, anchors, templates, matching helpers
-  utils/                      Shared main-process utilities
-
-src/renderer/src/
-  components/                 Main application UI
-  hudcomponents/              HUD overlay UI
-  hooks/                      Renderer data hooks and caches
-  map/                        Class/mode metadata
-
-src/shared/
-  types.ts                    Shared cross-process types
-
-resources/
-  migrations/                 Runtime SQLite SQL migrations
-  templates/                  Recognition templates
-  opencv/bin/                 Packaged OpenCV runtime DLLs
-
-tests/
-  recognition/                Recognition unit tests
-  main/                       DB, IPC, query-plan, stats-cache tests
-  analyzer/                   Analyzer fixture harness
-  fixtures/analyzer/          Screenshot fixture manifest
-```
-
-## Runtime Data
-
-Runtime writable data is stored under Electron `userData`, not under the installation directory.
-
-Important runtime paths:
-
-- Database: `userData/db/app.db`
-- Capture images: `userData/capture/`
-- Runtime capture tool: `userData/tools/`
-- OCR/cache data: `userData`
-- Analyzer debug samples: `userData/capture/debug-samples/` when `DEBUG_ANALYZER_SAMPLES=1`
-
-This is intentional. Installed application folders can be read-only, especially under Windows
-installer-managed locations.
-
-## Development
-
-### Requirements
-
-- Node.js compatible with the project toolchain.
-- pnpm.
-- Windows is the primary target.
-- OpenCV runtime files under `resources/opencv/bin`.
-- `tools/svwb-capture-tool.exe`.
-- `eng.traineddata.gz` for Tesseract OCR packaging.
-
-### Install
-
-```bash
+```powershell
+git lfs install
+git clone https://github.com/zrecordy1003/SVWB-Analyzer.git
+Set-Location SVWB-Analyzer
+Copy-Item .env.example .env
 pnpm install
+pnpm run capture:build
+pnpm run dev
 ```
 
-### Run in development
+完整前置需求、原生模組失敗處理、資料庫位置與實機驗證步驟請見 [Windows 開發環境與首次執行](docs/windows-setup.md)。
 
-```bash
-pnpm dev
-```
+<!-- 英文版放這裡 -->
 
-### Preview built output
+## English
 
-```bash
-pnpm start
-```
+### Description
 
-## Quality Checks
+A desktop application built with Electron, OpenCV4NodeJS, and Tesseract.js ...
 
-Run the full local verification set before release-oriented changes:
+### Features
 
-```bash
-pnpm test
-pnpm lint
-pnpm typecheck
-pnpm build
-git diff --check
-```
+- Automated screenshot capture
+- Template matching with OpenCV4NodeJS
+- OCR for BP gain/loss using Tesseract.js
+- Prisma-based DB persistence
+- React + MUI analytics dashboard
 
-Useful individual commands:
+---
 
-```bash
-pnpm test:watch
-pnpm run typecheck:node
-pnpm run typecheck:web
-```
-
-Current test coverage includes:
-
-- Recognition geometry and ROI clamping.
-- Anchor-aware ROI behavior.
-- Template scaling cache behavior.
-- Template matching and multi-scale fallback.
-- Database migration smoke tests.
-- IPC smoke flow tests.
-- SQLite query-plan smoke tests.
-- Stats cache versioning.
-- Analyzer fixture manifest validation.
-
-The analyzer fixture harness is ready, but real screenshot fixtures still need to be collected.
-
-## Build
-
-Build renderer/main/preload output:
-
-```bash
-pnpm build
-```
-
-Create an unpacked app for smoke testing:
-
-```bash
-pnpm build:unpack
-```
-
-Create a Windows installer:
-
-```bash
-pnpm build:win
-```
-
-Packaging includes:
-
-- Built app output under `out/`.
-- Prisma client and runtime resources.
-- SQL migrations.
-- Recognition templates.
-- Capture tool.
-- Required OpenCV runtime DLLs only.
-- Tesseract trained data.
-
-## Debugging
-
-Enable verbose analyzer logs:
-
-```bash
-set DEBUG_ANALYZER=1
-pnpm dev
-```
-
-Save low-confidence analyzer samples:
-
-```bash
-set DEBUG_ANALYZER_SAMPLES=1
-pnpm dev
-```
-
-Debug samples are written to the runtime capture directory under `debug-samples`.
-
-## Documentation
-
-- [Project status and roadmap](docs/project-status-roadmap.md)
-- [Performance improvement notes](docs/performance-improvement-notes.md)
-- [Recognition optimization status](docs/recognition-optimization-status.md)
-- [Telemetry and DAU plan](docs/telemetry-dau-plan.md)
+<!-- 中文版放這裡 -->
 
 ## 中文說明
 
-ShadowverseWB Analyzer 是一款 Shadowverse: Worlds Beyond 桌面輔助工具。它會擷取遊戲畫面，
-透過 OpenCV 模板比對與 Tesseract OCR 辨識對戰資訊，將紀錄儲存在本機 SQLite 資料庫，並提供
-對戰列表、牌組分析、統計圖表與 HUD overlay。
+### 專案簡介
+
+一款以 Electron、OpenCV4NodeJS 與 Tesseract.js 為核心的桌面應用，  
+自動擷取 ShadowverseWB 截圖、辨識對戰資料並儲存至資料庫，  
+同時提供即時與歷史對局分析介面。
 
 ### 主要功能
 
-- 自動擷取遊戲畫面。
-- 辨識職業、徽章、先後攻、模式、勝敗與對戰狀態。
-- OCR 辨識 BP / CR 相關數值。
-- 使用 Prisma + SQLite 儲存本機對戰紀錄。
-- 支援對戰列表、篩選、標籤、備註與編輯。
-- 提供牌組分析與對局統計。
-- 提供 HUD overlay 顯示近期對戰與即時對戰狀態。
-- 執行期資料寫入 Electron `userData`，避免安裝目錄唯讀時失敗。
+- 自動截圖：持續監控遊戲視窗並定時擷取
+- 模板比對：辨識職業、徽章、先後攻與勝敗
+- OCR：擷取排行 BP 正負增減
+- Prisma DB：儲存完整對戰紀錄
+- React + MUI：即時分析、對局列表、統計圖表
 
-### 目前狀態
+### 開發中的截圖器
 
-目前高優先級的穩定性、效能與測試基礎已完成一大段，但還不能視為完全完成。剩餘重點是：
+截圖器原始碼位於 `tools/capture/`，以 Rust 與 Windows Graphics Capture 依已驗證的視窗 HWND 擷取畫面。它不依賴遊戲視窗標題，並以 JSON Lines 回報擷取狀態。
 
-- 收集真實遊戲截圖 fixture。
-- 補上 analyzer fixture image tests。
-- 做 packaged app smoke test。
-- 實機驗證辨識流程、HUD 更新與打包資源。
+在 Windows 安裝 Rust MSVC toolchain 後，執行：
 
-完整後續清單請看 [docs/project-status-roadmap.md](docs/project-status-roadmap.md)。
+```powershell
+pnpm run capture:build
+```
+
+此指令會產生 Electron 發行版所使用的 `tools/svwb-capture-tool.exe`。`pnpm run build:win` 會先自動建置此截圖器。
+
+## 授權與官方素材
+
+本專案的原創程式碼以 [Apache License 2.0](LICENSE) 授權；詳細權利聲明請見 [NOTICE](NOTICE)。此授權不涵蓋 Cygames 的商標、遊戲畫面、卡片、角色、遊戲衍生辨識範本或任何第三方素材。請在提交素材前閱讀 [素材政策](ASSETS_POLICY.md)。
+
+Shadowverse: Worlds Beyond 及其相關智慧財產為 Cygames, Inc. 所有。© Cygames, Inc. 本專案／應用程式不是 Cygames 的產品，未獲 Cygames 合作、推薦、贊助或個別核准；Cygames 對本專案／應用程式的營運與內容不負任何責任。使用 Cygames 素材時，須遵守其 [Content Guidelines](https://shadowverse-wb.com/en/guideline/)。
+
+發現安全性問題時，請先閱讀 [SECURITY.md](SECURITY.md)，不要在公開 Issue 貼出可利用細節。

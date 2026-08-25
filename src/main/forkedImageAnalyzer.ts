@@ -1,25 +1,9 @@
+/* eslint-disable prefer-const */
 import { type MessagePortMain } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import cv from '@u4/opencv4nodejs'
+import cv, { Mat } from '@u4/opencv4nodejs'
 import { createWorker, OEM, PSM } from 'tesseract.js'
-import {
-  clampRectToMat,
-  getGameRect,
-  getRegionSafe,
-  getScaleFactors,
-  scaleRect,
-  type RectLike
-} from './recognition/geometry.js'
-import {
-  configureTemplateMatchingDebug,
-  loadTemplates,
-  matchTemplate,
-  type ScoreAndName
-} from './recognition/templateMatching.js'
-import { prepareScaledTemplates, type TemplateGroups } from './recognition/templates.js'
-import { anchorAwareRect, detectAnchor } from './recognition/anchor.js'
-import type { AnchorResult } from './recognition/anchor.js'
 import {
   addMatch,
   clearMyDeck,
@@ -31,140 +15,51 @@ import {
 } from './database.js'
 import { ClassName, GameMode, PlayOrder } from '@prisma/client'
 
-type scoreAndName = ScoreAndName
-
-const RANKED_MODE_BASE_RECT = { x: 780 - 20, y: 205 - 20, w: 150, h: 60 }
-const TWO_PICK_MODE_BASE_RECT = { x: 780 - 20, y: 295 - 20, w: 180, h: 50 }
-const CURRENT_CR_BASE_RECT = { x: 1160, y: 365, w: 75, h: 35 }
-const DELTA_CR_BASE_RECT = { x: 1170, y: 335, w: 50, h: 25 }
-const RANKED_BP_BASE_RECT = { x: 1115, y: 200, w: 65, h: 30 }
-const TWO_PICK_BP_BASE_RECT = { x: 1115, y: 295, w: 65, h: 30 }
-const RANKED_CURSOR_BASE_RECT = { x: 1010, y: 150, w: 210, h: 135 }
-const TWO_PICK_CURSOR_BASE_RECT = { x: 1010, y: 245, w: 210, h: 135 }
-const CR_CURSOR_A_BASE_RECT = { x: 1055, y: 315, w: 210, h: 135 }
-const CR_CURSOR_B_BASE_RECT = { x: 1060, y: 280, w: 210, h: 135 }
-
-function topRightAreaRect(gameRect: { x: number; y: number; w: number; h: number }): {
-  x: number
-  y: number
-  w: number
-  h: number
-} {
-  const halfW = Math.floor(gameRect.w / 2)
-  const halfH = Math.floor(gameRect.h / 2)
-  return { x: gameRect.x + halfW, y: gameRect.y, w: gameRect.w - halfW, h: halfH }
+type scoreAndName = {
+  score: number
+  name: string
 }
 
-function rectFromModeAnchor(params: {
-  baseRect: RectLike
-  anchor?: AnchorResult
-  anchorBaseRect: RectLike
-  scale: ReturnType<typeof getScaleFactors>
-}): RectLike {
-  if (!params.anchor) return scaleRect(params.baseRect, params.scale)
-  return anchorAwareRect({
-    baseRect: params.baseRect,
-    anchor: params.anchor,
-    expectedAnchorBase: params.anchorBaseRect,
-    scale: params.scale
-  })
+const BASE_WIDTH = 1280
+const BASE_HEIGHT = 720
+
+/**
+ * The capture tool can produce different resolutions depending on the player's
+ * display and game settings. All template ROIs are authored for 1280×720, so
+ * normalize every frame before matching or OCR.
+ */
+function normalizeGray(mat: Mat): Mat {
+  return mat.cols === BASE_WIDTH && mat.rows === BASE_HEIGHT
+    ? mat
+    : mat.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
 }
 
-function getOcrRegionOrFallback(params: {
-  mat: cv.Mat
-  rect: RectLike
-  fallbackRect: RectLike
-  label: string
-  minWidth?: number
-  minHeight?: number
-}): cv.Mat | null {
-  const minWidth = params.minWidth ?? 3
-  const minHeight = params.minHeight ?? 8
-  const rect = clampRectToMat(params.rect, params.mat)
-
-  if (rect.width >= minWidth && rect.height >= minHeight) {
-    return params.mat.getRegion(rect)
-  }
-
-  const fallback = clampRectToMat(params.fallbackRect, params.mat)
-  if (fallback.width >= minWidth && fallback.height >= minHeight) {
-    debugLog('[OCR] anchor ROI too small, fallback to fixed ROI:', {
-      label: params.label,
-      rect: params.rect,
-      clipped: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
-      fallback: {
-        x: fallback.x,
-        y: fallback.y,
-        w: fallback.width,
-        h: fallback.height
-      },
-      frame: { w: params.mat.cols, h: params.mat.rows }
-    })
-    return params.mat.getRegion(fallback)
-  }
-
-  console.warn('[OCR] skip tiny ROI:', {
-    label: params.label,
-    rect: params.rect,
-    clipped: { x: rect.x, y: rect.y, w: rect.width, h: rect.height },
-    fallback: { x: fallback.x, y: fallback.y, w: fallback.width, h: fallback.height },
-    frame: { w: params.mat.cols, h: params.mat.rows }
-  })
-  return null
+function loadNormalizedGray(imgPath: string): Mat | undefined {
+  const mat = cv.imread(imgPath).bgrToGray()
+  if (mat.empty) return undefined
+  return normalizeGray(mat)
 }
 
-let original: TemplateGroups
+let original: {
+  classes: Array<{ name: string; image: Mat }>
+  emblems: Array<{ name: string; image: Mat }>
+  playOrder: Array<{ name: string; image: Mat }>
+  result: Array<{ name: string; image: Mat }>
+  resultMid: Array<{ name: string; image: Mat }>
+  indicators: Array<{ name: string; image: Mat }>
+  modesCPU: Array<{ name: string; image: Mat }>
+  modesRanked: Array<{ name: string; image: Mat }>
+  modes2Pick: Array<{ name: string; image: Mat }>
+  modesPlaza: Array<{ name: string; image: Mat }>
+  cursor: Array<{ name: string; image: Mat }>
+  custom: Array<{ name: string; image: Mat }>
+  history: Array<{ name: string; image: Mat }>
+}
 
 let imagePath = ''
 let isPackaged = false
 let resourcesPath = ''
 let cacheDir = ''
-let debugSamplesDir = ''
-let ocrWorkerPromise: Promise<Awaited<ReturnType<typeof createWorker>>> | null = null
-
-const DEBUG_ANALYZER = process.env.DEBUG_ANALYZER === '1'
-const DEBUG_SAMPLES = process.env.DEBUG_ANALYZER_SAMPLES === '1'
-const debugLog = (...args: unknown[]): void => {
-  if (DEBUG_ANALYZER) console.log(...args)
-}
-
-async function getOcrWorker(): Promise<Awaited<ReturnType<typeof createWorker>>> {
-  if (!ocrWorkerPromise) {
-    ocrWorkerPromise = createWorker(['eng'], OEM.DEFAULT, {
-      cachePath: cacheDir,
-      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
-    }).catch((err) => {
-      ocrWorkerPromise = null
-      throw err
-    })
-  }
-
-  const worker = await ocrWorkerPromise
-  await worker.setParameters({
-    tessedit_char_whitelist: '+-0123456789',
-    tessedit_pageseg_mode: PSM.SINGLE_LINE
-  })
-  return worker
-}
-
-async function shutdownOcrWorker(): Promise<void> {
-  if (!ocrWorkerPromise) return
-  try {
-    const worker = await ocrWorkerPromise
-    await worker.terminate()
-  } finally {
-    ocrWorkerPromise = null
-  }
-}
-
-async function resetOcrWorker(): Promise<void> {
-  try {
-    await shutdownOcrWorker()
-  } catch (err) {
-    console.warn('[OCR] failed to reset worker:', err)
-    ocrWorkerPromise = null
-  }
-}
 
 // 處理父程序訊息
 process.parentPort.on('message', (e) => {
@@ -174,12 +69,7 @@ process.parentPort.on('message', (e) => {
     imagePath = e.data.imagePath
     isPackaged = e.data.isPackaged
     resourcesPath = e.data.resourcesPath
-    cacheDir = e.data.cacheDir
-    debugSamplesDir = path.join(path.dirname(imagePath), 'debug-samples')
-    configureTemplateMatchingDebug({
-      samplesDir: debugSamplesDir,
-      enabled: DEBUG_SAMPLES
-    })
+    cacheDir = path.join(resourcesPath, 'cacheDir')
 
     // 載入 templates
     const base = isPackaged
@@ -215,14 +105,11 @@ process.parentPort.on('message', (e) => {
   // 如果父程序要停止 worker
   if (e.data && e.data.type === 'stop') {
     if (timer) clearTimeout(timer)
-    void shutdownOcrWorker().finally(() => process.exit(0))
+    process.exit(0)
   }
 })
 
-async function recognizeCurrentCR(
-  imgPath: string,
-  anchor?: AnchorResult
-): Promise<string | undefined> {
+async function recognizeCurrentCR(imgPath: string): Promise<string | undefined> {
   // 檔案檢查
   if (!fs.existsSync(imgPath)) {
     console.warn('[OCR] image is not exist:', imgPath)
@@ -235,65 +122,48 @@ async function recognizeCurrentCR(
   }
 
   // 讀圖
-  const mat = cv.imread(imgPath).bgrToGray()
-  if (mat.empty) {
+  const mat = loadNormalizedGray(imgPath)
+  if (!mat) {
     console.warn('[OCR] Can not read pixel')
     return
   }
 
-  const gameRect = getGameRect(mat)
-  const scale = getScaleFactors(gameRect)
-
-  // 固定解析度 ROI（會依螢幕比例縮放）
-  const currentFallback = scaleRect(CURRENT_CR_BASE_RECT, scale)
-  const current = rectFromModeAnchor({
-    baseRect: CURRENT_CR_BASE_RECT,
-    anchor,
-    anchorBaseRect: RANKED_MODE_BASE_RECT,
-    scale
-  })
-  const cursorA = rectFromModeAnchor({
-    baseRect: CR_CURSOR_A_BASE_RECT,
-    anchor,
-    anchorBaseRect: RANKED_MODE_BASE_RECT,
-    scale
-  })
-  const cursorB = rectFromModeAnchor({
-    baseRect: CR_CURSOR_B_BASE_RECT,
-    anchor,
-    anchorBaseRect: RANKED_MODE_BASE_RECT,
-    scale
-  }) // 額外再檢一次，避免邊界案例
+  // 固定解析度 ROI
+  const current = { x: 1160, y: 365, w: 75, h: 35 }
+  const cursorA = { x: 1055, y: 315, w: 210, h: 135 }
+  const cursorB = { x: 1060, y: 280, w: 210, h: 135 } // 額外再檢一次，避免邊界案例
   const CURSOR_BLOCK_THRESHOLD = 0.6
 
   // 游標遮擋檢測（修正成兩塊 ROI 取最大值）
-  const tmpls = prepareScaledTemplates(original, mat, gameRect).cursor
-  const roiA = getRegionSafe(mat, cursorA)
-  const roiB = getRegionSafe(mat, cursorB)
-  const m1 = matchTemplate(roiA, tmpls, { multiScale: true })
-  const m2 = matchTemplate(roiB, tmpls, { multiScale: true })
+  const tmpls = prepareScaledTemplates(mat).cursor
+  const roiA = mat.getRegion(new cv.Rect(cursorA.x, cursorA.y, cursorA.w, cursorA.h))
+  const roiB = mat.getRegion(new cv.Rect(cursorB.x, cursorB.y, cursorB.w, cursorB.h))
+  const m1 = matchTemplate(roiA, tmpls)
+  const m2 = matchTemplate(roiB, tmpls)
   if (Math.max(m1.score, m2.score) > CURSOR_BLOCK_THRESHOLD) {
-    debugLog('[OCR] cursor block (currentCR), skip this turn')
+    console.log('[OCR] cursor block (currentCR), skip this turn')
     return '' // 讓上層略過、等待下次
   }
 
   // 擷取 + 二值化
-  const currentCrRoi = getOcrRegionOrFallback({
-    mat,
-    rect: current,
-    fallbackRect: currentFallback,
-    label: 'currentCR'
-  })
-  if (!currentCrRoi) return ''
+  const currentCrRoi = mat.getRegion(new cv.Rect(current.x, current.y, current.w, current.h))
   const bin = currentCrRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
 
   try {
-    const worker = await getOcrWorker()
+    const worker = await createWorker(['eng'], OEM.DEFAULT, {
+      cachePath: cacheDir,
+      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
+    })
+    await worker.setParameters({
+      tessedit_char_whitelist: '+-0123456789',
+      tessedit_pageseg_mode: PSM.SINGLE_LINE
+    })
 
     const {
       data: { text }
     } = await worker.recognize(buf)
+    await worker.terminate()
 
     const normalized = (text ?? '')
       .trim()
@@ -302,27 +172,19 @@ async function recognizeCurrentCR(
       .replace(/[Oo]/g, '0')
       .replace(/\s+/g, '')
 
-    if (normalized === '') {
-      debugLog('[OCR] currentCR empty after normalize')
-      return ''
-    }
     if (!/^[-+]?\d+$/.test(normalized)) {
       console.warn('[OCR] currentCR invalid after normalize:', JSON.stringify(normalized))
       return '' // 視為本次無效
     }
-    debugLog('[OCR] CR(current):', JSON.stringify(normalized))
+    console.log('[OCR] CR(current):', JSON.stringify(normalized))
     return normalized
   } catch (e) {
     console.error('[OCR] recognizeCurrentCR failed:', e)
-    await resetOcrWorker()
     return ''
   }
 }
 
-async function recognizeDeltaCR(
-  imgPath: string,
-  anchor?: AnchorResult
-): Promise<string | undefined> {
+async function recognizeDeltaCR(imgPath: string): Promise<string | undefined> {
   // 檔案檢查
   if (!fs.existsSync(imgPath)) {
     console.warn('[OCR] image is not exist:', imgPath)
@@ -335,67 +197,52 @@ async function recognizeDeltaCR(
   }
 
   // 讀圖
-  const mat = cv.imread(imgPath).bgrToGray()
-  if (mat.empty) {
+  const mat = loadNormalizedGray(imgPath)
+  if (!mat) {
     console.warn('[OCR] Can not read pixel')
     return
   }
 
   // 固定解析度 ROI
-  const gameRect = getGameRect(mat)
-  const scale = getScaleFactors(gameRect)
-  const deltaFallback = scaleRect(DELTA_CR_BASE_RECT, scale)
-  const delta = rectFromModeAnchor({
-    baseRect: DELTA_CR_BASE_RECT,
-    anchor,
-    anchorBaseRect: RANKED_MODE_BASE_RECT,
-    scale
-  })
-  const cursorA = rectFromModeAnchor({
-    baseRect: CR_CURSOR_A_BASE_RECT,
-    anchor,
-    anchorBaseRect: RANKED_MODE_BASE_RECT,
-    scale
-  })
-  const cursorB = rectFromModeAnchor({
-    baseRect: CR_CURSOR_B_BASE_RECT,
-    anchor,
-    anchorBaseRect: RANKED_MODE_BASE_RECT,
-    scale
-  })
+  const delta = { x: 1170, y: 335, w: 50, h: 25 }
+  const cursorA = { x: 1055, y: 315, w: 210, h: 135 }
+  const cursorB = { x: 1060, y: 280, w: 210, h: 135 }
   const CURSOR_BLOCK_THRESHOLD = 0.6
 
   // 游標遮擋檢測（兩塊 ROI 取最大值，比對 cursor 模板）
-  const tmpls = prepareScaledTemplates(original, mat, gameRect).cursor
-  const roiA = getRegionSafe(mat, cursorA)
-  const roiB = getRegionSafe(mat, cursorB)
-  const m1 = matchTemplate(roiA, tmpls, { multiScale: true })
-  const m2 = matchTemplate(roiB, tmpls, { multiScale: true })
+  const tmpls = prepareScaledTemplates(mat).cursor
+  const roiA = mat.getRegion(new cv.Rect(cursorA.x, cursorA.y, cursorA.w, cursorA.h))
+  const roiB = mat.getRegion(new cv.Rect(cursorB.x, cursorB.y, cursorB.w, cursorB.h))
+  const m1 = matchTemplate(roiA, tmpls)
+  const m2 = matchTemplate(roiB, tmpls)
   if (Math.max(m1.score, m2.score) > CURSOR_BLOCK_THRESHOLD) {
-    debugLog('[OCR] cursor block (deltaCR), skip this turn')
+    console.log('[OCR] cursor block (deltaCR), skip this turn')
     return ''
   }
 
   // 擷取 + 二值化
-  const deltaCrRoi = getOcrRegionOrFallback({
-    mat,
-    rect: delta,
-    fallbackRect: deltaFallback,
-    label: 'deltaCR'
-  })
-  if (!deltaCrRoi) return ''
+  const deltaCrRoi = mat.getRegion(new cv.Rect(delta.x, delta.y, delta.w, delta.h))
   const bin = deltaCrRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
 
   try {
-    const worker = await getOcrWorker()
+    const worker = await createWorker(['eng'], OEM.DEFAULT, {
+      cachePath: cacheDir,
+      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
+    })
+    await worker.setParameters({
+      tessedit_char_whitelist: '+-0123456789',
+      tessedit_pageseg_mode: PSM.SINGLE_LINE
+    })
 
     const {
       data: { text }
     } = await worker.recognize(buf)
 
+    await worker.terminate()
+
     const trimmed = text.trim()
-    debugLog('[OCR] raw delta CR:', JSON.stringify(trimmed))
+    console.log('[OCR] raw delta CR:', JSON.stringify(trimmed))
 
     // ---- 正規化：把回傳值整理成「純數字字串」or 判定無效 ----
     const normalized = trimmed
@@ -405,10 +252,6 @@ async function recognizeDeltaCR(
       .replace(/o/g, '0')
       .trim()
 
-    if (normalized === '') {
-      debugLog('[OCR] deltaCR empty after normalize')
-      return ''
-    }
     if (!/^[-+]?\d+$/.test(normalized)) {
       console.warn('[OCR] invalid format after normalize:', JSON.stringify(normalized))
       return '' // 視為本次無效，讓上層跳過
@@ -418,15 +261,13 @@ async function recognizeDeltaCR(
     return normalized
   } catch (e) {
     console.error('[OCR] recognizeDeltaCR failed:', e)
-    await resetOcrWorker()
     return ''
   }
 }
 
 async function recognizeBPGain(
   imgPath: string,
-  mode?: '2pick' | 'ranked',
-  anchor?: AnchorResult
+  mode?: '2pick' | 'ranked'
 ): Promise<string | undefined> {
   // 檔案檢查
   if (!fs.existsSync(imgPath)) {
@@ -440,69 +281,62 @@ async function recognizeBPGain(
   }
 
   // 讀圖轉灰階
-  const mat = cv.imread(imgPath).bgrToGray()
-  if (mat.empty) {
+  const mat = loadNormalizedGray(imgPath)
+  if (!mat) {
     console.warn('[OCR] Can not read pixel')
     return
   }
 
-  const gameRect = getGameRect(mat)
-  const scale = getScaleFactors(gameRect)
+  // 固定解析度 ROI（如需通用化，可恢復自動縮放版本）
+  let x: number, y: number, w: number, h: number
+  let cursor_roi_x: number, cursor_roi_y: number, cursor_roi_w: number, cursor_roi_h: number
 
-  // 固定解析度 ROI（隨螢幕尺寸縮放）
-  const anchorBaseRect = mode === '2pick' ? TWO_PICK_MODE_BASE_RECT : RANKED_MODE_BASE_RECT
-  const bpBaseRect = mode === '2pick' ? TWO_PICK_BP_BASE_RECT : RANKED_BP_BASE_RECT
-  const bpFallbackRect = scaleRect(bpBaseRect, scale)
-  const bpRect = rectFromModeAnchor({
-    baseRect: bpBaseRect,
-    anchor,
-    anchorBaseRect,
-    scale
-  })
+  x = 1115
+  y = mode === '2pick' ? 295 : 200
+  w = 65
+  h = 30
 
-  const cursorRect = rectFromModeAnchor({
-    baseRect: mode === '2pick' ? TWO_PICK_CURSOR_BASE_RECT : RANKED_CURSOR_BASE_RECT,
-    anchor,
-    anchorBaseRect,
-    scale
-  })
+  cursor_roi_x = 1010
+  cursor_roi_y = mode === '2pick' ? 245 : 150
+  cursor_roi_w = 210
+  cursor_roi_h = 135
 
   // 游標遮擋檢測
-  const cursorRoi = getRegionSafe(mat, cursorRect)
-  const cursorMatch = matchTemplate(
-    cursorRoi,
-    prepareScaledTemplates(original, mat, gameRect).cursor,
-    {
-      multiScale: true
-    }
+  const cursorRoi = mat.getRegion(
+    new cv.Rect(cursor_roi_x, cursor_roi_y, cursor_roi_w, cursor_roi_h)
   )
-  debugLog('[OCR] cursorMatch:', cursorMatch)
+  const cursorMatch = matchTemplate(cursorRoi, prepareScaledTemplates(mat).cursor)
+  console.log('[OCR] cursorMatch:', cursorMatch)
   if (cursorMatch.score > 0.6) {
-    debugLog('[OCR] cursor block, skip OCR, will retry...')
+    console.log('[OCR] cursor block, skip OCR, will retry...')
     return '' // 保持你原有語意：讓上層略過寫入，等待下次
   }
 
   // 擷取 BP ROI 並二值化
-  const bpRoi = getOcrRegionOrFallback({
-    mat,
-    rect: bpRect,
-    fallbackRect: bpFallbackRect,
-    label: mode === '2pick' ? '2pickBP' : 'rankedBP'
-  })
-  if (!bpRoi) return ''
+  const bpRoi = mat.getRegion(new cv.Rect(x, y, w, h))
   // 可視化面板背景，二值化門檻可微調（120~160）視你的畫面主題
   const bin = bpRoi.threshold(128, 255, cv.THRESH_BINARY)
   const buf = cv.imencode('.png', bin)
 
   try {
-    const worker = await getOcrWorker()
+    const worker = await createWorker(['eng'], OEM.DEFAULT, {
+      cachePath: cacheDir,
+      langPath: isPackaged ? path.join(resourcesPath, 'tessdata') : path.join(__dirname, '../../')
+    })
+
+    await worker.setParameters({
+      tessedit_char_whitelist: '+-0123456789',
+      tessedit_pageseg_mode: PSM.SINGLE_LINE
+    })
 
     const {
       data: { text }
     } = await worker.recognize(buf)
 
+    await worker.terminate()
+
     const trimmed = text.trim()
-    debugLog('[OCR] raw BP Gain:', JSON.stringify(trimmed))
+    console.log('[OCR] raw BP Gain:', JSON.stringify(trimmed))
 
     // ---- 正規化：把回傳值整理成「純數字字串」or 判定無效 ----
     const normalized = trimmed
@@ -512,10 +346,6 @@ async function recognizeBPGain(
       .replace(/o/g, '0')
       .trim()
 
-    if (normalized === '') {
-      debugLog('[OCR] BP empty after normalize')
-      return ''
-    }
     if (!/^[-+]?\d+$/.test(normalized)) {
       console.warn('[OCR] invalid format after normalize:', JSON.stringify(normalized))
       return '' // 視為本次無效，讓上層跳過
@@ -525,7 +355,6 @@ async function recognizeBPGain(
     return normalized
   } catch (e) {
     console.error('[OCR] recognizeBPGain failed：', e)
-    await resetOcrWorker()
     return ''
   }
 }
@@ -593,6 +422,67 @@ function determinePlayOrder(
   return best.name as 'first' | 'second'
 }
 
+let scaled: ScaledTemplates | null = null
+
+type Template = {
+  name: string
+  image: Mat
+}
+
+// 這是 scaled 物件裡面各組 template 的集合
+interface ScaledTemplates {
+  classes: Template[]
+  emblems: Template[]
+  playOrder: Template[]
+  result: Template[]
+  resultMid: Template[]
+  indicators: Template[]
+  modesCPU: Template[]
+  modesRanked: Template[]
+  modes2Pick: Template[]
+  modesPlaza: Template[]
+  cursor: Template[]
+  custom: Template[]
+  history: Template[]
+}
+
+// Every screenshot is normalized by normalizeGray(), so templates stay at their
+// authored size and only need to be loaded once.
+function prepareScaledTemplates(_fullGray: Mat): ScaledTemplates {
+  if (scaled) return scaled
+  scaled = original
+  return scaled
+}
+
+// 工具：載入 templates 資料夾下所有 .png
+function loadTemplates(dir: string): {
+  name: string
+  image: Mat
+}[] {
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith('.png'))
+    .map((file) => ({
+      // name: path.basename(file, '.png').split('-')[0], // 舊版：模板名稱含有 -
+      name: path.basename(file, '.png'),
+      image: cv.imread(path.join(dir, file)).bgrToGray()
+    }))
+}
+
+// 工具：對 base 圖做 template matching
+function matchTemplate(
+  base: Mat,
+  templates: { name: string; image: Mat }[]
+): { name: string; score: number } {
+  let best = { name: '', score: -1 }
+  for (const { name, image: tpl } of templates) {
+    const result = base.matchTemplate(tpl, cv.TM_CCOEFF_NORMED)
+    const { maxVal } = result.minMaxLoc()
+    if (maxVal > best.score) best = { name, score: maxVal }
+  }
+  return best
+}
+
 /**
  * 如果所有 templates 都 matchScore > threshold，才回 true
  */
@@ -622,14 +512,12 @@ let shouldModifyMode = false
 
 let historyCooldownUntil = 0
 
-const ACTIVE_INTERVAL = 500
-const IDLE_INTERVAL = 1000
-const COOLDOWN_INTERVAL = 1500
+const INTERVAL = 500
 const THRESHOLD = {
   class: 0.7,
   emblem: 0.7,
   playOrder: 0.6,
-  ranked: 0.6,
+  ranked: 0.7,
   result: 0.7
 }
 
@@ -638,7 +526,7 @@ const THRESHOLD = {
 // let customBattleActive = false // whether a custom-room battle is ongoing
 // let normalBattleActive = false // whether a normal battle is ongoing
 
-// Analyzer owns this id after addMatch; follow-up OCR/mode/result writes must target it explicitly.
+// The active match is the only record that the analyzer may update.
 let activeMatchId: number | null = null
 
 let rankDetect: scoreAndName
@@ -672,29 +560,24 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
   try {
     const img = cv.imread(imagePath)
     if (img.empty) return scheduleNext(port)
-    const gray = img.bgrToGray()
+    const gray = normalizeGray(img.bgrToGray())
 
-    const gameRect = getGameRect(gray)
-    const tmpls = prepareScaledTemplates(original, gray, gameRect)
-    const scale = getScaleFactors(gameRect)
+    const cols = gray.cols
+    const rows = gray.rows
 
-    const halfW = Math.floor(gameRect.w / 2)
-    const gameArea = getRegionSafe(gray, gameRect)
-    const leftArea = getRegionSafe(gray, { x: gameRect.x, y: gameRect.y, w: halfW, h: gameRect.h })
-    const rightArea = getRegionSafe(gray, {
-      x: gameRect.x + halfW,
-      y: gameRect.y,
-      w: gameRect.w - halfW,
-      h: gameRect.h
-    })
-    const topRightArea = getRegionSafe(gray, topRightAreaRect(gameRect))
+    const tmpls = prepareScaledTemplates(gray)
+
+    const halfW = Math.floor(cols / 2)
+    const halfH = Math.floor(rows / 2)
+    const leftArea = gray.getRegion(new cv.Rect(0, 0, halfW, rows))
+    const rightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, rows))
+    const topRightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, halfH))
+
+    const rankDetectArea = gray.getRegion(new cv.Rect(780, 205, 150, 60))
+    const twoPickDetectArea = gray.getRegion(new cv.Rect(780, 295, 180, 50))
 
     // 歷史紀錄
-    const historyDetect = matchTemplate(gameArea, tmpls.history, {
-      multiScale: true,
-      label: 'history',
-      lowConfidenceThreshold: 0.6
-    })
+    const historyDetect = matchTemplate(gray, tmpls.history)
     if (historyDetect.score > 0.6) {
       isPlayingHistory = true
     }
@@ -722,64 +605,28 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
     // 考慮到 BP 可能被遮擋，要多次檢測，所以不能放置於底下的 shouldModifyMode 判斷式
 
-    const rankedAnchor = detectAnchor(gray, tmpls.modesRanked, {
-      searchArea: topRightAreaRect(gameRect),
-      threshold: THRESHOLD.ranked,
-      label: 'anchor_mode_ranked',
-      multiScale: true
-    })
-    const twoPickAnchor = detectAnchor(gray, tmpls.modes2Pick, {
-      searchArea: topRightAreaRect(gameRect),
-      threshold: THRESHOLD.ranked,
-      label: 'anchor_mode_2pick',
-      multiScale: true
-    })
-    const rankRect = anchorAwareRect({
-      baseRect: RANKED_MODE_BASE_RECT,
-      anchor: rankedAnchor,
-      expectedAnchorBase: RANKED_MODE_BASE_RECT,
-      scale
-    })
-    const twoPickRect = anchorAwareRect({
-      baseRect: TWO_PICK_MODE_BASE_RECT,
-      anchor: twoPickAnchor,
-      expectedAnchorBase: TWO_PICK_MODE_BASE_RECT,
-      scale
-    })
+    // 階級模式：模板配對
+    rankDetect = matchTemplate(rankDetectArea, tmpls.modesRanked)
 
-    rankDetect = matchTemplate(getRegionSafe(gray, rankRect), tmpls.modesRanked, {
-      multiScale: true,
-      label: 'mode_ranked',
-      lowConfidenceThreshold: THRESHOLD.ranked
-    })
-    twoPickDetect = matchTemplate(getRegionSafe(gray, twoPickRect), tmpls.modes2Pick, {
-      multiScale: true,
-      label: 'mode_2pick',
-      lowConfidenceThreshold: THRESHOLD.ranked
-    })
-
-    debugLog('gameRect: ', gameRect)
-    debugLog('sx: ', scale.scaleX)
-    debugLog('sy: ', scale.scaleY)
-    debugLog('rank: ', rankDetect)
-    debugLog('twoPick: ', twoPickDetect)
+    // 2Pick模式判斷：模板配對
+    twoPickDetect = matchTemplate(twoPickDetectArea, tmpls.modes2Pick)
 
     if (twoPickDetect.score > THRESHOLD.ranked) {
       // 2Pick模式判斷：BP修改
       // 因為 2Pick 應該帶入對應的 2Pick 牌組
       if (activeMatchId !== null) await clearMyDeck(activeMatchId)
       if (!isModifyBP && activeMatchId !== null) {
-        debugLog(twoPickDetect)
+        console.log(twoPickDetect)
 
-        const raw = await recognizeBPGain(imagePath, '2pick', twoPickAnchor) // 可能回 "+22" / "-15" / "0" / "" / undefined
-        if (raw === '') debugLog('[analyzeOnce] OCR got empty string')
-        if (raw === undefined) debugLog('[analyzeOnce] OCR undefined')
+        const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
 
         const bp = parseBPGain(raw)
-        debugLog('[2Pick] parsed bp =', bp)
+        console.log('[2Pick] parsed bp =', bp)
 
         if (bp !== null) {
-          await modifyMatchBP(bp, activeMatchId) // 0 會被寫入
+          await modifyMatchBP(activeMatchId, bp) // 0 會被寫入
           port.postMessage({ type: 'modifyMode' })
           isModifyBP = true
         }
@@ -789,59 +636,55 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       if (shouldModifyMode && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'twoPick'
-        modifyMatchMode(mode, activeMatchId).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
-        debugLog(twoPickDetect)
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
+        console.log(twoPickDetect)
       }
     } else if (rankDetect.score > THRESHOLD.ranked) {
       if (!isModifyDeltaCR && activeMatchId !== null) {
-        const raw = await recognizeDeltaCR(imagePath, rankedAnchor) // 可能回 "+22" / "-15" / "0" / "" / undefined
-        if (raw === '') debugLog('[analyzeOnce] OCR got empty string')
-        if (raw === undefined) debugLog('[analyzeOnce] OCR undefined')
+        const raw = await recognizeDeltaCR(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
 
         const deltaCR = parseBPGain(raw)
-        debugLog('[ranked] parsed deltaCR =', deltaCR)
+        console.log('[ranked] parsed deltaCR =', deltaCR)
 
         if (deltaCR !== null) {
-          await modifyMatchDeltaCR(deltaCR, activeMatchId).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+          await modifyMatchDeltaCR(activeMatchId, deltaCR)
+          port.postMessage({ type: 'modifyMode' })
           isModifyDeltaCR = true
         }
       }
 
       if (!isModifyCurrentCR && activeMatchId !== null) {
-        const raw = await recognizeCurrentCR(imagePath, rankedAnchor) // 可能回 "+22" / "-15" / "0" / "" / undefined
-        if (raw === '') debugLog('[analyzeOnce] OCR got empty string')
-        if (raw === undefined) debugLog('[analyzeOnce] OCR undefined')
+        const raw = await recognizeCurrentCR(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
 
         const currentCR = parseBPGain(raw)
-        debugLog('[ranked] parsed currentCR =', currentCR)
+        console.log('[ranked] parsed currentCR =', currentCR)
 
         if (currentCR !== null) {
-          await modifyMatchCurrentCR(currentCR, activeMatchId).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+          await modifyMatchCurrentCR(activeMatchId, currentCR)
+          port.postMessage({ type: 'modifyMode' })
           isModifyCurrentCR = true
         }
       }
 
       // 階級模式判斷：BP修改
       if (!isModifyBP && activeMatchId !== null) {
-        debugLog(rankDetect)
+        console.log(rankDetect)
 
-        const raw = await recognizeBPGain(imagePath, 'ranked', rankedAnchor) // 可能回 "+22" / "-15" / "0" / "" / undefined
-        if (raw === '') debugLog('[analyzeOnce] OCR got empty string')
-        if (raw === undefined) debugLog('[analyzeOnce] OCR undefined')
+        const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
+        if (raw === '') console.log('[analyzeOnce] OCR got empty string')
+        if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
 
         const bp = parseBPGain(raw)
-        debugLog('[ranked] parsed bp =', bp)
+        console.log('[ranked] parsed bp =', bp)
 
         if (bp !== null) {
-          await modifyMatchBP(bp, activeMatchId).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+          await modifyMatchBP(activeMatchId, bp)
+          port.postMessage({ type: 'modifyMode' })
           isModifyBP = true
         }
       }
@@ -850,45 +693,34 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       if (shouldModifyMode && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'ranked'
-        await modifyMatchMode(mode, activeMatchId).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
-        debugLog(mode)
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
+        console.log(mode)
       }
     }
 
     if (shouldModifyMode) {
       // 練習模式：模板配對
-      cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU, {
-        multiScale: true,
-        label: 'mode_cpu',
-        lowConfidenceThreshold: 0.7
-      })
+      cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU)
 
       // 練習模式判斷：模式修改
       if (cpuDetect.score > 0.7 && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'cpu'
-        await modifyMatchMode(mode, activeMatchId).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
-        debugLog(cpuDetect)
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
+        console.log(cpuDetect)
       }
 
       // 廣場賽模式：模板配對
-      plazaDetect = matchTemplate(topRightArea, tmpls.modesPlaza, {
-        multiScale: true,
-        label: 'mode_plaza',
-        lowConfidenceThreshold: 0.7
-      })
+      plazaDetect = matchTemplate(topRightArea, tmpls.modesPlaza)
 
       // 廣場賽模式判斷：模式修改
       if (plazaDetect.score > 0.7 && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'weekendPlaza'
-        await modifyMatchMode(mode, activeMatchId).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
       }
 
       // 自訂房檢測 (室長 / 訪客)
@@ -896,24 +728,15 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       // 辨別的節點為，是否有偵測到win/lose
       // TODO:尚未完成！
 
-      ownCustomDetect = matchTemplate(leftArea, tmpls.custom, {
-        multiScale: true,
-        label: 'custom_own',
-        lowConfidenceThreshold: 0.7
-      })
-      enemyCustomDetect = matchTemplate(rightArea, tmpls.custom, {
-        multiScale: true,
-        label: 'custom_enemy',
-        lowConfidenceThreshold: 0.7
-      })
+      ownCustomDetect = matchTemplate(leftArea, tmpls.custom)
+      enemyCustomDetect = matchTemplate(rightArea, tmpls.custom)
 
       const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
       if (rs && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'custom'
-        await modifyMatchMode(mode, activeMatchId).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
       }
     }
     // if (ownCustomWinDetect.score > 0.7) {
@@ -943,36 +766,12 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     // }
 
     // 職業名稱、職業紋章、先/後攻檢測
-    const ownClass = matchTemplate(leftArea, tmpls.classes, {
-      multiScale: true,
-      label: 'class_own',
-      lowConfidenceThreshold: THRESHOLD.class
-    })
-    const enemyClass = matchTemplate(rightArea, tmpls.classes, {
-      multiScale: true,
-      label: 'class_enemy',
-      lowConfidenceThreshold: THRESHOLD.class
-    })
-    const ownEmblem = matchTemplate(leftArea, tmpls.emblems, {
-      multiScale: true,
-      label: 'emblem_own',
-      lowConfidenceThreshold: THRESHOLD.emblem
-    })
-    const enemyEmblem = matchTemplate(rightArea, tmpls.emblems, {
-      multiScale: true,
-      label: 'emblem_enemy',
-      lowConfidenceThreshold: THRESHOLD.emblem
-    })
-    const ownPlayOrder = matchTemplate(leftArea, tmpls.playOrder, {
-      multiScale: true,
-      label: 'play_order_own',
-      lowConfidenceThreshold: THRESHOLD.playOrder
-    })
-    const enemyPlayOrder = matchTemplate(rightArea, tmpls.playOrder, {
-      multiScale: true,
-      label: 'play_order_enemy',
-      lowConfidenceThreshold: THRESHOLD.playOrder
-    })
+    const ownClass = matchTemplate(leftArea, tmpls.classes)
+    const enemyClass = matchTemplate(rightArea, tmpls.classes)
+    const ownEmblem = matchTemplate(leftArea, tmpls.emblems)
+    const enemyEmblem = matchTemplate(rightArea, tmpls.emblems)
+    const ownPlayOrder = matchTemplate(leftArea, tmpls.playOrder)
+    const enemyPlayOrder = matchTemplate(rightArea, tmpls.playOrder)
 
     // 戰鬥邏輯檢查
     const myValid = ownClass.score > THRESHOLD.class || ownEmblem.score > THRESHOLD.emblem
@@ -992,38 +791,13 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     // 戰鬥開始：首次紀錄 DB
     // if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
     if (inBattle && !isMatchRecord) {
-      isMatchRecord = true
-
-      // If the previous active match did not get a concrete mode, mark it as unranked before
-      // taking ownership of the new battle.
-      if (activeMatchId !== null) {
-        if (mode !== null) {
-          mode = null
-        } else {
-          if (shouldModifyMode) {
-            mode = 'unranked'
-            modifyMatchMode('unranked', activeMatchId).then(() => {
-              port.postMessage({ type: 'modifyMode' })
-            })
-          }
-        }
-      }
-
-      isModifyBP = false
-      isModifyCurrentCR = false
-      isModifyDeltaCR = false
-      shouldModifyMode = true
-
-      isResultMidDetect = false
-      // shouldRecordNewMatch = false
-
-      debugLog('----- In Battle! -----')
-      debugLog('ownClass', ownClass)
-      debugLog('ownEmblem', ownEmblem)
-      debugLog('enemyClass', enemyClass)
-      debugLog('enemyEmblem', enemyEmblem)
-      debugLog('ownPlayOrder', ownPlayOrder)
-      debugLog('enemyPlayOrder', enemyPlayOrder)
+      console.log('----- In Battle! -----')
+      console.log('ownClass', ownClass)
+      console.log('ownEmblem', ownEmblem)
+      console.log('enemyClass', enemyClass)
+      console.log('enemyEmblem', enemyEmblem)
+      console.log('ownPlayOrder', ownPlayOrder)
+      console.log('enemyPlayOrder', enemyPlayOrder)
       const ownName = pickBestResult([ownClass, ownEmblem], THRESHOLD.class)
       const oppoName = pickBestResult([enemyClass, enemyEmblem], THRESHOLD.class)
       const order = determinePlayOrder(ownPlayOrder, enemyPlayOrder, THRESHOLD.playOrder)
@@ -1038,13 +812,16 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         throw new Error('無法辨識先後攻')
       }
 
-      const created = await addMatch(
-        ownName as ClassName,
-        oppoName as ClassName,
-        order as PlayOrder
-      )
-      activeMatchId = created.id
-      debugLog('activeMatchId', activeMatchId)
+      const record = await addMatch(ownName as ClassName, oppoName as ClassName, order as PlayOrder)
+      activeMatchId = record.id
+      isMatchRecord = true
+      isModifyBP = false
+      isModifyCurrentCR = false
+      isModifyDeltaCR = false
+      shouldModifyMode = true
+      isResultMidDetect = false
+      mode = null
+      console.log('activeMatchId', activeMatchId)
 
       // 通知前端「進入戰鬥」
       port.postMessage({
@@ -1054,61 +831,36 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     }
 
     // 勝/敗結果檢測
-    const resultMidDetect = detectAnchor(gameArea, tmpls.resultMid, {
-      threshold: 0.3,
-      label: 'result_mid',
-      multiScale: true
-    })
+    const resultMidDetect = matchTemplate(gray, tmpls.resultMid)
 
     // 戰鬥結束：識別勝敗並更新 DB
-    if (isMatchRecord && resultMidDetect.score > 0.3) {
-      debugLog('----- Battle Finished -----')
-      debugLog('resultMidDetect', resultMidDetect)
+    if (isMatchRecord && activeMatchId !== null && resultMidDetect.score > 0.3) {
+      console.log('----- Battle Finished -----')
+      console.log('resultMidDetect', resultMidDetect)
       isMatchRecord = false
       inBattle = false
       isResultMidDetect = true
 
       const result = resultMidDetect.name === 'win'
-      await modifyMatchResult(result, activeMatchId ?? undefined).then(() => {
-        activeMatchId = null
-        port.postMessage({
-          type: 'matchResult',
-          data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
-          // notification: {
-          //   title: `[${mode}]對戰結果已紀錄`,
-          //   body: win ? '勝利！' : '戰敗...'
-          // }
-        })
-      })
+      await recordMatchResult(port, activeMatchId, result)
     }
 
-    const resultDetect = detectAnchor(gameArea, tmpls.result, {
-      threshold: THRESHOLD.result,
-      label: 'result',
-      multiScale: true
-    })
+    const resultDetect = matchTemplate(gray, tmpls.result)
     if (
-      (isMatchRecord && resultDetect.score > THRESHOLD.result) ||
-      (!isMatchRecord && isResultMidDetect && resultDetect.score > THRESHOLD.result)
+      activeMatchId !== null &&
+      ((isMatchRecord && resultDetect.score > THRESHOLD.result) ||
+        (!isMatchRecord && isResultMidDetect && resultDetect.score > THRESHOLD.result))
     ) {
-      debugLog('----- Battle Finished -----')
-      debugLog('resultDetect', resultDetect)
+      console.log('----- Battle Finished -----')
+      console.log('resultDetect', resultDetect)
       isMatchRecord = false
       isResultMidDetect = false
       inBattle = false
 
+      const matchId = activeMatchId
       const result = resultDetect.name === 'win'
-      await modifyMatchResult(result, activeMatchId ?? undefined).then(() => {
-        activeMatchId = null
-        port.postMessage({
-          type: 'matchResult',
-          data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
-          // notification: {
-          //   title: `[${mode}]對戰結果已紀錄`,
-          //   body: win ? '勝利！' : '戰敗...'
-          // }
-        })
-      })
+      await recordMatchResult(port, matchId, result)
+      activeMatchId = null
     }
   } catch (err: unknown) {
     console.error('[Analyzer] Error in analyzeOnce:', err)
@@ -1119,13 +871,26 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
 // schedule 下一次分析
 function scheduleNext(port: MessagePortMain): void {
-  const delay =
-    Date.now() < historyCooldownUntil
-      ? COOLDOWN_INTERVAL
-      : inBattle || isMatchRecord || shouldModifyMode
-        ? ACTIVE_INTERVAL
-        : IDLE_INTERVAL
-  timer = setTimeout(() => analyzeOnce(port), delay)
+  timer = setTimeout(() => analyzeOnce(port), INTERVAL)
+}
+
+async function recordMatchResult(
+  port: MessagePortMain,
+  matchId: number,
+  result: boolean
+): Promise<void> {
+  // A battle without a detected mode is a normal unranked match. Set this at
+  // the end of the same match rather than waiting for the next battle to begin.
+  if (mode === null) {
+    mode = 'unranked'
+    await modifyMatchMode(matchId, mode)
+  }
+
+  await modifyMatchResult(matchId, result)
+  port.postMessage({
+    type: 'matchResult',
+    data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
+  })
 }
 
 function parseBPGain(raw: string | undefined | null): number | null {

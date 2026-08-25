@@ -1,6 +1,5 @@
 import { Deck, Match, ClassName, PlayOrder, GameMode } from '@prisma/client'
 import { getPrisma } from './db/prismaClient.js'
-import { invalidateStatsCaches } from './statsCache.js'
 
 export async function getDecks(): Promise<Deck[]> {
   const prisma = getPrisma()
@@ -9,9 +8,7 @@ export async function getDecks(): Promise<Deck[]> {
 
 export async function addDeck(name: string, svClass: string): Promise<Deck> {
   const prisma = getPrisma()
-  const deck = await prisma.deck.create({ data: { name, class: svClass } })
-  invalidateStatsCaches()
-  return deck
+  return prisma.deck.create({ data: { name, class: svClass } })
 }
 
 export async function fetchMatchCount(): Promise<number> {
@@ -53,7 +50,7 @@ export async function addMatch(
   const month = now.getMonth() + 1
   const day = now.getDate()
 
-  const match = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
     const [myDefault] = await Promise.all([
       tx.deck.findFirst({ where: { class: my_class, isDefault: true }, select: { id: true } }),
       tx.deck.findFirst({ where: { class: oppo_class, isDefault: true }, select: { id: true } })
@@ -73,151 +70,82 @@ export async function addMatch(
       }
     })
   })
-  invalidateStatsCaches()
-  return match
 }
 
-export async function clearMyDeck(matchId?: number): Promise<Match> {
+export async function clearMyDeck(matchId: number): Promise<Match> {
   const prisma = getPrisma()
-  const latest = matchId
-    ? await prisma.match.findUnique({ where: { id: matchId } })
-    : await prisma.match.findFirst({
-        orderBy: { playedAt: 'desc' }
-      })
-  if (!latest) throw new Error('No match to update result.')
-
-  const match = await prisma.match.update({
-    where: { id: latest.id },
+  return prisma.match.update({
+    where: { id: matchId },
     data: { my_deckId: null }
   })
-  invalidateStatsCaches()
-  return match
 }
 
-export async function modifyMatchResult(result: boolean, matchId?: number): Promise<Match> {
+export async function modifyMatchResult(matchId: number, result: boolean): Promise<Match> {
   const prisma = getPrisma()
-  const latest = matchId
-    ? await prisma.match.findUnique({ where: { id: matchId } })
-    : await prisma.match.findFirst({
-        orderBy: { playedAt: 'desc' }
-      })
-  if (!latest) throw new Error('No match to update result.')
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } })
 
   const now = new Date()
-  const durationSecs = Math.floor((now.getTime() - latest.playedAt.getTime()) / 1000)
+  const durationSecs = Math.floor((now.getTime() - match.playedAt.getTime()) / 1000)
 
-  const match = await prisma.match.update({
-    where: { id: latest.id },
+  return prisma.match.update({
+    where: { id: matchId },
     data: { result, endedAt: now, durationTime: durationSecs }
   })
-  invalidateStatsCaches()
-  return match
 }
 
-export async function modifyMatchMode(mode: GameMode | null, matchId?: number): Promise<Match> {
+export async function modifyMatchMode(matchId: number, mode: GameMode | null): Promise<Match> {
   const prisma = getPrisma()
-  const latest = matchId
-    ? await prisma.match.findUnique({ where: { id: matchId } })
-    : await prisma.match.findFirst({
-        orderBy: { playedAt: 'desc' }
-      })
-  if (!latest) throw new Error('No match to update mode.')
-
-  if (latest.endedAt === null) {
-    const now = new Date()
-    const durationSecs = Math.floor((now.getTime() - latest.playedAt.getTime()) / 1000)
-    const match = await prisma.match.update({
-      where: { id: latest.id },
-      data: { mode, endedAt: now, durationTime: durationSecs }
-    })
-    invalidateStatsCaches()
-    return match
-  }
-  const match = await prisma.match.update({ where: { id: latest.id }, data: { mode } })
-  invalidateStatsCaches()
-  return match
+  return prisma.match.update({ where: { id: matchId }, data: { mode } })
 }
 
-export async function modifyMatchBP(bp: number | null, matchId?: number): Promise<Match> {
+export async function modifyMatchBP(matchId: number, bp: number | null): Promise<Match> {
   const prisma = getPrisma()
-  const latest = matchId
-    ? await prisma.match.findUnique({ where: { id: matchId } })
-    : await prisma.match.findFirst({
-        orderBy: { playedAt: 'desc' }
-      })
-  if (!latest) throw new Error('No match to update BP.')
-
-  const match = await prisma.match.update({
-    where: { id: latest.id },
+  return prisma.match.update({
+    where: { id: matchId },
     data: { bp }
   })
-  invalidateStatsCaches()
-  return match
 }
 
-export async function modifyMatchDeltaCR(
-  delta_cr: number | null,
-  matchId?: number
-): Promise<Match> {
+export async function modifyMatchDeltaCR(matchId: number, delta_cr: number | null): Promise<Match> {
   const prisma = getPrisma()
-  const latest = matchId
-    ? await prisma.match.findUnique({ where: { id: matchId } })
-    : await prisma.match.findFirst({
-        orderBy: { playedAt: 'desc' }
-      })
-  if (!latest) throw new Error('No match to update delta_cr.')
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } })
 
-  if (latest.current_cr && delta_cr) {
-    const match = await prisma.match.update({
-      where: { id: latest.id },
+  if (match.current_cr !== null && delta_cr !== null) {
+    return prisma.match.update({
+      where: { id: matchId },
       data: {
         delta_cr,
         current_cr:
-          delta_cr > 0 ? latest.current_cr - delta_cr : latest.current_cr + Math.abs(delta_cr)
+          delta_cr > 0 ? match.current_cr - delta_cr : match.current_cr + Math.abs(delta_cr)
       }
     })
-    invalidateStatsCaches()
-    return match
   }
 
-  const match = await prisma.match.update({
-    where: { id: latest.id },
+  return prisma.match.update({
+    where: { id: matchId },
     data: { delta_cr }
   })
-  invalidateStatsCaches()
-  return match
 }
 
 export async function modifyMatchCurrentCR(
-  current_cr: number | null,
-  matchId?: number
+  matchId: number,
+  current_cr: number | null
 ): Promise<Match> {
   const prisma = getPrisma()
-  const latest = matchId
-    ? await prisma.match.findUnique({ where: { id: matchId } })
-    : await prisma.match.findFirst({
-        orderBy: { playedAt: 'desc' }
-      })
-  if (!latest) throw new Error('No match to update current_cr.')
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } })
 
-  if (latest.delta_cr && current_cr) {
-    const match = await prisma.match.update({
-      where: { id: latest.id },
+  if (match.delta_cr !== null && current_cr !== null) {
+    return prisma.match.update({
+      where: { id: matchId },
       data: {
         current_cr:
-          latest.delta_cr > 0
-            ? current_cr - latest.delta_cr
-            : current_cr + Math.abs(latest.delta_cr)
+          match.delta_cr > 0 ? current_cr - match.delta_cr : current_cr + Math.abs(match.delta_cr)
       }
     })
-    invalidateStatsCaches()
-    return match
   }
 
-  const match = await prisma.match.update({
-    where: { id: latest.id },
+  return prisma.match.update({
+    where: { id: matchId },
     data: { current_cr }
   })
-  invalidateStatsCaches()
-  return match
 }

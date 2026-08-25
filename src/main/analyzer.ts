@@ -1,11 +1,16 @@
 import { app, BrowserWindow, MessageChannelMain, Notification, utilityProcess } from 'electron'
 import forkPath from './forkedImageAnalyzer?modulePath'
+import { ClassName, PlayOrder } from '@prisma/client'
 import { broadcast } from './utils/broadcast.js'
 import Store from 'electron-store'
-import { getCaptureImagePath, getTesseractCacheDir } from './paths.js'
-import type { BattleStatus } from '../shared/types.js'
+import { getCaptureImagePath } from './manageCaptureTool.js'
 
-export type { BattleStatus } from '../shared/types.js'
+export interface BattleStatus {
+  inBattle: boolean
+  ownClass: ClassName | null
+  enemyClass: ClassName | null
+  playOrder: PlayOrder | null
+}
 
 let battleStatus: BattleStatus = {
   inBattle: false,
@@ -34,7 +39,6 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
   isStarting = true
 
   const imagePath = getCaptureImagePath()
-  const cacheDir = getTesseractCacheDir()
 
   const { port1, port2 } = new MessageChannelMain()
 
@@ -53,18 +57,12 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
     })
 
     child.postMessage(
-      {
-        type: 'init',
-        imagePath,
-        cacheDir,
-        isPackaged: app.isPackaged,
-        resourcesPath: process.resourcesPath
-      },
+      { type: 'init', imagePath, isPackaged: app.isPackaged, resourcesPath: process.resourcesPath },
       [port1]
     )
 
     port2.on('message', (e) => {
-      if (process.env.DEBUG_ANALYZER === '1') console.log('[Child] message from forked process')
+      console.log('[Child] message from forked process')
       const { type, data, notification } = e.data
       switch (type) {
         case 'inBattle':

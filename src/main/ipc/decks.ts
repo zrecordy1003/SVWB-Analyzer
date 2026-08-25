@@ -347,7 +347,7 @@ export function registerDecksIpc(): void {
               typeof data.categoryId !== 'undefined' ? data.categoryId : current.categoryId
             const nextName = typeof data.name === 'string' ? data.name : current.name
             const dup = await hasNameDuplicateCI(tx, {
-              cls: current.class,
+              cls: current.class as ClassName,
               categoryId: nextCatId ?? null,
               name: nextName,
               excludeId: id

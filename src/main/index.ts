@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -7,25 +8,31 @@ import Store from 'electron-store'
 
 // 輕依賴先載（重依賴延遲到用到才 import）
 import { isShadowverseRunning } from './svwbDetector.js'
-import { spawnCapture, stopCapture } from './manageCaptureTool.js'
+import {
+  getCaptureImagePath,
+  getCaptureTemporaryPath,
+  spawnCapture,
+  stopCapture
+} from './manageCaptureTool.js'
 
 // DB 與更新延後：只載入 helper，初始化放到事件之後
 import { initDatabase } from './db/initDb.js'
 import { setupAutoUpdates } from './updates.js'
-import type { BattleStatus } from './analyzer.js'
+import { getBattleStatus, type BattleStatus } from './analyzer.js'
 import { disableAutoLaunch, enableAutoLaunch } from './startOnBoot/startOnBoot.js'
 import { createHudWindow } from './hud.js'
 // import { attachCloseGuard } from './closeGuard.js'
 import { createAppTray } from './tray.js'
 import { attachSmartClose } from './smartClose.js'
 import { openExitConfirmDialog } from './exitConfirmDialog.js'
-import { getCaptureImagePath, getCaptureTmpImagePath } from './paths.js'
 
-// OpenCV env
+// OpenCV is compiled during development with the local SDK. Packaged builds only
+// ship the release runtime DLLs; headers and .lib files are not runtime assets.
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
 process.env.OPENCV_BIN_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'bin')
   : path.join(__dirname, '../../resources/opencv/bin')
+
 if (!app.isPackaged) {
   process.env.OPENCV_INCLUDE_DIR = path.join(__dirname, '../../resources/opencv/include')
   process.env.OPENCV_LIB_DIR = path.join(__dirname, '../../resources/opencv/lib')
@@ -42,29 +49,6 @@ const store = new Store({
     }
   }
 })
-
-const ALLOWED_SETTINGS_KEYS = new Set([
-  'settings',
-  'hudOpacity',
-  'hudPinned',
-  'hudMyClass',
-  'hudGameMode',
-  'matchList.filters'
-])
-const ALLOWED_SETTINGS_PREFIXES = ['settings.', 'analyzer.']
-
-function isAllowedSettingsKey(key: string): boolean {
-  return (
-    ALLOWED_SETTINGS_KEYS.has(key) ||
-    ALLOWED_SETTINGS_PREFIXES.some((prefix) => key.startsWith(prefix))
-  )
-}
-
-function assertAllowedSettingsKey(key: string): void {
-  if (typeof key !== 'string' || !isAllowedSettingsKey(key)) {
-    throw new Error(`Settings key is not allowed: ${String(key)}`)
-  }
-}
 
 // --- 單例鎖 ---
 const gotTheLock = app.requestSingleInstanceLock()
@@ -116,7 +100,7 @@ async function ensureAnalyzer(): Promise<void> {
 // --- 清理擷取圖片 ---
 function clearCaptureImage(): void {
   const imagePath = getCaptureImagePath()
-  const tmpImagePath = getCaptureTmpImagePath()
+  const tmpImagePath = getCaptureTemporaryPath()
 
   if (fs.existsSync(imagePath)) {
     fs.unlinkSync(imagePath)
@@ -235,14 +219,8 @@ function createWindow(): void {
     hudWindow = null
   })
 
-  const shouldAskExit = (): boolean => {
-    const currentBattleStatus = _getBattleStatus?.()
-    const inBattle =
-      currentBattleStatus && !(currentBattleStatus instanceof Promise)
-        ? currentBattleStatus.inBattle
-        : false
-    return inBattle || store.get('settings.askBeforeExit') === true
-  }
+  const shouldAskExit = (): boolean =>
+    getBattleStatus().inBattle || store.get('settings.askBeforeExit') === true
 
   const confirmExit = async (): Promise<boolean> => {
     if (store.get('settings.askBeforeExit') === true) return true
@@ -306,7 +284,6 @@ async function isSystemIdle(thresholdSec: number): Promise<boolean> {
 function startPollingForGame(): void {
   let isCapturing = false
   let isAnalyzerRunning = false
-  let isFirstStart = true
   let isSentMinimizedInfo = false
   let isSentIdleInfo = false
 
@@ -350,15 +327,34 @@ function startPollingForGame(): void {
       // ─────────────────────────────────────────────────
       // 擷取（Capture）：維持原本行為（最小化/隱藏就停，恢復就啟）
       // ─────────────────────────────────────────────────
-      const shouldCapture = isGameRunning && !treatAsPaused
+      const hwnd = svwbStatus.hwnd
+      const shouldCapture = isGameRunning && !treatAsPaused && hwnd !== null
 
       if (shouldCapture) {
         win.webContents.send('battle:recog', true)
         if (!isCapturing) {
-          spawnCapture(isFirstStart)
+          await spawnCapture({
+            hwnd,
+            outputPath: getCaptureImagePath(),
+            intervalMs: 500,
+            onEvent: (event) => {
+              if (event.event === 'frame_error' || event.event === 'error') {
+                console.warn('[Capture]', event.message)
+              }
+              if (
+                event.event === 'window_closed' ||
+                event.event === 'error' ||
+                event.event === 'exited'
+              ) {
+                isCapturing = false
+                if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+                  win.webContents.send('capture:status', false)
+                }
+              }
+            }
+          })
           isCapturing = true
           win.webContents.send('capture:status', true)
-          if (isFirstStart) isFirstStart = false
         }
       } else {
         win.webContents.send('battle:recog', false)
@@ -493,28 +489,12 @@ app.whenReady().then(async () => {
   })
 
   // settings（不需要 DB）
-  ipcMain.handle('settings:get', (_event, key: string) => {
-    assertAllowedSettingsKey(key)
-    return store.get(key)
-  })
-  ipcMain.handle('settings:set', (_event, key: string, value: any) => {
-    assertAllowedSettingsKey(key)
-    return store.set(key, value)
-  })
-  ipcMain.handle('settings:delete', (_event, key: string) => {
-    assertAllowedSettingsKey(key)
-    return (store as any).delete(key)
-  })
-  ipcMain.handle('settings:clear', () => {
-    throw new Error('settings:clear is not allowed from renderer')
-  })
-  ipcMain.handle('settings:has', (_event, key: string) => {
-    assertAllowedSettingsKey(key)
-    return (store as any).has(key)
-  })
-  ipcMain.handle('settings:getAll', () => {
-    throw new Error('settings:getAll is not allowed from renderer')
-  })
+  ipcMain.handle('settings:get', (_event, key: string) => store.get(key))
+  ipcMain.handle('settings:set', (_event, key: string, value: any) => store.set(key, value))
+  ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key as never))
+  ipcMain.handle('settings:clear', () => store.clear())
+  ipcMain.handle('settings:has', (_event, key: string) => store.has(key as never))
+  ipcMain.handle('settings:getAll', () => store.store)
 
   // 停止 capture
   ipcMain.on('stop-capture', () => stopCapture())

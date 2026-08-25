@@ -1,9 +1,26 @@
-import { ipcMain, BrowserWindow } from 'electron'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { BrowserWindow, ipcMain } from 'electron'
 import { ClassName, GameMode, Match, Prisma, Tag } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
-import { getRankedWinrateByOpponent } from './helper.js'
-import { invalidateStatsCaches } from '../statsCache.js'
-import type { QueryPayload, RangeKey } from '../../shared/types.js'
+import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
+
+export type QueryPayload = {
+  myClassIds?: ClassName[]
+  oppoClassIds?: ClassName[]
+  mode?: GameMode | null
+  rangeKey?: RangeKey
+  start?: string | number | Date | null
+  end?: string | number | Date | null
+  myDeckIds?: number[] // 只篩我方牌組；若要同時含對方，改 OR
+  tagIds?: number[]
+  note?: 'any' | 'with' | 'without'
+  crMin?: number | null
+  crMax?: number | null
+
+  // for getPage
+  pageIndex?: number
+  pageSize?: number
+}
 
 function toDateSafe(v: unknown): Date | null {
   if (v == null) return null
@@ -481,13 +498,11 @@ export function registerMatchesIpc(): void {
     'matches:updateBP',
     async (_e, matchId: number, bp: number | null): Promise<Match> => {
       // 注意：不要用 if(bp)；0 要能過
-      const updated = await prisma.match.update({
+      return prisma.match.update({
         where: { id: matchId },
         data: { bp },
         include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
       })
-      invalidateStatsCaches()
-      return updated
     }
   )
 
@@ -496,13 +511,11 @@ export function registerMatchesIpc(): void {
     'matches:updateNote',
     async (_e, matchId: number, note: string | null): Promise<Match> => {
       const clean = (note ?? '').trim()
-      const updated = await prisma.match.update({
+      return prisma.match.update({
         where: { id: matchId },
         data: { note: clean.length ? clean : null },
         include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
       })
-      invalidateStatsCaches()
-      return updated
     }
   )
 
@@ -510,13 +523,11 @@ export function registerMatchesIpc(): void {
   ipcMain.handle(
     'matches:updateMyDeck',
     async (_e, matchId: number, deckId: number | null): Promise<Match> => {
-      const updated = await prisma.match.update({
+      return prisma.match.update({
         where: { id: matchId },
         data: { my_deckId: deckId },
         include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
       })
-      invalidateStatsCaches()
-      return updated
     }
   )
 
@@ -533,7 +544,7 @@ export function registerMatchesIpc(): void {
         )
       )
 
-      const updated = await prisma.$transaction(async (tx) => {
+      return await prisma.$transaction(async (tx) => {
         // 找到/建立 tags
         const tags: Tag[] = []
         for (const name of names) {
@@ -559,8 +570,6 @@ export function registerMatchesIpc(): void {
           include: { my_deck: true, oppo_deck: true, tags: { include: { tag: true } } }
         })
       })
-      invalidateStatsCaches()
-      return updated
     }
   )
 
@@ -678,19 +687,17 @@ export function registerMatchesIpc(): void {
       })
     })
 
-    invalidateStatsCaches()
     return updated
   })
 
   // 刪除（連動刪樞紐由外鍵級聯）
   ipcMain.handle('matches:delete', async (_e, id: number) => {
     await prisma.match.delete({ where: { id } })
-    invalidateStatsCaches()
     return true
   })
 }
 
-export function broadcastNewMatch(_win?: BrowserWindow, match?: any): void {
+export function broadcastNewMatch(match?: any): void {
   // 對 HUD 與主視窗都可以發
   BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('matches:new', match))
 }
