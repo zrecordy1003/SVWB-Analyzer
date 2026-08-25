@@ -7,7 +7,6 @@ import { createWorker, OEM, PSM } from 'tesseract.js'
 import {
   addMatch,
   clearMyDeck,
-  fetchLastMatch,
   modifyMatchBP,
   modifyMatchCurrentCR,
   modifyMatchDeltaCR,
@@ -23,6 +22,23 @@ type scoreAndName = {
 
 const BASE_WIDTH = 1280
 const BASE_HEIGHT = 720
+
+/**
+ * The capture tool can produce different resolutions depending on the player's
+ * display and game settings. All template ROIs are authored for 1280×720, so
+ * normalize every frame before matching or OCR.
+ */
+function normalizeGray(mat: Mat): Mat {
+  return mat.cols === BASE_WIDTH && mat.rows === BASE_HEIGHT
+    ? mat
+    : mat.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
+}
+
+function loadNormalizedGray(imgPath: string): Mat | undefined {
+  const mat = cv.imread(imgPath).bgrToGray()
+  if (mat.empty) return undefined
+  return normalizeGray(mat)
+}
 
 let original: {
   classes: Array<{ name: string; image: Mat }>
@@ -106,8 +122,8 @@ async function recognizeCurrentCR(imgPath: string): Promise<string | undefined> 
   }
 
   // 讀圖
-  const mat = cv.imread(imgPath).bgrToGray()
-  if (mat.empty) {
+  const mat = loadNormalizedGray(imgPath)
+  if (!mat) {
     console.warn('[OCR] Can not read pixel')
     return
   }
@@ -181,8 +197,8 @@ async function recognizeDeltaCR(imgPath: string): Promise<string | undefined> {
   }
 
   // 讀圖
-  const mat = cv.imread(imgPath).bgrToGray()
-  if (mat.empty) {
+  const mat = loadNormalizedGray(imgPath)
+  if (!mat) {
     console.warn('[OCR] Can not read pixel')
     return
   }
@@ -265,8 +281,8 @@ async function recognizeBPGain(
   }
 
   // 讀圖轉灰階
-  const mat = cv.imread(imgPath).bgrToGray()
-  if (mat.empty) {
+  const mat = loadNormalizedGray(imgPath)
+  if (!mat) {
     console.warn('[OCR] Can not read pixel')
     return
   }
@@ -406,8 +422,7 @@ function determinePlayOrder(
   return best.name as 'first' | 'second'
 }
 
-let scaled: typeof original | null = null
-let lastResolution = { w: BASE_WIDTH, h: BASE_HEIGHT }
+let scaled: ScaledTemplates | null = null
 
 type Template = {
   name: string
@@ -431,82 +446,11 @@ interface ScaledTemplates {
   history: Template[]
 }
 
-// 這個函式負責：
-//   - 如果當前截屏解析度和上次一樣，就直接回傳舊的 scaled
-//   - 否則先把截屏拉回基準大小，再依比例 resize 所有 original 裡面的模板
-// TODO:還沒做完
-function prepareScaledTemplates(fullGray: Mat): ScaledTemplates {
-  const cols = fullGray.cols,
-    rows = fullGray.rows
-  if (scaled && cols === lastResolution.w && rows === lastResolution.h) {
-    return scaled
-  }
-  lastResolution = { w: cols, h: rows }
-
-  // 如果截屏不是基準，就先拉回 1280×720
-  const gray =
-    cols === BASE_WIDTH && rows === BASE_HEIGHT
-      ? fullGray
-      : fullGray.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
-
-  const scaleX = gray.cols / BASE_WIDTH
-  const scaleY = gray.rows / BASE_HEIGHT
-
-  // 做一次性縮放
-  scaled = {
-    classes: original.classes.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    emblems: original.emblems.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    playOrder: original.playOrder.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    result: original.result.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    resultMid: original.resultMid.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    indicators: original.indicators.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    modesCPU: original.modesCPU.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    modesRanked: original.modesRanked.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    modes2Pick: original.modes2Pick.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    modesPlaza: original.modesPlaza.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    cursor: original.cursor.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    custom: original.custom.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    })),
-    history: original.history.map(({ name, image }) => ({
-      name,
-      image: image.resize(Math.round(image.rows * scaleY), Math.round(image.cols * scaleX))
-    }))
-  }
+// Every screenshot is normalized by normalizeGray(), so templates stay at their
+// authored size and only need to be loaded once.
+function prepareScaledTemplates(_fullGray: Mat): ScaledTemplates {
+  if (scaled) return scaled
+  scaled = original
   return scaled
 }
 
@@ -582,8 +526,8 @@ const THRESHOLD = {
 // let customBattleActive = false // whether a custom-room battle is ongoing
 // let normalBattleActive = false // whether a normal battle is ongoing
 
-// 避免意外改到最後一筆資料的模式
-let lastRowId = -1
+// The active match is the only record that the analyzer may update.
+let activeMatchId: number | null = null
 
 let rankDetect: scoreAndName
 let twoPickDetect: scoreAndName
@@ -616,7 +560,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
   try {
     const img = cv.imread(imagePath)
     if (img.empty) return scheduleNext(port)
-    const gray = img.bgrToGray()
+    const gray = normalizeGray(img.bgrToGray())
 
     const cols = gray.cols
     const rows = gray.rows
@@ -652,7 +596,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       mode = null
       // customBattleActive = false
       // normalBattleActive = false
-      lastRowId = -1
+      activeMatchId = null
       // shouldRecordNewMatch = false
 
       console.log('[Analyzer] History detected: cooling down for 15s')
@@ -670,8 +614,8 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     if (twoPickDetect.score > THRESHOLD.ranked) {
       // 2Pick模式判斷：BP修改
       // 因為 2Pick 應該帶入對應的 2Pick 牌組
-      clearMyDeck()
-      if (!isModifyBP && lastRowId > -1) {
+      if (activeMatchId !== null) await clearMyDeck(activeMatchId)
+      if (!isModifyBP && activeMatchId !== null) {
         console.log(twoPickDetect)
 
         const raw = await recognizeBPGain(imagePath, '2pick') // 可能回 "+22" / "-15" / "0" / "" / undefined
@@ -682,23 +626,22 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         console.log('[2Pick] parsed bp =', bp)
 
         if (bp !== null) {
-          await modifyMatchBP(bp) // 0 會被寫入
+          await modifyMatchBP(activeMatchId, bp) // 0 會被寫入
           port.postMessage({ type: 'modifyMode' })
           isModifyBP = true
         }
       }
 
       // 2Pick模式判斷：模式修改
-      if (shouldModifyMode && lastRowId > -1) {
+      if (shouldModifyMode && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'twoPick'
-        modifyMatchMode(mode).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
         console.log(twoPickDetect)
       }
     } else if (rankDetect.score > THRESHOLD.ranked) {
-      if (!isModifyDeltaCR && lastRowId > -1) {
+      if (!isModifyDeltaCR && activeMatchId !== null) {
         const raw = await recognizeDeltaCR(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
         if (raw === '') console.log('[analyzeOnce] OCR got empty string')
         if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
@@ -707,14 +650,13 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         console.log('[ranked] parsed deltaCR =', deltaCR)
 
         if (deltaCR !== null) {
-          await modifyMatchDeltaCR(deltaCR).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+          await modifyMatchDeltaCR(activeMatchId, deltaCR)
+          port.postMessage({ type: 'modifyMode' })
           isModifyDeltaCR = true
         }
       }
 
-      if (!isModifyCurrentCR && lastRowId > -1) {
+      if (!isModifyCurrentCR && activeMatchId !== null) {
         const raw = await recognizeCurrentCR(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
         if (raw === '') console.log('[analyzeOnce] OCR got empty string')
         if (raw === undefined) console.log('[analyzeOnce] OCR undefined')
@@ -723,15 +665,14 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         console.log('[ranked] parsed currentCR =', currentCR)
 
         if (currentCR !== null) {
-          await modifyMatchCurrentCR(currentCR).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+          await modifyMatchCurrentCR(activeMatchId, currentCR)
+          port.postMessage({ type: 'modifyMode' })
           isModifyCurrentCR = true
         }
       }
 
       // 階級模式判斷：BP修改
-      if (!isModifyBP && lastRowId > -1) {
+      if (!isModifyBP && activeMatchId !== null) {
         console.log(rankDetect)
 
         const raw = await recognizeBPGain(imagePath) // 可能回 "+22" / "-15" / "0" / "" / undefined
@@ -742,20 +683,18 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         console.log('[ranked] parsed bp =', bp)
 
         if (bp !== null) {
-          await modifyMatchBP(bp).then(() => {
-            port.postMessage({ type: 'modifyMode' })
-          })
+          await modifyMatchBP(activeMatchId, bp)
+          port.postMessage({ type: 'modifyMode' })
           isModifyBP = true
         }
       }
 
       // 階級模式判斷：模式修改
-      if (shouldModifyMode && lastRowId > -1) {
+      if (shouldModifyMode && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'ranked'
-        modifyMatchMode(mode).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
         console.log(mode)
       }
     }
@@ -765,12 +704,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU)
 
       // 練習模式判斷：模式修改
-      if (cpuDetect.score > 0.7 && lastRowId > -1) {
+      if (cpuDetect.score > 0.7 && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'cpu'
-        modifyMatchMode(mode).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
         console.log(cpuDetect)
       }
 
@@ -778,12 +716,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       plazaDetect = matchTemplate(topRightArea, tmpls.modesPlaza)
 
       // 廣場賽模式判斷：模式修改
-      if (plazaDetect.score > 0.7 && lastRowId > -1) {
+      if (plazaDetect.score > 0.7 && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'weekendPlaza'
-        modifyMatchMode(mode).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
       }
 
       // 自訂房檢測 (室長 / 訪客)
@@ -795,12 +732,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       enemyCustomDetect = matchTemplate(rightArea, tmpls.custom)
 
       const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
-      if (rs && lastRowId > -1) {
+      if (rs && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'custom'
-        modifyMatchMode(mode).then(() => {
-          port.postMessage({ type: 'modifyMode' })
-        })
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
       }
     }
     // if (ownCustomWinDetect.score > 0.7) {
@@ -855,39 +791,6 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     // 戰鬥開始：首次紀錄 DB
     // if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
     if (inBattle && !isMatchRecord) {
-      isMatchRecord = true
-
-      // 前面如果有進過對戰才會使 lastRowId > -1
-      if (lastRowId > -1) {
-        if (mode !== null) {
-          mode = null
-        } else {
-          if (shouldModifyMode) {
-            mode = 'unranked'
-            modifyMatchMode('unranked').then(() => {
-              port.postMessage({ type: 'modifyMode' })
-            })
-          }
-        }
-      }
-
-      isModifyBP = false
-      isModifyCurrentCR = false
-      isModifyDeltaCR = false
-      shouldModifyMode = true
-
-      isResultMidDetect = false
-      // shouldRecordNewMatch = false
-
-      const record = await fetchLastMatch()
-      if (record) {
-        lastRowId = record.id
-        console.log('lastRowId', lastRowId)
-      } else {
-        lastRowId = 1
-        console.log('New Database set lastRowId = 1')
-      }
-
       console.log('----- In Battle! -----')
       console.log('ownClass', ownClass)
       console.log('ownEmblem', ownEmblem)
@@ -909,9 +812,16 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
         throw new Error('無法辨識先後攻')
       }
 
-      addMatch(ownName as ClassName, oppoName as ClassName, order as PlayOrder).catch((err) => {
-        console.error('[Analyzer] Failed to add match:', err)
-      })
+      const record = await addMatch(ownName as ClassName, oppoName as ClassName, order as PlayOrder)
+      activeMatchId = record.id
+      isMatchRecord = true
+      isModifyBP = false
+      isModifyCurrentCR = false
+      isModifyDeltaCR = false
+      shouldModifyMode = true
+      isResultMidDetect = false
+      mode = null
+      console.log('activeMatchId', activeMatchId)
 
       // 通知前端「進入戰鬥」
       port.postMessage({
@@ -924,7 +834,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const resultMidDetect = matchTemplate(gray, tmpls.resultMid)
 
     // 戰鬥結束：識別勝敗並更新 DB
-    if (isMatchRecord && resultMidDetect.score > 0.3) {
+    if (isMatchRecord && activeMatchId !== null && resultMidDetect.score > 0.3) {
       console.log('----- Battle Finished -----')
       console.log('resultMidDetect', resultMidDetect)
       isMatchRecord = false
@@ -932,22 +842,14 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isResultMidDetect = true
 
       const result = resultMidDetect.name === 'win'
-      modifyMatchResult(result).then(() => {
-        port.postMessage({
-          type: 'matchResult',
-          data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
-          // notification: {
-          //   title: `[${mode}]對戰結果已紀錄`,
-          //   body: win ? '勝利！' : '戰敗...'
-          // }
-        })
-      })
+      await recordMatchResult(port, activeMatchId, result)
     }
 
     const resultDetect = matchTemplate(gray, tmpls.result)
     if (
-      (isMatchRecord && resultDetect.score > THRESHOLD.result) ||
-      (!isMatchRecord && isResultMidDetect && resultDetect.score > THRESHOLD.result)
+      activeMatchId !== null &&
+      ((isMatchRecord && resultDetect.score > THRESHOLD.result) ||
+        (!isMatchRecord && isResultMidDetect && resultDetect.score > THRESHOLD.result))
     ) {
       console.log('----- Battle Finished -----')
       console.log('resultDetect', resultDetect)
@@ -955,17 +857,10 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isResultMidDetect = false
       inBattle = false
 
+      const matchId = activeMatchId
       const result = resultDetect.name === 'win'
-      modifyMatchResult(result).then(() => {
-        port.postMessage({
-          type: 'matchResult',
-          data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
-          // notification: {
-          //   title: `[${mode}]對戰結果已紀錄`,
-          //   body: win ? '勝利！' : '戰敗...'
-          // }
-        })
-      })
+      await recordMatchResult(port, matchId, result)
+      activeMatchId = null
     }
   } catch (err: unknown) {
     console.error('[Analyzer] Error in analyzeOnce:', err)
@@ -977,6 +872,25 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 // schedule 下一次分析
 function scheduleNext(port: MessagePortMain): void {
   timer = setTimeout(() => analyzeOnce(port), INTERVAL)
+}
+
+async function recordMatchResult(
+  port: MessagePortMain,
+  matchId: number,
+  result: boolean
+): Promise<void> {
+  // A battle without a detected mode is a normal unranked match. Set this at
+  // the end of the same match rather than waiting for the next battle to begin.
+  if (mode === null) {
+    mode = 'unranked'
+    await modifyMatchMode(matchId, mode)
+  }
+
+  await modifyMatchResult(matchId, result)
+  port.postMessage({
+    type: 'matchResult',
+    data: { ownClass: null, enemyClass: null, playOrder: null, inBattle: false }
+  })
 }
 
 function parseBPGain(raw: string | undefined | null): number | null {

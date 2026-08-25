@@ -2,7 +2,9 @@
   "name": "svwb-analyzer",
   "version": "1.0.6",
   "description": "A tool for Shadowverse: Worlds Beyond, recording and analyzing games data.",
+  "license": "Apache-2.0",
   "type": "module",
+  "packageManager": "pnpm@11.10.0",
   "main": "./out/main/index.js",
   "author": "zrecordy1003",
   "homepage": "https://github.com/zrecordy1003/SVWB-Analyzer",
@@ -12,12 +14,16 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "start": "prisma format && prisma migrate dev && electron-vite preview",
-    "dev": "prisma format && prisma migrate dev && electron-vite dev",
-    "build": "prisma format && prisma migrate dev && prisma generate && electron-vite build",
+    "db:migrate:dev": "prisma migrate dev",
+    "start": "prisma format && electron-vite preview",
+    "dev": "prisma format && electron-vite dev",
+    "build": "prisma format && prisma generate && electron-vite build",
+    "capture:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/capture/scripts/build.ps1",
+    "capture:check": "cargo check --manifest-path tools/capture/Cargo.toml",
+    "runtime:check": "node scripts/verify-runtime-opencv.mjs",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
+    "build:win": "npm run capture:build && npm run runtime:check && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
     "electron-rebuild": "build-opencv --electron --version 35.1.5 build",
@@ -67,8 +73,13 @@
         "to": "icon.png"
       },
       {
-        "from": "resources/opencv",
-        "to": "opencv"
+        "from": "resources/opencv/bin",
+        "to": "opencv/bin",
+        "filter": [
+          "opencv_world4110.dll",
+          "opencv_videoio_ffmpeg4110_64.dll",
+          "opencv_videoio_msmf4110_64.dll"
+        ]
       },
       {
         "from": "resources/templates",

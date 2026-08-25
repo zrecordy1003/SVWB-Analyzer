@@ -52,7 +52,7 @@ const coerceCategoryId = (v?: string | null): string | null => {
 
 // 名稱校驗（後端底線：不可為空；若你想限制長度，調整 MAX_NAME_LEN）
 const MAX_NAME_LEN = 64
-const assertValidName = (name?: string) => {
+const assertValidName = (name?: string): string => {
   const n = (name ?? '').trim()
   if (!n) throw new Error('INVALID_INPUT:Name is required')
   if (n.length > MAX_NAME_LEN) throw new Error('INVALID_INPUT:Name too long')
@@ -68,7 +68,7 @@ async function ensureCategoryExists(db: Db, categoryId?: string | null): Promise
 }
 
 // 不分大小寫重名檢查（同職業 + 同分類）
-const norm = (s: string) => s.trim().toLocaleLowerCase()
+const norm = (s: string): string => s.trim().toLocaleLowerCase()
 async function hasNameDuplicateCI(
   db: Db,
   params: { cls: ClassName; categoryId: string | null; name: string; excludeId?: number }
@@ -211,7 +211,7 @@ export function registerDecksIpc(): void {
               typeof data.categoryId !== 'undefined' ? data.categoryId : current.categoryId
             const nextName = typeof data.name === 'string' ? data.name : current.name
             const dup = await hasNameDuplicateCI(tx, {
-              cls: current.class,
+              cls: current.class as ClassName,
               categoryId: nextCatId ?? null,
               name: nextName,
               excludeId: id

@@ -22,6 +22,7 @@ import MenuIcon from '@mui/icons-material/Menu'
 // import BarChartIcon from '@mui/icons-material/BarChart'
 import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
 // import EditNoteIcon from '@mui/icons-material/EditNote'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
@@ -37,6 +38,7 @@ import Settings from './components/Settings/Settings'
 import BattleStatus from './components/BattleStatus/BattleStatus'
 import UpdateBackground from './components/Update/UpdateBackground'
 import DeckSelector from './components/DeckSelector/DeckSelector'
+import About from './components/About/About'
 const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 // const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
@@ -76,7 +78,7 @@ const Main = styled('main', {
   overflowY: 'auto'
 }))
 
-type PageKey = 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings' | 'MatchEdit'
+type PageKey = 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings' | 'About' | 'MatchEdit'
 
 function App(): React.JSX.Element {
   // theme mode
@@ -151,7 +153,8 @@ function App(): React.JSX.Element {
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     // { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
-    { key: 'Settings', text: '設定', icon: <SettingsIcon /> }
+    { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
+    { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
   ]
 
   // AppBar title 根據 page
@@ -160,7 +163,8 @@ function App(): React.JSX.Element {
     Analyzer: '分析器',
     MatchList: '對局列表',
     MatchAnalytics: '統計圖表',
-    Settings: '設定'
+    Settings: '設定',
+    About: '關於與授權'
   }
 
   const handleDrawerToggle = (): void => {
@@ -332,6 +336,7 @@ function App(): React.JSX.Element {
           {/* {currentPage === 'MatchAnalytics' && <MatchAnalytics />} */}
           {/* {currentPage === 'Settings' && <ChartBuilder />} */}
           {currentPage === 'Settings' && <Settings />}
+          {currentPage === 'About' && <About />}
         </Suspense>
 
         {/* Footer */}

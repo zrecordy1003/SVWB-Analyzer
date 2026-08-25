@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { ipcMain, BrowserWindow } from 'electron'
+import { BrowserWindow, ipcMain } from 'electron'
 import { ClassName, GameMode, Match, Prisma, Tag } from '@prisma/client'
 import { getPrisma } from '../db/prismaClient.js'
 import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
@@ -612,7 +612,7 @@ export function registerMatchesIpc(): void {
     if (!prev) throw new Error('Match not found')
 
     // 2) 準備 updateMany 可用的資料（只能放標量欄位、不能放 nested relation）
-    const dataMany: Prisma.MatchUpdateManyMutationInput = {}
+    const dataMany: Prisma.MatchUncheckedUpdateManyInput = {}
 
     if (typeof result !== 'undefined') dataMany.result = result
     if (typeof play_order !== 'undefined') dataMany.play_order = play_order
@@ -697,7 +697,7 @@ export function registerMatchesIpc(): void {
   })
 }
 
-export function broadcastNewMatch(win?: BrowserWindow, match?: any): void {
+export function broadcastNewMatch(match?: any): void {
   // 對 HUD 與主視窗都可以發
   BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('matches:new', match))
 }

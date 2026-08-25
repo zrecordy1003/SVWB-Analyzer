@@ -72,111 +72,80 @@ export async function addMatch(
   })
 }
 
-export async function clearMyDeck(): Promise<Match> {
+export async function clearMyDeck(matchId: number): Promise<Match> {
   const prisma = getPrisma()
-  const latest = await prisma.match.findFirst({
-    orderBy: { playedAt: 'desc' }
-  })
-  if (!latest) throw new Error('No match to update result.')
-
   return prisma.match.update({
-    where: { id: latest.id },
+    where: { id: matchId },
     data: { my_deckId: null }
   })
 }
 
-export async function modifyMatchResult(result: boolean): Promise<Match> {
+export async function modifyMatchResult(matchId: number, result: boolean): Promise<Match> {
   const prisma = getPrisma()
-  const latest = await prisma.match.findFirst({
-    orderBy: { playedAt: 'desc' }
-  })
-  if (!latest) throw new Error('No match to update result.')
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } })
 
   const now = new Date()
-  const durationSecs = Math.floor((now.getTime() - latest.playedAt.getTime()) / 1000)
+  const durationSecs = Math.floor((now.getTime() - match.playedAt.getTime()) / 1000)
 
   return prisma.match.update({
-    where: { id: latest.id },
+    where: { id: matchId },
     data: { result, endedAt: now, durationTime: durationSecs }
   })
 }
 
-export async function modifyMatchMode(mode: GameMode | null): Promise<Match> {
+export async function modifyMatchMode(matchId: number, mode: GameMode | null): Promise<Match> {
   const prisma = getPrisma()
-  const latest = await prisma.match.findFirst({
-    orderBy: { playedAt: 'desc' }
-  })
-  if (!latest) throw new Error('No match to update mode.')
-
-  if (latest.endedAt === null) {
-    const now = new Date()
-    const durationSecs = Math.floor((now.getTime() - latest.playedAt.getTime()) / 1000)
-    return prisma.match.update({
-      where: { id: latest.id },
-      data: { mode, endedAt: now, durationTime: durationSecs }
-    })
-  }
-  return prisma.match.update({ where: { id: latest.id }, data: { mode } })
+  return prisma.match.update({ where: { id: matchId }, data: { mode } })
 }
 
-export async function modifyMatchBP(bp: number | null): Promise<Match> {
+export async function modifyMatchBP(matchId: number, bp: number | null): Promise<Match> {
   const prisma = getPrisma()
-  const latest = await prisma.match.findFirst({
-    orderBy: { playedAt: 'desc' }
-  })
-  if (!latest) throw new Error('No match to update BP.')
-
   return prisma.match.update({
-    where: { id: latest.id },
+    where: { id: matchId },
     data: { bp }
   })
 }
 
-export async function modifyMatchDeltaCR(delta_cr: number | null): Promise<Match> {
+export async function modifyMatchDeltaCR(matchId: number, delta_cr: number | null): Promise<Match> {
   const prisma = getPrisma()
-  const latest = await prisma.match.findFirst({
-    orderBy: { playedAt: 'desc' }
-  })
-  if (!latest) throw new Error('No match to update delta_cr.')
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } })
 
-  if (latest.current_cr && delta_cr) {
+  if (match.current_cr !== null && delta_cr !== null) {
     return prisma.match.update({
-      where: { id: latest.id },
+      where: { id: matchId },
       data: {
         delta_cr,
         current_cr:
-          delta_cr > 0 ? latest.current_cr - delta_cr : latest.current_cr + Math.abs(delta_cr)
+          delta_cr > 0 ? match.current_cr - delta_cr : match.current_cr + Math.abs(delta_cr)
       }
     })
   }
 
   return prisma.match.update({
-    where: { id: latest.id },
+    where: { id: matchId },
     data: { delta_cr }
   })
 }
 
-export async function modifyMatchCurrentCR(current_cr: number | null): Promise<Match> {
+export async function modifyMatchCurrentCR(
+  matchId: number,
+  current_cr: number | null
+): Promise<Match> {
   const prisma = getPrisma()
-  const latest = await prisma.match.findFirst({
-    orderBy: { playedAt: 'desc' }
-  })
-  if (!latest) throw new Error('No match to update current_cr.')
+  const match = await prisma.match.findUniqueOrThrow({ where: { id: matchId } })
 
-  if (latest.delta_cr && current_cr) {
+  if (match.delta_cr !== null && current_cr !== null) {
     return prisma.match.update({
-      where: { id: latest.id },
+      where: { id: matchId },
       data: {
         current_cr:
-          latest.delta_cr > 0
-            ? current_cr - latest.delta_cr
-            : current_cr + Math.abs(latest.delta_cr)
+          match.delta_cr > 0 ? current_cr - match.delta_cr : current_cr + Math.abs(match.delta_cr)
       }
     })
   }
 
   return prisma.match.update({
-    where: { id: latest.id },
+    where: { id: matchId },
     data: { current_cr }
   })
 }

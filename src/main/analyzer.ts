@@ -1,9 +1,9 @@
 import { app, BrowserWindow, MessageChannelMain, Notification, utilityProcess } from 'electron'
 import forkPath from './forkedImageAnalyzer?modulePath'
-import path from 'path'
 import { ClassName, PlayOrder } from '@prisma/client'
 import { broadcast } from './utils/broadcast.js'
 import Store from 'electron-store'
+import { getCaptureImagePath } from './manageCaptureTool.js'
 
 export interface BattleStatus {
   inBattle: boolean
@@ -24,7 +24,6 @@ let isStarting = false
 
 const store = new Store()
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function startAnalyzer(_mainWindow: BrowserWindow): void {
   console.log('[Main] analyze-image triggered')
 
@@ -39,10 +38,7 @@ export function startAnalyzer(_mainWindow: BrowserWindow): void {
   }
   isStarting = true
 
-  const imagePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-    : // : path.join(__dirname, '../../resources', 'test.png')
-      path.join(__dirname, '../../tools', 'svwb.png')
+  const imagePath = getCaptureImagePath()
 
   const { port1, port2 } = new MessageChannelMain()
 

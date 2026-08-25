@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor, screen } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -8,7 +8,12 @@ import Store from 'electron-store'
 
 // 輕依賴先載（重依賴延遲到用到才 import）
 import { isShadowverseRunning } from './svwbDetector.js'
-import { spawnCapture, stopCapture } from './manageCaptureTool.js'
+import {
+  getCaptureImagePath,
+  getCaptureTemporaryPath,
+  spawnCapture,
+  stopCapture
+} from './manageCaptureTool.js'
 
 // DB 與更新延後：只載入 helper，初始化放到事件之後
 import { initDatabase } from './db/initDb.js'
@@ -21,17 +26,17 @@ import { createAppTray } from './tray.js'
 import { attachSmartClose } from './smartClose.js'
 import { openExitConfirmDialog } from './exitConfirmDialog.js'
 
-// OpenCV env
+// OpenCV is compiled during development with the local SDK. Packaged builds only
+// ship the release runtime DLLs; headers and .lib files are not runtime assets.
 process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
-process.env.OPENCV_INCLUDE_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'opencv', 'include')
-  : path.join(__dirname, '../../resources/opencv/include')
-process.env.OPENCV_LIB_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'opencv', 'lib')
-  : path.join(__dirname, '../../resources/opencv/lib')
 process.env.OPENCV_BIN_DIR = app.isPackaged
   ? path.join(process.resourcesPath, 'opencv', 'bin')
   : path.join(__dirname, '../../resources/opencv/bin')
+
+if (!app.isPackaged) {
+  process.env.OPENCV_INCLUDE_DIR = path.join(__dirname, '../../resources/opencv/include')
+  process.env.OPENCV_LIB_DIR = path.join(__dirname, '../../resources/opencv/lib')
+}
 
 const store = new Store({
   defaults: {
@@ -94,13 +99,8 @@ async function ensureAnalyzer(): Promise<void> {
 
 // --- 清理擷取圖片 ---
 function clearCaptureImage(): void {
-  const imagePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-    : path.join(__dirname, '../../tools', 'svwb.png')
-
-  const tmpImagePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb.png.tmp.png')
-    : path.join(__dirname, '../../tools', 'svwb.png.tmp.png')
+  const imagePath = getCaptureImagePath()
+  const tmpImagePath = getCaptureTemporaryPath()
 
   if (fs.existsSync(imagePath)) {
     fs.unlinkSync(imagePath)
@@ -284,7 +284,6 @@ async function isSystemIdle(thresholdSec: number): Promise<boolean> {
 function startPollingForGame(): void {
   let isCapturing = false
   let isAnalyzerRunning = false
-  let isFirstStart = true
   let isSentMinimizedInfo = false
   let isSentIdleInfo = false
 
@@ -328,15 +327,34 @@ function startPollingForGame(): void {
       // ─────────────────────────────────────────────────
       // 擷取（Capture）：維持原本行為（最小化/隱藏就停，恢復就啟）
       // ─────────────────────────────────────────────────
-      const shouldCapture = isGameRunning && !treatAsPaused
+      const hwnd = svwbStatus.hwnd
+      const shouldCapture = isGameRunning && !treatAsPaused && hwnd !== null
 
       if (shouldCapture) {
         win.webContents.send('battle:recog', true)
         if (!isCapturing) {
-          spawnCapture(isFirstStart)
+          await spawnCapture({
+            hwnd,
+            outputPath: getCaptureImagePath(),
+            intervalMs: 500,
+            onEvent: (event) => {
+              if (event.event === 'frame_error' || event.event === 'error') {
+                console.warn('[Capture]', event.message)
+              }
+              if (
+                event.event === 'window_closed' ||
+                event.event === 'error' ||
+                event.event === 'exited'
+              ) {
+                isCapturing = false
+                if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+                  win.webContents.send('capture:status', false)
+                }
+              }
+            }
+          })
           isCapturing = true
           win.webContents.send('capture:status', true)
-          if (isFirstStart) isFirstStart = false
         }
       } else {
         win.webContents.send('battle:recog', false)
@@ -473,9 +491,9 @@ app.whenReady().then(async () => {
   // settings（不需要 DB）
   ipcMain.handle('settings:get', (_event, key: string) => store.get(key))
   ipcMain.handle('settings:set', (_event, key: string, value: any) => store.set(key, value))
-  ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key))
+  ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key as never))
   ipcMain.handle('settings:clear', () => store.clear())
-  ipcMain.handle('settings:has', (_event, key: string) => store.has(key))
+  ipcMain.handle('settings:has', (_event, key: string) => store.has(key as never))
   ipcMain.handle('settings:getAll', () => store.store)
 
   // 停止 capture
