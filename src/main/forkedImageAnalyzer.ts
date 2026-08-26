@@ -23,15 +23,65 @@ type scoreAndName = {
 const BASE_WIDTH = 1280
 const BASE_HEIGHT = 720
 
+const GAME_ASPECT_RATIO = BASE_WIDTH / BASE_HEIGHT
+
 /**
- * The capture tool can produce different resolutions depending on the player's
- * display and game settings. All template ROIs are authored for 1280×720, so
- * normalize every frame before matching or OCR.
+ * Windowed captures include a dark Windows title bar, whereas fullscreen
+ * captures do not. Inspect the centre of the first rows so app icons and
+ * window controls cannot affect the decision.
+ */
+function detectTitleBarHeight(gray: Mat): number {
+  if (Math.abs(gray.cols / gray.rows - GAME_ASPECT_RATIO) < 0.01) return 0
+
+  const maxRows = Math.min(64, Math.floor(gray.rows / 8))
+  const data = gray.getData()
+  const startX = Math.floor(gray.cols * 0.25)
+  const endX = Math.ceil(gray.cols * 0.75)
+  const step = Math.max(1, Math.floor((endX - startX) / 160))
+
+  for (let y = 0; y < maxRows; y++) {
+    let sum = 0
+    let sumSquares = 0
+    let count = 0
+    for (let x = startX; x < endX; x += step) {
+      const value = data[y * gray.cols + x]
+      sum += value
+      sumSquares += value * value
+      count++
+    }
+    const mean = sum / count
+    const variance = Math.max(0, sumSquares / count - mean * mean)
+    if (mean >= 80 || Math.sqrt(variance) >= 8) return y
+  }
+
+  return 0
+}
+
+/**
+ * Extract the game viewport before scaling. This preserves template geometry
+ * for 1280 windowed, 1920 windowed, and fullscreen captures instead of
+ * stretching title bars or wider window layouts into the 1280×720 canvas.
  */
 function normalizeGray(mat: Mat): Mat {
-  return mat.cols === BASE_WIDTH && mat.rows === BASE_HEIGHT
-    ? mat
-    : mat.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
+  const titleBarHeight = detectTitleBarHeight(mat)
+  const content = titleBarHeight
+    ? mat.getRegion(new cv.Rect(0, titleBarHeight, mat.cols, mat.rows - titleBarHeight))
+    : mat
+
+  const contentAspect = content.cols / content.rows
+  let viewport = content
+  if (contentAspect > GAME_ASPECT_RATIO) {
+    const width = Math.floor(content.rows * GAME_ASPECT_RATIO)
+    const x = Math.floor((content.cols - width) / 2)
+    viewport = content.getRegion(new cv.Rect(x, 0, width, content.rows))
+  } else if (contentAspect < GAME_ASPECT_RATIO) {
+    const height = Math.floor(content.cols / GAME_ASPECT_RATIO)
+    viewport = content.getRegion(new cv.Rect(0, 0, content.cols, height))
+  }
+
+  return viewport.cols === BASE_WIDTH && viewport.rows === BASE_HEIGHT
+    ? viewport
+    : viewport.resize(BASE_HEIGHT, BASE_WIDTH, 0, 0, cv.INTER_LINEAR)
 }
 
 function loadNormalizedGray(imgPath: string): Mat | undefined {
@@ -507,6 +557,7 @@ let isModifyCurrentCR = false
 let isModifyDeltaCR = false
 let isModifyBP = false
 let isResultMidDetect = false
+let cpuDetectionHits = 0
 
 let shouldModifyMode = false
 
@@ -518,6 +569,7 @@ const THRESHOLD = {
   emblem: 0.7,
   playOrder: 0.6,
   ranked: 0.7,
+  cpu: 0.58,
   result: 0.7
 }
 
@@ -535,6 +587,10 @@ let cpuDetect: scoreAndName
 let plazaDetect: scoreAndName
 let ownCustomDetect: scoreAndName
 let enemyCustomDetect: scoreAndName
+
+function bestMatch(...matches: scoreAndName[]): scoreAndName {
+  return matches.reduce((best, current) => (current.score > best.score ? current : best))
+}
 
 // 主分析函式：一次分析完成後會自動 scheduleNext()
 async function analyzeOnce(port: MessagePortMain): Promise<void> {
@@ -593,6 +649,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isModifyDeltaCR = false
       isModifyBP = false
       shouldModifyMode = false
+      cpuDetectionHits = 0
       mode = null
       // customBattleActive = false
       // normalBattleActive = false
@@ -701,10 +758,17 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
     if (shouldModifyMode) {
       // 練習模式：模板配對
-      cpuDetect = matchTemplate(topRightArea, tmpls.modesCPU)
+      // The CPU deck label can shift between windowed and fullscreen layouts.
+      // Prefer the focused top-right search but fall back to the complete frame.
+      cpuDetect = bestMatch(
+        matchTemplate(topRightArea, tmpls.modesCPU),
+        matchTemplate(gray, tmpls.modesCPU)
+      )
 
-      // 練習模式判斷：模式修改
-      if (cpuDetect.score > 0.7 && activeMatchId !== null) {
+      // Require two consecutive frames: this keeps the lower, cross-resolution
+      // threshold resilient without allowing a one-frame false positive.
+      cpuDetectionHits = cpuDetect.score >= THRESHOLD.cpu ? cpuDetectionHits + 1 : 0
+      if (cpuDetectionHits >= 2 && activeMatchId !== null) {
         shouldModifyMode = false
         mode = 'cpu'
         await modifyMatchMode(activeMatchId, mode)
@@ -718,6 +782,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       // 廣場賽模式判斷：模式修改
       if (plazaDetect.score > 0.7 && activeMatchId !== null) {
         shouldModifyMode = false
+        cpuDetectionHits = 0
         mode = 'weekendPlaza'
         await modifyMatchMode(activeMatchId, mode)
         port.postMessage({ type: 'modifyMode' })
@@ -734,6 +799,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       const rs = pickBestResult([ownCustomDetect, enemyCustomDetect], 0.7)
       if (rs && activeMatchId !== null) {
         shouldModifyMode = false
+        cpuDetectionHits = 0
         mode = 'custom'
         await modifyMatchMode(activeMatchId, mode)
         port.postMessage({ type: 'modifyMode' })
@@ -819,6 +885,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isModifyCurrentCR = false
       isModifyDeltaCR = false
       shouldModifyMode = true
+      cpuDetectionHits = 0
       isResultMidDetect = false
       mode = null
       console.log('activeMatchId', activeMatchId)
