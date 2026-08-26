@@ -199,7 +199,6 @@ mod native_capture {
                     PCWSTR(to.as_ptr()),
                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
                 )
-                .ok()
             } {
                 Ok(()) => return Ok(()),
                 Err(error) => {
