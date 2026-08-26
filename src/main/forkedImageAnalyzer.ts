@@ -558,12 +558,18 @@ let isModifyDeltaCR = false
 let isModifyBP = false
 let isResultMidDetect = false
 let cpuDetectionHits = 0
+let pendingResult: boolean | null = null
+let resultModeDeadline = 0
 
 let shouldModifyMode = false
 
 let historyCooldownUntil = 0
 
 const INTERVAL = 500
+// The first result overlay is shown before the final result screen, where a
+// practice match exposes its CPU deck label. Keep the record open briefly so
+// that label can decide the mode instead of defaulting it to unranked early.
+const RESULT_MODE_GRACE_MS = 8_000
 const THRESHOLD = {
   class: 0.7,
   emblem: 0.7,
@@ -650,6 +656,8 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isModifyBP = false
       shouldModifyMode = false
       cpuDetectionHits = 0
+      pendingResult = null
+      resultModeDeadline = 0
       mode = null
       // customBattleActive = false
       // normalBattleActive = false
@@ -856,7 +864,7 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
     // 戰鬥開始：首次紀錄 DB
     // if ((inBattle && !isMatchRecord) || (shouldRecordNewMatch && inBattle)) {
-    if (inBattle && !isMatchRecord) {
+    if (inBattle && !isMatchRecord && !isResultMidDetect) {
       console.log('----- In Battle! -----')
       console.log('ownClass', ownClass)
       console.log('ownEmblem', ownEmblem)
@@ -887,6 +895,8 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       shouldModifyMode = true
       cpuDetectionHits = 0
       isResultMidDetect = false
+      pendingResult = null
+      resultModeDeadline = 0
       mode = null
       console.log('activeMatchId', activeMatchId)
 
@@ -909,7 +919,11 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isResultMidDetect = true
 
       const result = resultMidDetect.name === 'win'
-      await recordMatchResult(port, activeMatchId, result)
+      pendingResult = result
+      resultModeDeadline = now + RESULT_MODE_GRACE_MS
+      // This overlay arrives before the CPU label on the final result screen.
+      // Persist the outcome now, but leave the mode unresolved until then.
+      await modifyMatchResult(activeMatchId, result)
     }
 
     const resultDetect = matchTemplate(gray, tmpls.result)
@@ -926,7 +940,42 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
 
       const matchId = activeMatchId
       const result = resultDetect.name === 'win'
-      await recordMatchResult(port, matchId, result)
+      // CPU牌組 is displayed on this screen in practice matches. A direct
+      // final-screen match is safe to accept without waiting for two frames.
+      if (mode === null) {
+        const finalCpuDetect = bestMatch(
+          matchTemplate(rightArea, tmpls.modesCPU),
+          matchTemplate(gray, tmpls.modesCPU)
+        )
+        if (finalCpuDetect.score >= THRESHOLD.cpu) {
+          mode = 'cpu'
+          shouldModifyMode = false
+          cpuDetectionHits = 0
+          await modifyMatchMode(matchId, mode)
+          port.postMessage({ type: 'modifyMode' })
+          console.log('[Analyzer] CPU detected on final result screen', finalCpuDetect)
+        }
+      }
+
+      await finalizeMatchResult(port, matchId, result)
+      activeMatchId = null
+    }
+
+    // Do not leave a match open forever if the game skips the final result
+    // screen (for example after an interrupted capture). CPU matching keeps
+    // running throughout this grace period; only then is unranked the fallback.
+    if (
+      activeMatchId !== null &&
+      isResultMidDetect &&
+      pendingResult !== null &&
+      now >= resultModeDeadline
+    ) {
+      const matchId = activeMatchId
+      const result = pendingResult
+      console.warn('[Analyzer] Final result screen not seen; resolving mode by timeout')
+      isResultMidDetect = false
+      pendingResult = null
+      await finalizeMatchResult(port, matchId, result)
       activeMatchId = null
     }
   } catch (err: unknown) {
@@ -941,7 +990,7 @@ function scheduleNext(port: MessagePortMain): void {
   timer = setTimeout(() => analyzeOnce(port), INTERVAL)
 }
 
-async function recordMatchResult(
+async function finalizeMatchResult(
   port: MessagePortMain,
   matchId: number,
   result: boolean
