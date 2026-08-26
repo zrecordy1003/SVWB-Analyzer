@@ -185,15 +185,33 @@ mod native_capture {
     fn replace_file_atomically(from: &Path, to: &Path) -> Result<(), CaptureError> {
         let from = wide_path(from);
         let to = wide_path(to);
-        unsafe {
-            MoveFileExW(
-                PCWSTR(from.as_ptr()),
-                PCWSTR(to.as_ptr()),
-                MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-            )
-            .ok()?;
+        let retry_delays = [
+            Duration::from_millis(10),
+            Duration::from_millis(25),
+            Duration::from_millis(50),
+        ];
+        let mut last_error = None;
+
+        for delay in retry_delays.into_iter().chain(std::iter::once(Duration::ZERO)) {
+            match unsafe {
+                MoveFileExW(
+                    PCWSTR(from.as_ptr()),
+                    PCWSTR(to.as_ptr()),
+                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+                )
+                .ok()
+            } {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    last_error = Some(error);
+                    if !delay.is_zero() {
+                        std::thread::sleep(delay);
+                    }
+                }
+            }
         }
-        Ok(())
+
+        Err(last_error.expect("MoveFileExW returned no result").into())
     }
 
     fn wide_path(path: &Path) -> Vec<u16> {

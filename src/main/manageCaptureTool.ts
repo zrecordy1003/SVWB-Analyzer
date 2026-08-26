@@ -1,8 +1,8 @@
 import { app } from 'electron'
-import { ChildProcess, exec, spawn } from 'node:child_process'
+import { ChildProcess, spawn } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 import treeKill from 'tree-kill'
-import { promisify } from 'node:util'
 
 export type CaptureEventName =
   | 'started'
@@ -29,8 +29,8 @@ export interface CaptureOptions {
 }
 
 let captureProcess: ChildProcess | null = null
-
-const execAsync = promisify(exec)
+let startPromise: Promise<void> | null = null
+let stopPromise: Promise<void> | null = null
 
 function getExePath(): string {
   return app.isPackaged
@@ -38,10 +38,15 @@ function getExePath(): string {
     : path.join(__dirname, '../../tools', 'svwb-capture-tool.exe')
 }
 
+function getCaptureDir(): string {
+  const dir = path.join(app.getPath('userData'), 'capture')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+/** Dynamic capture output must never be written into the packaged resources directory. */
 export function getCaptureImagePath(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb.png')
-    : path.join(__dirname, '../../tools', 'svwb.png')
+  return path.join(getCaptureDir(), 'svwb.png')
 }
 
 export function getCaptureTemporaryPath(): string {
@@ -52,32 +57,14 @@ export function isCaptureRunning(): boolean {
   return captureProcess !== null && captureProcess.exitCode === null
 }
 
-/** Kill stale capture helpers left behind by an earlier application process. */
-async function killStaleCaptureProcesses(): Promise<void> {
-  try {
-    const { stdout } = await execAsync(
-      'tasklist /FI "IMAGENAME eq svwb-capture-tool.exe" /FO CSV /NH'
-    )
-    const hasStaleProcess = stdout
-      .trim()
-      .split(/\r?\n/)
-      .some((line) => line.toLowerCase().startsWith('"svwb-capture-tool.exe"'))
-
-    if (hasStaleProcess) {
-      await execAsync('taskkill /F /T /IM svwb-capture-tool.exe')
-    }
-  } catch (error) {
-    // tasklist returns localized informational output when no matching process exists.
-    console.warn('[Capture] unable to check stale capture helpers:', error)
-  }
-}
-
 function killCapture(): Promise<void> {
+  const child = captureProcess
+  if (!child?.pid) return Promise.resolve()
+
   return new Promise((resolve, reject) => {
-    if (!captureProcess?.pid) return resolve()
-    treeKill(captureProcess.pid, 'SIGTERM', (error) => {
+    treeKill(child.pid!, 'SIGTERM', (error) => {
+      if (captureProcess === child) captureProcess = null
       if (error) return reject(error)
-      captureProcess = null
       resolve()
     })
   })
@@ -97,8 +84,7 @@ function readCaptureEvents(
     for (const line of lines) {
       if (!line.trim()) continue
       try {
-        const event = JSON.parse(line) as CaptureEvent
-        onEvent?.(event)
+        onEvent?.(JSON.parse(line) as CaptureEvent)
       } catch {
         console.log('[Capture]', line)
       }
@@ -106,17 +92,10 @@ function readCaptureEvents(
   })
 }
 
-/**
- * Start the Windows-native capture helper. The helper receives a process-verified
- * HWND, which avoids fragile lookup by a localized window title.
- */
-export async function spawnCapture(options: CaptureOptions): Promise<void> {
+function startCapture(options: CaptureOptions): Promise<void> {
   if (!Number.isSafeInteger(options.hwnd) || options.hwnd <= 0) {
-    throw new Error(`Invalid capture HWND: ${options.hwnd}`)
+    return Promise.reject(new Error(`Invalid capture HWND: ${options.hwnd}`))
   }
-
-  if (isCaptureRunning()) await killCapture()
-  await killStaleCaptureProcesses()
 
   const exePath = getExePath()
   const outputPath = options.outputPath ?? getCaptureImagePath()
@@ -144,26 +123,66 @@ export async function spawnCapture(options: CaptureOptions): Promise<void> {
     child.stderr.on('data', (chunk: string) => console.warn('[Capture]', chunk.trim()))
   }
 
-  child.once('error', (error) => {
-    if (captureProcess === child) captureProcess = null
-    options.onEvent?.({ event: 'error', message: error.message, output: outputPath })
-  })
-  child.once('exit', (code, signal) => {
-    if (captureProcess === child) captureProcess = null
-    options.onEvent?.({
-      event: 'exited',
-      message: 'capture helper exited',
-      output: outputPath,
-      code,
-      signal
+  return new Promise((resolve, reject) => {
+    child.once('spawn', resolve)
+    child.once('error', (error) => {
+      if (captureProcess === child) captureProcess = null
+      options.onEvent?.({ event: 'error', message: error.message, output: outputPath })
+      reject(error)
+    })
+    child.once('exit', (code, signal) => {
+      if (captureProcess === child) captureProcess = null
+      options.onEvent?.({
+        event: 'exited',
+        message: 'capture helper exited',
+        output: outputPath,
+        code,
+        signal
+      })
     })
   })
 }
 
+/**
+ * Starts at most one helper. Concurrent callers share the same pending start,
+ * so polling, lifecycle, and IPC events cannot create competing writers.
+ */
+export function spawnCapture(options: CaptureOptions): Promise<void> {
+  if (isCaptureRunning()) return Promise.resolve()
+  if (startPromise) return startPromise
+
+  const pending = startCapture(options)
+  startPromise = pending
+  void pending.then(
+    () => {
+      if (startPromise === pending) startPromise = null
+    },
+    () => {
+      if (startPromise === pending) startPromise = null
+    }
+  )
+  return pending
+}
+
+/** Stops only the helper owned by this application process. */
 export async function stopCapture(): Promise<void> {
-  try {
+  if (stopPromise) return stopPromise
+
+  const pending = (async () => {
+    try {
+      await startPromise
+    } catch {
+      // A failed start has already released ownership.
+    }
     await killCapture()
+  })()
+  stopPromise = pending
+
+  try {
+    await pending
   } catch (error) {
     console.error('[Capture] failed to stop helper:', error)
+  } finally {
+    if (stopPromise === pending) stopPromise = null
   }
 }

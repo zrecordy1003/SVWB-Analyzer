@@ -63,6 +63,8 @@ let tray: Electron.Tray | null = null
 let mainWindow: BrowserWindow | null = null
 let hudWindow: BrowserWindow | null = null
 let splash: BrowserWindow | null = null
+let pollingTimer: NodeJS.Timeout | null = null
+let pollingInFlight = false
 
 // let isDirty = false
 // let rememberNoAsk = false
@@ -282,6 +284,8 @@ async function isSystemIdle(thresholdSec: number): Promise<boolean> {
 
 // --- 遊戲狀態輪詢 ---
 function startPollingForGame(): void {
+  if (pollingTimer) return
+
   let isCapturing = false
   let isAnalyzerRunning = false
   let isSentMinimizedInfo = false
@@ -292,7 +296,9 @@ function startPollingForGame(): void {
   // 上次「遊戲在跑且可擷取（未最小化、具有 bounds）」的時間
   let lastUnpausedAt: number | null = null
 
-  const timer = setInterval(async () => {
+  const poll = async (): Promise<void> => {
+    if (pollingInFlight) return
+    pollingInFlight = true
     try {
       const svwbStatus = await isShadowverseRunning()
       const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
@@ -333,33 +339,39 @@ function startPollingForGame(): void {
       if (shouldCapture) {
         win.webContents.send('battle:recog', true)
         if (!isCapturing) {
-          await spawnCapture({
-            hwnd,
-            outputPath: getCaptureImagePath(),
-            intervalMs: 500,
-            onEvent: (event) => {
-              if (event.event === 'frame_error' || event.event === 'error') {
-                console.warn('[Capture]', event.message)
-              }
-              if (
-                event.event === 'window_closed' ||
-                event.event === 'error' ||
-                event.event === 'exited'
-              ) {
-                isCapturing = false
-                if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-                  win.webContents.send('capture:status', false)
-                }
-              }
-            }
-          })
           isCapturing = true
           win.webContents.send('capture:status', true)
+          try {
+            await spawnCapture({
+              hwnd,
+              outputPath: getCaptureImagePath(),
+              intervalMs: 500,
+              onEvent: (event) => {
+                if (event.event === 'frame_error' || event.event === 'error') {
+                  console.warn('[Capture]', event.message)
+                }
+                if (
+                  event.event === 'window_closed' ||
+                  event.event === 'error' ||
+                  event.event === 'exited'
+                ) {
+                  isCapturing = false
+                  if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+                    win.webContents.send('capture:status', false)
+                  }
+                }
+              }
+            })
+          } catch (error) {
+            isCapturing = false
+            win.webContents.send('capture:status', false)
+            throw error
+          }
         }
       } else {
         win.webContents.send('battle:recog', false)
         if (isCapturing) {
-          stopCapture()
+          await stopCapture()
           isCapturing = false
           win.webContents.send('capture:status', false)
         }
@@ -421,26 +433,34 @@ function startPollingForGame(): void {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
       console.error('Polling error:', msg)
+    } finally {
+      pollingInFlight = false
     }
-  }, 1000)
+  }
+
+  void poll()
+  pollingTimer = setInterval(() => void poll(), 1000)
 
   // 系統事件：睡眠/鎖定 → 只停擷取，不立即停分析（交給 30 分鐘門檻）
   powerMonitor.on('suspend', async () => {
     try {
-      stopCapture()
+      await stopCapture()
     } catch (e) {
       console.log(e)
     }
   })
   powerMonitor.on('lock-screen', async () => {
     try {
-      stopCapture()
+      await stopCapture()
     } catch (e) {
       console.log(e)
     }
   })
 
-  app.on('quit', () => clearInterval(timer))
+  app.once('quit', () => {
+    if (pollingTimer) clearInterval(pollingTimer)
+    pollingTimer = null
+  })
 }
 
 // --- App lifecycle ---
