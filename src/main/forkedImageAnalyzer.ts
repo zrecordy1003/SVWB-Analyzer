@@ -560,6 +560,8 @@ let isResultMidDetect = false
 let cpuDetectionHits = 0
 let pendingResult: boolean | null = null
 let resultModeDeadline = 0
+let preBattleMode: GameMode | null = null
+let preBattleModeExpiresAt = 0
 
 let shouldModifyMode = false
 
@@ -569,7 +571,8 @@ const INTERVAL = 500
 // The first result overlay is shown before the final result screen, where a
 // practice match exposes its CPU deck label. Keep the record open briefly so
 // that label can decide the mode instead of defaulting it to unranked early.
-const RESULT_MODE_GRACE_MS = 8_000
+const RESULT_MODE_GRACE_MS = 15_000
+const PRE_BATTLE_MODE_TTL_MS = 30_000
 const THRESHOLD = {
   class: 0.7,
   emblem: 0.7,
@@ -634,6 +637,9 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
     const leftArea = gray.getRegion(new cv.Rect(0, 0, halfW, rows))
     const rightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, rows))
     const topRightArea = gray.getRegion(new cv.Rect(halfW, 0, cols - halfW, halfH))
+    const topRightBannerArea = gray.getRegion(
+      new cv.Rect(halfW, 0, cols - halfW, Math.min(180, halfH))
+    )
 
     const rankDetectArea = gray.getRegion(new cv.Rect(780, 205, 150, 60))
     const twoPickDetectArea = gray.getRegion(new cv.Rect(780, 295, 180, 50))
@@ -658,6 +664,8 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       cpuDetectionHits = 0
       pendingResult = null
       resultModeDeadline = 0
+      preBattleMode = null
+      preBattleModeExpiresAt = 0
       mode = null
       // customBattleActive = false
       // normalBattleActive = false
@@ -764,15 +772,25 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       }
     }
 
-    if (shouldModifyMode) {
-      // 練習模式：模板配對
-      // The CPU deck label can shift between windowed and fullscreen layouts.
-      // Prefer the focused top-right search but fall back to the complete frame.
-      cpuDetect = bestMatch(
-        matchTemplate(topRightArea, tmpls.modesCPU),
-        matchTemplate(gray, tmpls.modesCPU)
-      )
+    // 練習模式：模板配對
+    // The CPU deck label is visible during deck selection, before the battle
+    // record exists, and can shift between windowed and fullscreen layouts.
+    // Keep a short-lived pre-battle result for the next detected match.
+    cpuDetect = bestMatch(
+      matchTemplate(topRightArea, tmpls.modesCPU),
+      matchTemplate(gray, tmpls.modesCPU)
+    )
+    const preBattleCpuDetect = matchTemplate(topRightBannerArea, tmpls.modesCPU)
+    if (activeMatchId === null && !isMatchRecord && !isResultMidDetect) {
+      cpuDetectionHits = preBattleCpuDetect.score >= THRESHOLD.cpu ? cpuDetectionHits + 1 : 0
+      if (cpuDetectionHits >= 2) {
+        preBattleMode = 'cpu'
+        preBattleModeExpiresAt = now + PRE_BATTLE_MODE_TTL_MS
+        console.log('[Analyzer] CPU detected before battle', preBattleCpuDetect)
+      }
+    }
 
+    if (shouldModifyMode) {
       // Require two consecutive frames: this keeps the lower, cross-resolution
       // threshold resilient without allowing a one-frame false positive.
       cpuDetectionHits = cpuDetect.score >= THRESHOLD.cpu ? cpuDetectionHits + 1 : 0
@@ -892,13 +910,23 @@ async function analyzeOnce(port: MessagePortMain): Promise<void> {
       isModifyBP = false
       isModifyCurrentCR = false
       isModifyDeltaCR = false
-      shouldModifyMode = true
+      const detectedPreBattleMode =
+        preBattleMode !== null && now < preBattleModeExpiresAt ? preBattleMode : null
+      shouldModifyMode = detectedPreBattleMode === null
       cpuDetectionHits = 0
       isResultMidDetect = false
       pendingResult = null
       resultModeDeadline = 0
-      mode = null
+      preBattleMode = null
+      preBattleModeExpiresAt = 0
+      mode = detectedPreBattleMode
       console.log('activeMatchId', activeMatchId)
+
+      if (mode !== null) {
+        await modifyMatchMode(activeMatchId, mode)
+        port.postMessage({ type: 'modifyMode' })
+        console.log('[Analyzer] Applied pre-battle mode', mode)
+      }
 
       // 通知前端「進入戰鬥」
       port.postMessage({
