@@ -367,7 +367,6 @@ game open; start/stop the analyzer repeatedly; hide/show the HUD repeatedly; upd
 - `pnpm-workspace.yaml` contains a literal placeholder: `better-sqlite3: set this to true or false`.
 - `src/main/index.ts`'s `clearCaptureImage()` and the two `getCapture*ImagePath` helpers in
   `paths.ts` delete an `svwb.png` that the pipeline no longer produces.
-- `initDb.ts`'s header still mentions setting `DATABASE_URL` for Prisma; the function does not.
 - eslint has `@typescript-eslint/no-explicit-any` off, with 47 `any` uses in `src/`.
 - 19 `console.log` calls stand in for logging, with no levels and no persistence.
 

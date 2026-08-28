@@ -4,8 +4,8 @@
  * The migration logic itself lives in `svwb-engine migrate` - one owner, handed
  * over in one change (docs/engine-refactor-plan.md, 判斷題 D-5). This module
  * kept its name and its single entry point so `index.ts` did not have to care;
- * what it now does is resolve the paths, run the engine synchronously, and set
- * `DATABASE_URL` for the Prisma client the UI still reads through.
+ * what it now does is resolve the paths and run the engine synchronously, then
+ * hand the database path to the UI's data layer.
  *
  * Synchronous on purpose: nothing may query a database that is still mid-schema,
  * and "wait for the migration" is exactly what app startup is for.

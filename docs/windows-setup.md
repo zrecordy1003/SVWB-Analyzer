@@ -39,7 +39,6 @@ cargo --version
 git lfs install
 git clone https://github.com/zrecordy1003/SVWB-Analyzer.git
 Set-Location SVWB-Analyzer
-Copy-Item .env.example .env
 pnpm install
 ```
 

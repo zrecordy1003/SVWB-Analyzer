@@ -46,14 +46,12 @@ pnpm --version
 git lfs install
 git clone https://github.com/zrecordy1003/SVWB-Analyzer.git
 cd SVWB-Analyzer
-cp .env.example .env
 ```
 
 `@u4/opencv4nodejs` 會在一般 `pnpm install` 的 postinstall 階段嘗試重建 Electron 原生模組。專案目前攜帶 Windows OpenCV 資源，且未提供經驗證的 macOS 原生 OpenCV 設定；因此 macOS 建議先略過 install scripts：
 
 ```zsh
 pnpm install --ignore-scripts
-pnpm exec prisma generate
 ```
 
 這種安裝方式足以進行 TypeScript、renderer、文件與 bundle 工作，但無法執行 OpenCV 對局分析。不要將 macOS 的 `node_modules`、原生二進位檔或 lockfile 副作用提交到 repository。
