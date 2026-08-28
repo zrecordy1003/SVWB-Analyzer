@@ -48,7 +48,7 @@ const About = (): React.JSX.Element => (
             <Typography fontWeight={700}>喜歡這個工具嗎？</Typography>
           </Stack>
           <Typography variant="body2" sx={{ mt: 1 }}>
-            你的贊助會用於維護、錯誤修正與 Windows 程式碼簽章憑證，讓每次更新更順利地送到玩家手上。
+            你的贊助會用於持續維護、錯誤修正，以及遊戲改版後的辨識範本更新。
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
             完全自願，所有功能永遠免費且不會有贊助者限定內容。
@@ -136,7 +136,10 @@ const About = (): React.JSX.Element => (
       {resourceLinks.map(([title, description, path]) => (
         <Link
           key={path}
-          href={`${REPOSITORY_URL}/blob/main/${path}`}
+          // `HEAD` rather than a branch name: these pointed at `main`, which
+          // this repository does not have, so all three were 404s. HEAD
+          // resolves to whatever the default branch is and survives a rename.
+          href={`${REPOSITORY_URL}/blob/HEAD/${path}`}
           target="_blank"
           rel="noreferrer"
           underline="none"
