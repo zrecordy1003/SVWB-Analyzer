@@ -20,7 +20,14 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # `lfs: true` is required, not cosmetic: eng.traineddata.gz is the one
+      # LFS-tracked file left, and without it the checkout gets a 132-byte
+      # pointer. tesseract.js then fails with a bare "initialization failed"
+      # inside vision:verify's OCR oracle. 2.9MB per run against the LFS
+      # bandwidth quota.
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - uses: pnpm/action-setup@v4
         with:
