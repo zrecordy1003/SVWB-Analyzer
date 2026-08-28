@@ -5,6 +5,7 @@
  * silently skipped the migration owner would be testing a different app.
  */
 import { execFileSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
@@ -23,6 +24,18 @@ const ROOT = process.cwd()
 const ENGINE = path.join(ROOT, 'tools', 'target', 'release', 'svwb-engine.exe')
 
 export function migrateWithEngine(dbPath: string, migrationsDir: string): void {
+  // The header promises this failure says how to fix itself. Without the check
+  // it is a bare spawnSync ENOENT, which is what a CI run with no Rust build
+  // step actually produced.
+  if (!existsSync(ENGINE)) {
+    throw new Error(
+      [
+        `svwb-engine is not built at ${ENGINE}`,
+        'Run: pnpm engine:build',
+        '  (cargo build --manifest-path tools/Cargo.toml -p svwb-engine --release)'
+      ].join('\n')
+    )
+  }
   execFileSync(ENGINE, ['migrate', '--db', dbPath, '--migrations', migrationsDir], {
     encoding: 'utf8',
     windowsHide: true

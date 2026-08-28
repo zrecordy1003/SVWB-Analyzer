@@ -51,6 +51,14 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # The database-backed tests bring a scratch DB up through
+      # `svwb-engine migrate` - the single owner of migrations, so the suite
+      # exercises the same path the app does (tests/helpers/db.ts). That needs
+      # the binary to exist before `pnpm test`, not just before vision:verify.
+      # rust-cache makes the rebuild below a no-op.
+      - name: Build the engine
+        run: pnpm engine:build
+
       - name: Unit and IPC tests
         run: pnpm test
 
