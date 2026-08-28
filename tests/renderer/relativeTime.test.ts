@@ -2,7 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import { formatRelativeTime } from '../../src/renderer/src/utils/relativeTime'
 
-const NOW = new Date('2026-08-26T21:00:00+08:00')
+/**
+ * Anchors are built in LOCAL time on purpose.
+ *
+ * `formatRelativeTime` switches from hours to 昨天 on a calendar-day boundary
+ * in the reader's own timezone, which is the behaviour users want. Pinning the
+ * anchors to a fixed offset instead made these assertions true only in +08:00:
+ * on a UTC runner `NOW` landed at 13:00, so "20 hours back" crossed midnight
+ * and read 昨天. Local constructors keep the intent - 21:00, whatever zone the
+ * test happens to run in - so the suite checks the same behaviour everywhere.
+ */
+const NOW = new Date(2026, 7, 26, 21, 0, 0)
 const ago = (ms: number): Date => new Date(NOW.getTime() - ms)
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -31,8 +41,8 @@ describe('formatRelativeTime', () => {
   it('keeps minutes and hours across a midnight boundary', () => {
     // A match twenty minutes old is "20 分鐘前" even though the date rolled
     // over; jumping straight to 昨天 would overstate how long ago it was.
-    const justBeforeMidnight = new Date('2026-08-25T23:50:00+08:00')
-    const justAfter = new Date('2026-08-26T00:10:00+08:00')
+    const justBeforeMidnight = new Date(2026, 7, 25, 23, 50, 0)
+    const justAfter = new Date(2026, 7, 26, 0, 10, 0)
     expect(formatRelativeTime(justBeforeMidnight, justAfter)).toBe('20 分鐘前')
   })
 
@@ -43,7 +53,7 @@ describe('formatRelativeTime', () => {
   })
 
   it('falls back to an absolute date beyond a year, where a distance stops helping', () => {
-    expect(formatRelativeTime(new Date('2025-03-14T10:00:00+08:00'), NOW)).toBe('2025/3/14')
+    expect(formatRelativeTime(new Date(2025, 2, 14, 10, 0, 0), NOW)).toBe('2025/3/14')
   })
 
   it('returns an empty string for an unusable value', () => {
