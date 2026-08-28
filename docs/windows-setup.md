@@ -84,7 +84,7 @@ pnpm run db:migrate:dev      # 僅開發用途：變更 Prisma schema 後建立 
 
 ## 5. 資料庫與資料安全
 
-一般使用者不需要設定 `DATABASE_URL`。應用程式啟動時會自行在 Electron `userData\db\app.db` 建立 SQLite 資料庫；Windows 上通常位於 `%APPDATA%\svwb-analyzer\db\app.db`。
+應用程式啟動時會自行在 Electron `userData\db\app.db` 建立 SQLite 資料庫；Windows 上通常位於 `%APPDATA%\svwb-analyzer\db\app.db`。
 
 正式程式套用的是 `resources/migrations/` 內以三位數版本號命名的 SQL migration。發現未套用 migration 時，程式會先備份現有資料庫，並保留最近五份備份。
 
