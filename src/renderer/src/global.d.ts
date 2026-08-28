@@ -111,8 +111,6 @@ declare global {
         crMin?: number
         crMax?: number
       }): Promise<RankedWinrateByOpponent>
-      onNewMatch(cb: (m: any) => void): () => void
-      onNeedRefetch(cb: () => void): () => void
     }
   }
 }

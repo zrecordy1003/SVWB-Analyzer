@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from 'electron'
+import { ipcMain } from 'electron'
 import { sql, type Expression, type ExpressionBuilder, type SqlBool } from 'kysely'
 import type { ClassName, Deck, GameMode, Match, Tag } from '../../shared/domain.js'
 import {
@@ -12,6 +12,20 @@ import {
   type MatchRow
 } from '../data/db/client.js'
 import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
+import { broadcast } from '../utils/broadcast.js'
+
+/**
+ * Tell every window the match data moved.
+ *
+ * The engine broadcasts this for its own writes (see recognition/engine.ts),
+ * but user edits went out silently: the match list patched its own card and
+ * the analyzer, deck performance table and HUD kept showing pre-edit numbers
+ * until something else made them re-query. Same channel, so every surface that
+ * already listens picks these up too.
+ */
+function notifyMatchesChanged(): void {
+  broadcast('matches:needRefetch')
+}
 
 export type QueryPayload = {
   myClassIds?: ClassName[]
@@ -519,6 +533,7 @@ export function registerMatchesIpc(): void {
       .execute()
     const [reloaded] = await loadWithRelations([matchId])
     if (!reloaded) throw new Error('Match not found')
+    notifyMatchesChanged()
     return toPivotShape(reloaded)
   }
 
@@ -578,6 +593,7 @@ export function registerMatchesIpc(): void {
 
     const [reloaded] = await loadWithRelations([matchId])
     if (!reloaded) throw new Error('Match not found')
+    notifyMatchesChanged()
     return toPivotShape(reloaded)
   })
 
@@ -678,17 +694,14 @@ export function registerMatchesIpc(): void {
     })
 
     const [reloaded] = await loadWithRelations([id])
+    notifyMatchesChanged()
     return reloaded ? toPivotShape(reloaded) : null
   })
 
   // 刪除（連動刪樞紐由外鍵級聯）
   ipcMain.handle('matches:delete', async (_e, id: number) => {
     await db.deleteFrom('Match').where('id', '=', id).execute()
+    notifyMatchesChanged()
     return true
   })
-}
-
-export function broadcastNewMatch(match?: unknown): void {
-  // 對 HUD 與主視窗都可以發
-  BrowserWindow.getAllWindows().forEach((w) => w.webContents.send('matches:new', match))
 }

@@ -112,10 +112,5 @@ contextBridge.exposeInMainWorld('matches', {
     start?: Date | number | string
     end?: Date | number | string
   }): Promise<RankedWinrateByOpponent> =>
-    ipcRenderer.invoke('stats:getRankedWinrateByOpponent', params),
-  onNewMatch: (cb: (m: any) => void) => {
-    const handler = (_e, m): void => cb(m)
-    ipcRenderer.on('matches:new', handler)
-    return () => ipcRenderer.removeListener('matches:new', handler)
-  }
+    ipcRenderer.invoke('stats:getRankedWinrateByOpponent', params)
 })

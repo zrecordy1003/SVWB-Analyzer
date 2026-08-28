@@ -42,6 +42,9 @@ function buildPayload(f: MatchFilters): QueryPayload {
   }
 }
 
+/** Rows carry `playedAt` as a Date over IPC, but be tolerant of a string. */
+const timeOf = (value: Date | string | number): number => new Date(value).getTime()
+
 type MatchCursor = { playedAt: string; id: number }
 type MatchListPage = {
   rows: MatchRow[]
@@ -60,10 +63,51 @@ async function fetchListPage(
 }
 
 /**
+ * Fold a freshly fetched newest page into the rows already held.
+ *
+ * A match row is not written once. The engine creates it the moment a battle
+ * starts - result, mode and BP all still null - and then UPDATES that same row
+ * as each value becomes known. A refresh that only prepends ids it has not
+ * seen therefore leaves the "未定" version of a row on screen for good, which
+ * is what this used to do: every `matchUpdated` and `matchFinished` arrived,
+ * re-fetched, and discarded the new data because the id was already held.
+ *
+ * `topChunk` is authoritative for everything at or newer than its oldest row.
+ * Inside that window what it returns replaces what is held, and a held row it
+ * no longer returns has been deleted - which is how an abandoned replay match
+ * disappears instead of lingering as a phantom.
+ *
+ * Rows older than the window are kept as they are. The engine only ever
+ * mutates the newest match, so re-reading every page the user has scrolled
+ * through would cost far more than it buys.
+ *
+ * Exported as a pure function so the reconciliation is testable without a DOM.
+ */
+export function reconcileRecent(
+  prev: MatchRow[],
+  topChunk: MatchRow[],
+  chunkSize: number
+): MatchRow[] {
+  const incoming = new Set(topChunk.map((r) => r.id))
+  // A short chunk means the query returned everything it has, so the window is
+  // the whole list and nothing outside it survives.
+  const windowEdge =
+    topChunk.length < chunkSize
+      ? Number.NEGATIVE_INFINITY
+      : timeOf(topChunk[topChunk.length - 1].playedAt)
+  // `<=` rather than `<` on the boundary: a row sharing the oldest timestamp
+  // may simply have been cut off by the page limit, and showing it one refresh
+  // too long beats dropping a real match.
+  const older = prev.filter((r) => !incoming.has(r.id) && timeOf(r.playedAt) <= windowEdge)
+  return [...topChunk, ...older]
+}
+
+/**
  * 滾動載入版的對局清單資料 hook。
  * - rows 只會累加（loadMore）或整批重置（filters 變更），不做傳統換頁。
  * - patchRow / removeRow 讓編輯、刪除可以就地更新單筆卡片，不必整批重抓。
- * - mergeNewOnTop 讓外部通知（新對局寫入）可以把新資料插到最前面，不打斷捲動位置。
+ * - syncRecent 讓外部通知（引擎寫入、使用者編輯）就地對齊最新一頁：新增、就地更新
+ *   與刪除都會反映，且不打斷捲動位置。
  */
 export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
   const [rows, setRows] = useState<MatchRow[]>([])
@@ -154,17 +198,13 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
     setTotalCount((prev) => Math.max(0, prev - 1))
   }, [])
 
-  const mergeNewOnTop = useCallback(() => {
+  const syncRecent = useCallback(() => {
     const generation = generationRef.current
     const f = filtersRef.current
     void fetchListPage(CHUNK_SIZE, f)
       .then(({ rows: topChunk, total }) => {
         if (generation !== generationRef.current) return
-        setRows((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id))
-          const fresh = topChunk.filter((r) => !existingIds.has(r.id))
-          return fresh.length ? [...fresh, ...prev] : prev
-        })
+        setRows((prev) => reconcileRecent(prev, topChunk, CHUNK_SIZE))
         if (total != null) setTotalCount(total)
       })
       .catch((error) => {
@@ -188,7 +228,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
     loadMore,
     patchRow,
     removeRow,
-    mergeNewOnTop,
+    syncRecent,
     reload
   }
 }

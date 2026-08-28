@@ -274,7 +274,7 @@ const HudApp: React.FC = () => {
     return () => {
       unsubscribeRefetch()
     }
-  }, [loadRecent])
+  }, [loadRecent, refreshLastRecordedMode])
 
   /**
    * Height follows the content instead of two hard-coded sizes, so switching

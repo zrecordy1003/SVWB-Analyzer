@@ -68,7 +68,7 @@ const MatchList = (): React.JSX.Element => {
     loadMore,
     patchRow,
     removeRow,
-    mergeNewOnTop,
+    syncRecent,
     reload
   } = useInfiniteMatches(debouncedFilters, queryEnabled)
 
@@ -79,15 +79,19 @@ const MatchList = (): React.JSX.Element => {
     id: null
   })
 
-  // 外部通知（新對局寫入）→ 只把新資料插到最前面，不重置捲動位置
-  const mergeNewOnTopRef = useRef(mergeNewOnTop)
-  mergeNewOnTopRef.current = mergeNewOnTop
+  // 外部通知（引擎寫入或使用者編輯）→ 就地對齊最新一頁，不重置捲動位置
+  const syncRecentRef = useRef(syncRecent)
+  syncRecentRef.current = syncRecent
   useEffect(() => {
-    const unsub = window.electron?.ipcRenderer.on('matches:needRefetch', () => {
-      mergeNewOnTopRef.current()
-    })
+    const sync = (): void => syncRecentRef.current()
+    const unsubMatches = window.electron?.ipcRenderer.on('matches:needRefetch', sync)
+    // Cards render deck and tag NAMES, denormalised into each row by the join.
+    // Renaming a deck therefore leaves the old name on every card until
+    // something else refetches, so reference-data edits have to land here too.
+    const unsubReference = window.electron?.ipcRenderer.on('reference-data:changed', sync)
     return () => {
-      unsub && unsub()
+      unsubMatches && unsubMatches()
+      unsubReference && unsubReference()
     }
   }, [])
 
