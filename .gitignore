@@ -3,11 +3,27 @@ dist
 out
 .DS_Store
 .eslintcache
+*.tsbuildinfo
+
+# Build artifact of `pnpm vision:build`. Rebuilt by build:win and by CI, and
+# referenced from electron-builder extraResources, so it never needs to be in
+# git.
+tools/svwb-vision.node
 *.log*
 .vscode
 svwb.png
 svwb.png.tmp.png
-.db
+*.db
 .env
 AGENTS.MD
-/docs
+
+# tesseract.js decompresses the shipped traineddata next to langPath when OCR
+# runs from the repo root (the offline check scripts do this).
+/eng.traineddata
+
+# Fixture screen recordings. The extracted PNGs in each
+# tests/fixtures/captures/* directory are what the check-*.cjs scripts assert
+# against and those ARE committed; the source recordings are tens of megabytes
+# each and stay local. `pnpm vision:replay-*` needs one, so keep yours in place
+# - it just is not shared through git.
+tests/fixtures/captures/**/*.mp4

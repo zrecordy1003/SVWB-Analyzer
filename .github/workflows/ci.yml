@@ -1,0 +1,86 @@
+name: CI
+
+# The Rust checks and the fixture-backed vision checks need a compiled
+# `svwb-vision.node`, so this workflow builds the addon before running them.
+# That is the whole point: `pnpm vision:verify` is where the recognition
+# regressions get caught, and it is worthless if it only ever runs locally.
+
+on:
+  push:
+    branches: [main, master, for_dev]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  checks:
+    # Windows because the addon is built and consumed on Windows, and the
+    # capture pipeline is Windows-only. Matching the target platform here keeps
+    # a green CI meaningful.
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # One Cargo workspace over all three crates, so a single cache key.
+          workspaces: tools
+
+      # `electron-builder install-app-deps` runs on postinstall and pulls the
+      # Electron binary. Nothing here launches Electron, so skip that download.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit and IPC tests
+        run: pnpm test
+
+      - name: Build the vision addon
+        run: pnpm vision:build
+
+      # Rust unit tests, clippy, and the fixture-backed recognition checks.
+      - name: Verify recognition
+        run: pnpm vision:verify
+
+      # Replays a real recording frame by frame. This is the only check that
+      # exercises the parts of recognition that exist over time rather than in a
+      # single still - that the play-order overlay is still on screen at a
+      # sampled tick, that the final result banner overwrites the provisional
+      # one.
+      #
+      # The source recordings are tens of megabytes each and are gitignored
+      # (see .gitignore), so on a clean checkout this fixture is absent and the
+      # step reports a skip. `svwb-engine` only ever exits 0 or 1, so the skip
+      # is decided by looking for the file rather than by reading an exit code.
+      # Commit the recordings (LFS) to turn this into a real CI gate.
+      - name: Replay the CPU practice recording
+        shell: bash
+        run: |
+          recording=tests/fixtures/captures/cpu-practice-1920-fullscreen/recording.mp4
+          if [ ! -f "$recording" ]; then
+            echo "::warning::$recording is not in the checkout, replay check skipped"
+            exit 0
+          fi
+          pnpm engine:replay-cpu
+
+      - name: Build renderer and main bundles
+        run: pnpm exec electron-vite build
