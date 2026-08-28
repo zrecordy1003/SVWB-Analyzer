@@ -33,4 +33,4 @@ pnpm run capture:build
 
 ## 修改資料庫
 
-遵循 [Windows 開發環境與首次執行](docs/windows-setup.md#5-資料庫與資料安全) 的三份同步來源規則：Prisma schema、Prisma development migrations、`resources/migrations` runtime migrations。
+`resources/migrations/` 是 schema 的唯一真相，由 `svwb-engine migrate` 套用；沒有 ORM，也沒有第二份 schema 需要同步。新增 migration 後，記得同步 `tools/engine/src/store.rs` 與 `src/main/data/db/client.ts` 的 `MatchRow`——它們是 SQL 的手工鏡像，漏改不會有編譯錯誤。詳見 [Windows 開發環境與首次執行](docs/windows-setup.md#5-資料庫與資料安全)。

@@ -31,6 +31,7 @@ import readline from 'node:readline'
 
 import { ClassName, GameMode, PlayOrder } from '../../shared/domain.js'
 import type { BattleStatus } from '../../shared/types.js'
+import { ENGINE_BINARY } from '../../shared/engineBinary.js'
 
 import { getTesseractCacheDir } from '../paths.js'
 import { store } from '../store.js'
@@ -71,8 +72,8 @@ let battleStatus: BattleStatus = IDLE_STATUS
 
 function getEnginePath(): string {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb-engine.exe')
-    : path.join(__dirname, '../../tools/target/release', 'svwb-engine.exe')
+    ? path.join(process.resourcesPath, 'tools', ENGINE_BINARY)
+    : path.join(__dirname, '../../tools/target/release', ENGINE_BINARY)
 }
 
 function getDbPath(): string {

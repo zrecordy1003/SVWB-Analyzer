@@ -15,6 +15,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import path from 'node:path'
 
+import { ENGINE_BINARY } from '../../../shared/engineBinary.js'
 import { configureDbPath } from './client.js'
 
 function getDbPath(): string {
@@ -25,8 +26,8 @@ function getDbPath(): string {
 
 function getEnginePath(): string {
   return app.isPackaged
-    ? path.join(process.resourcesPath, 'tools', 'svwb-engine.exe')
-    : path.join(__dirname, '../../tools/target/release', 'svwb-engine.exe')
+    ? path.join(process.resourcesPath, 'tools', ENGINE_BINARY)
+    : path.join(__dirname, '../../tools/target/release', ENGINE_BINARY)
 }
 
 function getMigrationsDir(): string {

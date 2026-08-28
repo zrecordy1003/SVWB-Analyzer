@@ -4,7 +4,7 @@
 [![GitHub Downloads (latest release)](https://img.shields.io/github/downloads/zrecordy1003/SVWB-Analyzer/latest/total)](https://github.com/zrecordy1003/SVWB-Analyzer/releases/latest)
 [![GitHub Release (latest)](https://img.shields.io/github/v/release/zrecordy1003/SVWB-Analyzer)](https://github.com/zrecordy1003/SVWB-Analyzer/releases/latest)
 
-> 正式支援 Windows 10 1903+／Windows 11 x64。請先安裝 Git LFS；OpenCV 執行期 DLL 與 OCR 資料由 LFS 管理。
+> 正式支援 Windows 10 1903+／Windows 11 x64。請先安裝 Git LFS；OCR 訓練資料由 LFS 管理。
 
 ## 文件導覽
 
@@ -37,13 +37,15 @@ pnpm run dev
 
 ### Description
 
-A desktop application built with Electron, OpenCV4NodeJS, and Tesseract.js ...
+A desktop application built with Electron and a Rust recognition engine. Capture,
+template matching, the state machine and match persistence all run in one process
+(`svwb-engine`); Tesseract.js reads the numbers.
 
 ### Features
 
-- Automated screenshot capture
-- Template matching with OpenCV4NodeJS
-- OCR for BP gain/loss using Tesseract.js
+- Automated capture via Windows Graphics Capture, entirely in memory
+- Template matching in the Rust engine (no OpenCV runtime required)
+- OCR for BP/MP/CR using Tesseract.js, with multi-frame consensus
 - SQLite persistence written by the Rust engine (WAL; the UI reads via Kysely)
 - React + MUI analytics dashboard
 
@@ -55,8 +57,8 @@ A desktop application built with Electron, OpenCV4NodeJS, and Tesseract.js ...
 
 ### 專案簡介
 
-一款以 Electron、OpenCV4NodeJS 與 Tesseract.js 為核心的桌面應用，  
-自動擷取 ShadowverseWB 截圖、辨識對戰資料並儲存至資料庫，  
+一款以 Electron 與 Rust 辨識引擎為核心的桌面應用，  
+自動擷取 ShadowverseWB 畫面、辨識對戰資料並儲存至資料庫，  
 同時提供即時與歷史對局分析介面。
 
 ### 主要功能

@@ -10,6 +10,7 @@ import fs from 'fs/promises'
 import os from 'os'
 import path from 'path'
 
+import { ENGINE_BINARY } from '../../src/shared/engineBinary'
 import { configureDbPath, getDb, resetDbForTests } from '../../src/main/data/db/client'
 import type { Database } from '../../src/main/data/db/client'
 import type { Kysely } from 'kysely'
@@ -21,7 +22,7 @@ export type TestDb = {
 }
 
 const ROOT = process.cwd()
-const ENGINE = path.join(ROOT, 'tools', 'target', 'release', 'svwb-engine.exe')
+const ENGINE = path.join(ROOT, 'tools', 'target', 'release', ENGINE_BINARY)
 
 export function migrateWithEngine(dbPath: string, migrationsDir: string): void {
   // The header promises this failure says how to fix itself. Without the check
