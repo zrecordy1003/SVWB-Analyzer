@@ -1,10 +1,9 @@
+allowBuilds:
+  better-sqlite3: set this to true or false
 onlyBuiltDependencies:
-  - '@prisma/client'
-  - '@prisma/engines'
-  - '@u4/opencv4nodejs'
+  - better-sqlite3
   - electron
   - esbuild
   - extract-file-icon
   - node-window-manager
-  - prisma
   - tesseract.js

@@ -10,12 +10,14 @@ import {
 import React, { useEffect, useState } from 'react'
 import Disclaimer from '../Disclaimer'
 import UpdateSettings from '../Update/UpdateSettings'
+import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
 
 type OnCloseBehavior = 'minimize' | 'exit'
 type ThemeType = 'system' | 'light' | 'dark'
 
 interface AppSettingsInner {
   hudShow: boolean
+  hudFollowGame: boolean
   enableNotifications: boolean
   onCloseBehavior: OnCloseBehavior
   askBeforeExit: boolean
@@ -24,6 +26,8 @@ interface AppSettingsInner {
   autoCheckUpdates: boolean
   autoInstallUpdates: boolean
   theme: ThemeType
+  /** Opt-out: local-only recording of recognition anomalies. */
+  diagnostics: boolean
 }
 
 interface AppSettings {
@@ -34,6 +38,7 @@ interface AppSettings {
 const DEFAULT_SETTINGS: AppSettings = {
   settings: {
     hudShow: true,
+    hudFollowGame: true,
     enableNotifications: true,
     onCloseBehavior: 'minimize',
     askBeforeExit: true,
@@ -41,7 +46,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     reduceAnimations: false,
     autoCheckUpdates: false,
     autoInstallUpdates: false,
-    theme: 'system'
+    theme: 'system',
+    diagnostics: true
   }
 }
 
@@ -108,12 +114,38 @@ const Settings: React.FC = () => {
         <FormControlLabel
           control={
             <Switch
+              checked={s.hudFollowGame}
+              onChange={(_, checked) => handleChange('hudFollowGame', checked)}
+            />
+          }
+          label="只在遊戲畫面聚焦時顯示 HUD"
+        />
+        <FormControlLabel
+          control={
+            <Switch
               checked={s.hudShow}
+              disabled={s.hudFollowGame}
               onChange={(_, checked) => handleChange('hudShow', checked)}
             />
           }
           label="啟動時顯示 HUD"
         />
+      </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">辨識診斷</Typography>
+        <FormControlLabel
+          control={
+            <Switch
+              checked={s.diagnostics}
+              onChange={(_, checked) => handleChange('diagnostics', checked)}
+            />
+          }
+          label="記錄辨識異常（僅存本機）"
+        />
+        <DiagnosticsSettings enabled={s.diagnostics} />
       </Box>
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />

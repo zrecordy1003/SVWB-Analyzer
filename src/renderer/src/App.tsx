@@ -1,11 +1,10 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
-import { ThemeProvider, createTheme, keyframes, styled } from '@mui/material/styles'
+import { ThemeProvider, createTheme, styled } from '@mui/material/styles'
 import CssBaseline from '@mui/material/CssBaseline'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
 import Typography from '@mui/material/Typography'
-import IconButton from '@mui/material/IconButton'
 import Box from '@mui/material/Box'
 // import Switch from '@mui/material/Switch'
 import Drawer from '@mui/material/Drawer'
@@ -13,72 +12,40 @@ import List from '@mui/material/List'
 import ListItemButton from '@mui/material/ListItemButton'
 import ListItemIcon from '@mui/material/ListItemIcon'
 import ListItemText from '@mui/material/ListItemText'
-import useMediaQuery from '@mui/material/useMediaQuery'
-import Tooltip from '@mui/material/Tooltip'
-import { Zoom } from '@mui/material'
 
 import TimelineIcon from '@mui/icons-material/Timeline'
-import MenuIcon from '@mui/icons-material/Menu'
-// import BarChartIcon from '@mui/icons-material/BarChart'
 import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
-// import EditNoteIcon from '@mui/icons-material/EditNote'
-import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 // import Sun from '@mui/icons-material/Brightness4'
 // import Moon from '@mui/icons-material/Brightness7'
-import LockOpenOutlinedIcon from '@mui/icons-material/LockOpenOutlined'
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 
 // import Disclaimer from './components/Disclaimer'
 import GameStatus from './components/GameStatus'
-// import HomePage from './components/HomePage/HomePage'
 import Settings from './components/Settings/Settings'
 import BattleStatus from './components/BattleStatus/BattleStatus'
 import UpdateBackground from './components/Update/UpdateBackground'
-import DeckSelector from './components/DeckSelector/DeckSelector'
+import DeckManagerControl from './components/DeckManager/DeckManagerControl'
 import About from './components/About/About'
+import SupportPrompt from './components/Common/SupportPrompt'
 const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
-// const MatchAnalytics = lazy(() => import('./components/MatchAnalytics/MatchAnalytics'))
-// const MatchEdit = lazy(() => import('./components/MatchEdit/MatchEdit'))
-
-// const ChartBuilder = lazy(() => import('./components/ChartBuilder/ChartBuilder'))
+const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerformance'))
 // import Statistics from './components/Statistics'
 
-const shakeAnimation = keyframes`
-  0%   { transform: translateX(0); }
-  20%  { transform: translateX(-4px); }
-  40%  { transform: translateX(4px); }
-  60%  { transform: translateX(-4px); }
-  80%  { transform: translateX(4px); }
-  100% { transform: translateX(0); }
-`
-// drawer width
-const DRAWER_WIDTH = 240
-const DRAWER_COLLAPSED_WIDTH = 60
+const DRAWER_COLLAPSED_WIDTH = 92
 
-// 為 Main Content 加上 margin-left
-const Main = styled('main', {
-  shouldForwardProp: (prop) => prop !== 'open'
-})<{ open: boolean }>(({ theme, open }) => ({
+const Main = styled('main')(({ theme }) => ({
   flexGrow: 1,
   padding: theme.spacing(3),
-  // paddingBottom: 0,
-  transition: theme.transitions.create('margin', {
-    easing: theme.transitions.easing.sharp,
-    duration: theme.transitions.duration.leavingScreen
-  }),
   marginLeft: DRAWER_COLLAPSED_WIDTH,
-  ...(open && {
-    marginLeft: DRAWER_WIDTH
-  }),
   height: '100vh',
   overflowY: 'auto'
 }))
 
-type PageKey = 'Analyzer' | 'MatchList' | 'MatchAnalytics' | 'Settings' | 'About' | 'MatchEdit'
+type PageKey = 'Analyzer' | 'MatchList' | 'DeckPerformance' | 'Settings' | 'About'
 
 function App(): React.JSX.Element {
   // theme mode
@@ -89,12 +56,6 @@ function App(): React.JSX.Element {
   //   // window.settings.set('theme', nextMode)
   //   setMode(nextMode)
   // }
-
-  // drawer open?
-  const [open, setOpen] = useState(false)
-  const [lock, setLock] = useState(false)
-  const [shake, setShake] = useState(false)
-  const isMobile = useMediaQuery('(max-width:600px)')
 
   // current page
   const [currentPage, setCurrentPage] = useState<PageKey>('MatchList')
@@ -145,36 +106,20 @@ function App(): React.JSX.Element {
 
   // menu items
   const menuItems: Array<{ key: PageKey; text: string; icon: React.ReactNode }> = [
-    // {
-    //   key: 'MatchEdit',
-    //   text: '對局編輯',
-    //   icon: <EditNoteIcon sx={{ ml: '1px', fontSize: '28px' }} />
-    // },
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
+    { key: 'DeckPerformance', text: '牌組戰績', icon: <StyleOutlinedIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
-    // { key: 'MatchAnalytics', text: '統計圖表', icon: <BarChartIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
     { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
   ]
 
   // AppBar title 根據 page
   const titles: Record<PageKey, string> = {
-    MatchEdit: '對局編輯',
     Analyzer: '分析器',
     MatchList: '對局列表',
-    MatchAnalytics: '統計圖表',
+    DeckPerformance: '牌組戰績',
     Settings: '設定',
     About: '關於與授權'
-  }
-
-  const handleDrawerToggle = (): void => {
-    if (!lock) {
-      setOpen((prev) => !prev)
-    } else {
-      if (!shake) {
-        setShake(true)
-      }
-    }
   }
 
   useEffect(() => {
@@ -183,23 +128,37 @@ function App(): React.JSX.Element {
     })
   }, [])
 
+  /**
+   * The HUD can ask for a page - its "完整對戰歷史" link raises this window and
+   * expects to land on the list, not on whatever page was last open.
+   */
+  useEffect(() => {
+    const unsubscribe = window.electron?.ipcRenderer.on(
+      'app:navigate',
+      (_event: unknown, page: PageKey) => {
+        if (
+          page === 'Analyzer' ||
+          page === 'MatchList' ||
+          page === 'DeckPerformance' ||
+          page === 'Settings' ||
+          page === 'About'
+        ) {
+          setCurrentPage(page)
+        }
+      }
+    )
+    return () => unsubscribe?.()
+  }, [])
+
   const battleStatusEl = useMemo(() => <BattleStatus />, []) // 只建立一次
 
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <UpdateBackground />
+      <SupportPrompt />
       <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
         <Toolbar sx={{ position: 'relative' }}>
-          <IconButton color="inherit" edge="start" onClick={handleDrawerToggle} sx={{ mr: 2 }}>
-            {
-              open ? (
-                <ChevronLeftIcon /> // 如果已展開，就顯示收合 icon
-              ) : (
-                <MenuIcon />
-              ) // 如果收合中，就顯示展開 icon
-            }
-          </IconButton>
           <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
             {titles[currentPage]}
           </Typography>
@@ -211,7 +170,7 @@ function App(): React.JSX.Element {
               transform: 'translateY(3px)'
             }}
           >
-            <DeckSelector />
+            <DeckManagerControl />
           </Box>
           <Box
             sx={{
@@ -228,17 +187,12 @@ function App(): React.JSX.Element {
       {/* Drawer */}
       <Drawer
         variant="permanent"
-        open={open}
         sx={{
-          width: open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH,
+          width: DRAWER_COLLAPSED_WIDTH,
           flexShrink: 0,
           whiteSpace: 'nowrap',
           '& .MuiDrawer-paper': {
-            width: open ? DRAWER_WIDTH : DRAWER_COLLAPSED_WIDTH,
-            transition: theme.transitions.create('width', {
-              easing: theme.transitions.easing.sharp,
-              duration: theme.transitions.duration.enteringScreen
-            }),
+            width: DRAWER_COLLAPSED_WIDTH,
             overflowX: 'hidden',
             boxSizing: 'border-box'
           }
@@ -246,95 +200,63 @@ function App(): React.JSX.Element {
       >
         <Toolbar />
 
-        <Box
-          display={'flex'}
-          flexDirection={'column'}
-          justifyContent={'space-between'}
-          height={'100%'}
-        >
-          <List>
+        <Box display={'flex'} flexDirection={'column'} height={'100%'}>
+          <List sx={{ px: 0.75, pt: 1 }}>
             {menuItems.map(({ key, text, icon }) => (
-              <Tooltip
+              <ListItemButton
                 key={key}
-                title={text}
-                placement="right"
-                disableHoverListener={open}
-                slotProps={{
-                  tooltip: {
-                    sx: {
-                      fontSize: '0.85rem',
-                      bgcolor: '#333',
-                      color: '#fff',
-                      px: 2,
-                      py: 1,
-                      borderRadius: 1,
-                      boxShadow: 3,
-                      maxWidth: 200
-                    }
-                  }
-                }}
-                slots={{
-                  transition: Zoom
+                selected={currentPage === key}
+                onClick={() => setCurrentPage(key)}
+                sx={{
+                  minHeight: 64,
+                  mb: 0.5,
+                  px: 0.5,
+                  borderRadius: 1.5,
+                  flexDirection: 'column',
+                  justifyContent: 'center',
+                  gap: 0.25,
+                  '&.Mui-selected': { bgcolor: 'action.selected' },
+                  '&.Mui-selected:hover': { bgcolor: 'action.selected' }
                 }}
               >
-                <ListItemButton
-                  key={key}
-                  selected={currentPage === key}
-                  onClick={() => {
-                    setCurrentPage(key)
-                    if (isMobile) {
-                      // 手機版：選完自動收合
-                      setOpen(false)
-                    }
+                <ListItemIcon
+                  sx={{
+                    minWidth: 0,
+                    color: currentPage === key ? 'primary.main' : 'text.secondary'
                   }}
                 >
-                  <ListItemIcon>{icon}</ListItemIcon>
-                  <ListItemText primary={text} />
-                </ListItemButton>
-              </Tooltip>
+                  {icon}
+                </ListItemIcon>
+                <ListItemText
+                  primary={text}
+                  slotProps={{
+                    primary: { fontSize: 11, textAlign: 'center' }
+                  }}
+                  sx={{ m: 0, whiteSpace: 'normal', lineHeight: 1.15 }}
+                />
+              </ListItemButton>
             ))}
           </List>
-          <Box>
-            <Box display={'flex'} justifyContent={'start'}>
-              <GameStatus open={open} />
-            </Box>
-
-            <Box
-              display={'flex'}
-              alignItems={'center'}
-              justifyContent={'end'}
-              height={'80px'}
-              mr={'10px'}
-              // bgcolor={'gray'}
-            >
-              <IconButton onClick={() => setLock(!lock)}>
-                {lock ? (
-                  <LockOutlinedIcon
-                    sx={{
-                      // color: ,
-                      animation: shake ? `${shakeAnimation} 0.5s` : 'none'
-                    }}
-                    onAnimationEnd={() => setShake(false)}
-                  />
-                ) : (
-                  <LockOpenOutlinedIcon sx={{ opacity: 0.3 }} />
-                )}
-              </IconButton>
+          <Box
+            sx={{
+              mt: 'auto',
+              pb: 3
+            }}
+          >
+            <Box display={'flex'} justifyContent={'center'}>
+              <GameStatus open={false} />
             </Box>
           </Box>
         </Box>
       </Drawer>
 
       {/* 主內容 */}
-      <Main open={open}>
+      <Main>
         <Toolbar />
         <Suspense fallback={<div>載入中...</div>}>
-          {/* {currentPage === 'Home' && <HomePage />} */}
-          {/* {currentPage === 'MatchEdit' && <MatchEdit />} */}
           {currentPage === 'MatchList' && <MatchList />}
+          {currentPage === 'DeckPerformance' && <DeckPerformance />}
           {currentPage === 'Analyzer' && <Analyzer />}
-          {/* {currentPage === 'MatchAnalytics' && <MatchAnalytics />} */}
-          {/* {currentPage === 'Settings' && <ChartBuilder />} */}
           {currentPage === 'Settings' && <Settings />}
           {currentPage === 'About' && <About />}
         </Suspense>

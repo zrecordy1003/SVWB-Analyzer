@@ -23,8 +23,8 @@ import {
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
-import dayjs from 'dayjs'
-import type { Match, GameMode, PlayOrder, Tag, Deck, ClassName } from '@prisma/client'
+import { format as formatDate } from 'date-fns'
+import type { Match, GameMode, PlayOrder, Tag, Deck, ClassName } from '@shared/domain'
 import { modesMap } from '@renderer/map/classMap'
 import DeckPicker, { type DeckLite } from './DeckPicker'
 import SummaryHeader from './SummaryHeader'
@@ -394,7 +394,7 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
   }
 
   const updatedLabel = data?.updatedAt
-    ? dayjs(data.updatedAt).format('YYYY/MM/DD HH:mm:ss')
+    ? formatDate(new Date(data.updatedAt), 'yyyy/MM/dd HH:mm:ss')
     : '尚未記錄'
 
   return (
@@ -699,7 +699,7 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
                   size="small"
                   label="開始時間"
                   type="datetime-local"
-                  value={data.playedAt ? dayjs(data.playedAt).format('YYYY-MM-DDTHH:mm') : ''}
+                  value={data.playedAt ? formatDate(new Date(data.playedAt), "yyyy-MM-dd'T'HH:mm") : ''}
                   onChange={(e) =>
                     setData({
                       ...data,

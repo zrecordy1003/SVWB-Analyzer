@@ -45,7 +45,7 @@ A desktop application built with Electron, OpenCV4NodeJS, and Tesseract.js ...
 - Automated screenshot capture
 - Template matching with OpenCV4NodeJS
 - OCR for BP gain/loss using Tesseract.js
-- Prisma-based DB persistence
+- SQLite persistence written by the Rust engine (WAL; the UI reads via Kysely)
 - React + MUI analytics dashboard
 
 ---
@@ -65,7 +65,7 @@ A desktop application built with Electron, OpenCV4NodeJS, and Tesseract.js ...
 - 自動截圖：持續監控遊戲視窗並定時擷取
 - 模板比對：辨識職業、徽章、先後攻與勝敗
 - OCR：擷取排行 BP 正負增減
-- Prisma DB：儲存完整對戰紀錄
+- SQLite：完整對戰紀錄由 Rust 引擎直接寫入（UI 以 Kysely 讀取）
 - React + MUI：即時分析、對局列表、統計圖表
 
 ### 開發中的截圖器
@@ -78,7 +78,13 @@ A desktop application built with Electron, OpenCV4NodeJS, and Tesseract.js ...
 pnpm run capture:build
 ```
 
-此指令會產生 Electron 發行版所使用的 `tools/svwb-capture-tool.exe`。`pnpm run build:win` 會先自動建置此截圖器。
+此指令會產生 `tools/svwb-capture-tool.exe`（保留為回退點；正式擷取已內建於 `svwb-engine`）。`pnpm run build:win` 會依序建置截圖器、vision addon 與 `svwb-engine`。
+
+## 支持開發
+
+本工具完全免費，所有功能對每個人都一樣，不會有贊助才能使用的部分。若覺得有幫助，可透過
+[歐付寶](https://p.opay.tw/EYvPO)（信用卡／ATM／超商代碼）小額贊助。贊助純屬自願，不構成任何交易或回報，與
+Cygames 無關；款項用於後續維護與 Windows 程式碼簽章憑證。
 
 ## 授權與官方素材
 

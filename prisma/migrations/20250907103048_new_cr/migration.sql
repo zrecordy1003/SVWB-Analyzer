@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE "Match" ADD COLUMN "cr" INTEGER;
-ALTER TABLE "Match" ADD COLUMN "crDelta" INTEGER;

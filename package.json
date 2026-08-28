@@ -14,20 +14,33 @@
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
-    "db:migrate:dev": "prisma migrate dev",
-    "start": "prisma format && electron-vite preview",
-    "dev": "prisma format && electron-vite dev",
-    "build": "prisma format && prisma generate && electron-vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "electron-vite preview",
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
     "capture:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/capture/scripts/build.ps1",
-    "capture:check": "cargo check --manifest-path tools/capture/Cargo.toml",
-    "runtime:check": "node scripts/verify-runtime-opencv.mjs",
+    "capture:check": "cargo check --manifest-path tools/Cargo.toml",
+    "vision:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/vision-node-addon/scripts/build.ps1",
+    "engine:build": "cargo build --manifest-path tools/Cargo.toml -p svwb-engine --release",
+    "vision:check": "cargo clippy --manifest-path tools/Cargo.toml --all-targets",
+    "vision:test": "cargo test --manifest-path tools/Cargo.toml --release",
+    "vision:check-diagnostics": "node tools/vision-node-addon/check-diagnostics.cjs",
+    "vision:check-bundle": "node tools/vision-node-addon/check-bundle.cjs",
+    "vision:check-ocr-numbers": "node tools/vision-node-addon/check-ocr-numbers.cjs",
+    "vision:check-engine-parity": "npm run engine:build && node tools/vision-node-addon/check-engine-parity.cjs",
+    "engine:replay-cpu": "npm run engine:build && tools\\target\\release\\svwb-engine.exe replay tests/fixtures/captures/cpu-practice-1920-fullscreen/recording.mp4 --templates resources/templates --fps 2 --expect \"{\\\"my_class\\\": \\\"witch\\\", \\\"oppo_class\\\": \\\"bishop\\\", \\\"play_order\\\": \\\"second\\\", \\\"mode\\\": \\\"cpu\\\", \\\"result\\\": false}\"",
+    "engine:replay-ranked-lose": "node tools/vision-node-addon/replay-with-numbers.cjs tests/fixtures/captures/ranked-bp-1280-windowed-lose/recording.mp4 --fps 2 --expect \"{\\\"my_class\\\": \\\"witch\\\", \\\"oppo_class\\\": \\\"nightmare\\\", \\\"play_order\\\": \\\"second\\\", \\\"mode\\\": \\\"ranked\\\", \\\"result\\\": false, \\\"bp\\\": 8}\"",
+    "engine:replay-custom": "tools\\target\\release\\svwb-engine.exe replay tests/fixtures/captures/custom-1280-windowed-lose/recording.mp4 --templates resources/templates --fps 2 --expect \"{\\\"my_class\\\": \\\"witch\\\", \\\"oppo_class\\\": \\\"elf\\\", \\\"play_order\\\": \\\"second\\\", \\\"mode\\\": \\\"custom\\\", \\\"result\\\": false}\"",
+    "engine:replay-history": "tools\\target\\release\\svwb-engine.exe replay tests/fixtures/captures/history-1280-windowed/recording.mp4 --templates resources/templates --fps 2 --expect-matches 0",
+    "engine:replay-history-1920": "tools\\target\\release\\svwb-engine.exe replay tests/fixtures/captures/history-1920-fullscreen/recording.mp4 --templates resources/templates --fps 2 --expect-matches 0",
+    "engine:replay": "npm run engine:build && npm run engine:replay-cpu && npm run engine:replay-ranked-lose && npm run engine:replay-custom && npm run engine:replay-history && npm run engine:replay-history-1920",
+    "vision:verify": "npm run vision:test && npm run vision:check && npm run vision:check-diagnostics && npm run vision:check-bundle && npm run engine:build && npm run vision:check-ocr-numbers && npm run vision:check-engine-parity",
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run capture:build && npm run runtime:check && npm run build && electron-builder --win",
+    "build:win": "npm run capture:build && npm run vision:build && npm run engine:build && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "electron-rebuild": "build-opencv --electron --version 35.1.5 build",
-    "wegood": "opencv-build-npm",
     "publish:win": "dotenv -e .env -- pnpm exec electron-builder --win --publish always"
   },
   "build": {
@@ -58,28 +71,21 @@
     "files": [
       "out/**",
       "node_modules/**",
-      "node_modules/.prisma/**/*",
-      "node_modules/@prisma/client/**",
-      "node_modules/@prisma/engines/**",
       "!svwb-capture-tool.exe"
     ],
     "extraResources": [
-      "prisma/**/*",
-      "node_modules/.prisma/**/*",
-      "node_modules/@prisma/client/**/*",
       "tools/svwb-capture-tool.exe",
+      {
+        "from": "tools/target/release/svwb-engine.exe",
+        "to": "tools/svwb-engine.exe"
+      },
       {
         "from": "resources/icon.png",
         "to": "icon.png"
       },
       {
-        "from": "resources/opencv/bin",
-        "to": "opencv/bin",
-        "filter": [
-          "opencv_world4110.dll",
-          "opencv_videoio_ffmpeg4110_64.dll",
-          "opencv_videoio_msmf4110_64.dll"
-        ]
+        "from": "tools/svwb-vision.node",
+        "to": "svwb-vision.node"
       },
       {
         "from": "resources/templates",
@@ -107,18 +113,16 @@
     "@mui/icons-material": "^7.2.0",
     "@mui/material": "^7.2.0",
     "@mui/x-date-pickers": "^8.9.2",
-    "@prisma/client": "^6.11.1",
-    "@u4/opencv4nodejs": "^7.1.2",
+    "@tanstack/react-virtual": "^3.14.10",
+    "better-sqlite3": "^13.0.3",
     "chart.js": "^4.5.0",
     "date-fns": "^4.1.0",
-    "dayjs": "^1.11.18",
     "electron-store": "^10.1.0",
     "electron-updater": "^6.3.9",
+    "jszip": "^3.10.1",
+    "kysely": "^0.29.5",
     "node-window-manager": "^2.2.4",
-    "pngjs": "^7.0.0",
     "react-chartjs-2": "^5.3.0",
-    "react-date-range": "^2.0.1",
-    "react-transition-group": "^4.4.5",
     "tesseract.js": "^6.0.1",
     "tree-kill": "^1.2.2"
   },
@@ -126,6 +130,7 @@
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.14.1",
     "@types/react": "^19.1.1",
     "@types/react-dom": "^19.1.2",
@@ -139,14 +144,11 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "prettier": "^3.5.3",
-    "prisma": "^6.11.1",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.2.6",
-    "vite-plugin-compression": "^0.5.1"
-  },
-  "opencv4nodejs": {
-    "disableAutoBuild": "1"
+    "vite-plugin-compression": "^0.5.1",
+    "vitest": "^3.2.7"
   }
 }

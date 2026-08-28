@@ -12,29 +12,29 @@ import {
 } from 'chart.js'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 
-import { classesMap } from '@renderer/map/classMap'
+import { classes, classesMap } from '@renderer/map/classMap'
+import { LOW_SAMPLE_THRESHOLD, isLowSample } from '../confidence'
 
-// import type { ClassName } from '@prisma/client'
 import type { RankedWinrateByOpponent } from '@shared/types'
 
-// type Stat = { wins: number; total: number; winRate: number }
-// type SideStats = { first: Stat; second: Stat; all: Stat }
-// export type RankedWinrateByOpponent = {
-//   myClass: ClassName
-//   start: number | null
-//   end: number | null
-//   byOpponent: Record<string, SideStats>
-//   overall: SideStats
-// }
+type SortBy = 'class' | 'total' | 'winrate'
 
 type LineChartProps = {
   data: RankedWinrateByOpponent | null | undefined
   height?: number
-  sortBy?: 'total' | 'winrate'
+  /**
+   * Defaults to the fixed class order. Sorting by volume moved a class between
+   * rows every time the filters changed, which made two views impossible to
+   * compare side by side.
+   */
+  sortBy?: SortBy
 }
 
 const FIRST_COLOR = '#64b5f6' // 先攻
 const SECOND_COLOR = '#ce93d8' // 後攻
+/** Same hue at 45%, for rows whose sample is too small to act on. */
+const FIRST_COLOR_DIM = '#64b5f673'
+const SECOND_COLOR_DIM = '#ce93d873'
 
 // 0% 時給一個很細的可見寬度（僅用於繪圖，文字仍顯示 0.0%）
 const MIN_BAR_PCT_RENDER = 1.0
@@ -44,6 +44,8 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend)
 /** ---------- Helpers ---------- */
 const LABEL_FONT = '12px system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", sans-serif'
 const SUB_FONT = '11px system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans TC", sans-serif'
+
+const CLASS_ORDER_INDEX = new Map<string, number>(classes.map((c, i) => [String(c.id), i]))
 
 function measureMaxLabelWidthWithFont(lines: string[], font: string): number {
   if (!lines?.length) return 0
@@ -82,7 +84,6 @@ const valueLabelPlugin = {
     const margin = 6
     const padX = 6
     const padY = 3
-    // const pillBg = 'rgba(0,0,0,0.2)'
     const textColor = 'rgba(255,255,255,0.95)'
 
     ctx.save()
@@ -106,8 +107,11 @@ const valueLabelPlugin = {
 
         const totals: number[] = ds.totals ?? []
         const t = totals[i] ?? 0
+        const low: boolean[] = ds.lowSample ?? []
+        const isLow = low[i] === true
 
-        const label = `${val.toFixed(1)}% (${t})`
+        // 樣本不足的那一列標記出來：同一個百分比，可信度差了一個量級。
+        const label = `${isLow ? '⚠ ' : ''}${val.toFixed(1)}% (${t})`
         const metrics = ctx.measureText(label)
         const textW = Math.ceil(metrics.width)
         const textH = 14
@@ -119,7 +123,11 @@ const valueLabelPlugin = {
           x = bar.x - margin - (padX * 2 + textW)
         }
 
-        ctx.fillStyle = val >= 50 ? 'rgba(66, 133, 66, 1)' : 'rgba(158, 72, 72, 1)'
+        ctx.fillStyle = isLow
+          ? 'rgba(110, 110, 118, 1)'
+          : val >= 50
+            ? 'rgba(66, 133, 66, 1)'
+            : 'rgba(158, 72, 72, 1)'
 
         roundRect(ctx, x, y - padY, textW + padX * 2, textH + padY * 2, 8)
         ctx.fill()
@@ -132,25 +140,6 @@ const valueLabelPlugin = {
   }
 }
 
-/** 50% 參考線 */
-// const midlinePlugin = {
-//   id: 'midline',
-//   afterDraw(chart: Chart) {
-//     const { ctx, chartArea, scales } = chart
-//     const xScale = (scales as any).x
-//     if (!xScale) return
-//     const x = xScale.getPixelForValue(50)
-//     ctx.save()
-//     ctx.strokeStyle = 'rgba(255,255,255,0.25)'
-//     ctx.setLineDash([3, 3])
-//     ctx.beginPath()
-//     ctx.moveTo(x, chartArea.top)
-//     ctx.lineTo(x, chartArea.bottom)
-//     ctx.stroke()
-//     ctx.restore()
-//   }
-// }
-
 /** 左側職業名稱上色（不改 options） */
 const coloredTicksPlugin = {
   id: 'coloredTicks',
@@ -160,13 +149,11 @@ const coloredTicksPlugin = {
     if (!yScale) return
 
     const labels: string[] = (data.labels as string[]) ?? []
-    // const d: any = data
-    // const bottomLabels: string[] = d._bottomLabels ?? labels.map(() => '')
-    // const bottomColors: string[] = d._bottomColors ?? labels.map(() => 'rgba(255,255,255,0.7)')
 
     const opts: any = (chart.options as any)?.plugins?.coloredTicks ?? {}
     const bottomLabels: string[] = opts.bottomLabels ?? []
     const bottomColors: string[] = opts.bottomColors ?? []
+    const dimmed: boolean[] = opts.dimmed ?? []
 
     ctx.save()
     ctx.textAlign = 'right'
@@ -181,86 +168,74 @@ const coloredTicksPlugin = {
       const x = yScale.left - 6
       const y = yScale.getPixelForValue(i)
 
-      // 上行：職業名（原本顏色）
+      // 上行：職業名（原本顏色；沒對戰過的列整體壓暗）
       ctx.font = LABEL_FONT
+      ctx.globalAlpha = dimmed[i] ? 0.4 : 1
       ctx.fillStyle = color
       ctx.fillText(label, x, y - 7)
 
       // 下行：勝率/場數（≥50% 綠、<50% 紅）
       const sub = bottomLabels[i] ?? ''
-
-      //   console.log(chart)
       if (sub) {
         ctx.font = SUB_FONT
         ctx.fillStyle = bottomColors[i] ?? 'rgba(255,255,255,0.7)'
         ctx.fillText(sub, x, y + 9)
       }
+      ctx.globalAlpha = 1
     })
 
     ctx.restore()
   }
 }
 
-/** 沒有數據的那一側（先/後）顯示「尚無資料」小膠囊 */
-// const emptySideMarkerPlugin = {
-//   id: 'emptySideMarker',
-//   afterDatasetsDraw(chart: Chart) {
-//     const { ctx, data, chartArea, scales } = chart
-//     const xScale = (scales as any).x
-//     if (!xScale) return
+/**
+ * 完全沒對戰過的職業：畫一個「尚無對戰」小膠囊。
+ *
+ * 這一列現在一定存在（後端固定回傳全部職業），所以必須主動說明它為什麼是空
+ * 的 —— 一整條空白會被讀成繪圖出錯，而不是「還沒遇過這個職業」。
+ */
+const emptyRowMarkerPlugin = {
+  id: 'emptyRowMarker',
+  afterDatasetsDraw(chart: Chart) {
+    const { ctx, chartArea, scales } = chart
+    const xScale = (scales as any).x
+    const yScale = (scales as any).y
+    if (!xScale || !yScale) return
 
-//     const padX = 6
-//     const padY = 3
-//     const textH = 14
-//     // const margin = 4
-//     const pillBg = 'rgba(255,255,255,0.12)'
-//     const textColor = 'rgba(255,255,255,0.75)'
-//     const placeX = xScale.getPixelForValue(5) // 文字靠左側 ~5%
+    const opts: any = (chart.options as any)?.plugins?.emptyRowMarker ?? {}
+    const emptyRows: boolean[] = opts.emptyRows ?? []
+    if (!emptyRows.some(Boolean)) return
 
-//     ctx.save()
-//     ctx.font = LABEL_FONT
+    const padX = 8
+    const padY = 3
+    const textH = 14
+    const label = '尚無對戰'
 
-//     data.datasets.forEach((ds: any, di: number) => {
-//       const meta = chart.getDatasetMeta(di)
-//       meta.data.forEach((bar: any, i: number) => {
-//         const v = ds.data?.[i]
-//         // 僅在「該側為 null（未對戰）」時顯示
-//         if (v != null) return
+    ctx.save()
+    ctx.font = SUB_FONT
+    const textW = Math.ceil(ctx.measureText(label).width)
+    const x = Math.min(xScale.getPixelForValue(2), chartArea.right - (textW + padX * 2) - 2)
 
-//         // const label = `${ds.label} - 尚無資料`
-//         const label = ''
-//         const w = Math.ceil(ctx.measureText(label).width)
-//         let x = placeX
-//         const y = bar?.y - textH / 2 // bar 物件仍存在，可取到 y
+    emptyRows.forEach((isEmpty, i) => {
+      if (!isEmpty) return
+      const y = yScale.getPixelForValue(i) - textH / 2
 
-//         // 避免超出右邊界
-//         if (x + w + padX * 2 > chartArea.right - 2) {
-//           x = chartArea.right - 2 - (w + padX * 2)
-//         }
+      ctx.fillStyle = 'rgba(255,255,255,0.08)'
+      roundRect(ctx, x, y - padY, textW + padX * 2, textH + padY * 2, 8)
+      ctx.fill()
 
-//         ctx.fillStyle = pillBg
-//         roundRect(ctx, x, y - padY, w + padX * 2, textH + padY * 2, 8)
-//         ctx.fill()
+      ctx.fillStyle = 'rgba(255,255,255,0.5)'
+      ctx.fillText(label, x + padX, y + textH - 7)
+    })
 
-//         ctx.fillStyle = textColor
-//         ctx.fillText(label, x + padX, y + textH - 7)
-//       })
-//     })
+    ctx.restore()
+  }
+}
 
-//     ctx.restore()
-//   }
-// }
-
-const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy = 'total' }) => {
-  // 轉 Chart.js 的資料：total=0 → null，不畫柱／交由 emptySideMarker 顯示「尚無資料」
+const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy = 'class' }) => {
   const chartData = useMemo(() => {
     if (!stats?.byOpponent) {
-      return {
-        labels: [],
-        _bottomLabels: [],
-        _bottomColors: [],
-        datasets: []
-      } as any
+      return { labels: [], datasets: [] } as any
     }
 
     const rows = Object.entries(stats.byOpponent).map(([oppKey, s]) => {
@@ -268,6 +243,7 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
 
       const fTotal = Number(s.first.total ?? 0)
       const sTotal = Number(s.second.total ?? 0)
+      const allTotal = Number(s.all.total ?? 0)
 
       const rawF = fTotal > 0 ? +Number(s.first.winRate ?? 0).toFixed(1) : null
       const rawS = sTotal > 0 ? +Number(s.second.winRate ?? 0).toFixed(1) : null
@@ -276,9 +252,11 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
       const renderS = rawS == null ? null : rawS === 0 ? MIN_BAR_PCT_RENDER : rawS
 
       return {
+        key: oppKey,
         label,
-        total: Number(s.all.total ?? 0),
+        total: allTotal,
         overallWinRate: Number(s.all.winRate ?? 0),
+        overallWins: Number(s.all.wins ?? 0),
         rawFirstVal: rawF,
         rawSecondVal: rawS,
         renderFirstVal: renderF,
@@ -290,49 +268,59 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
       }
     })
 
-    const sorted = rows.sort((a, b) =>
-      sortBy === 'winrate' ? b.overallWinRate - a.overallWinRate : b.total - a.total
-    )
+    const sorted = [...rows].sort((a, b) => {
+      if (sortBy === 'winrate') return b.overallWinRate - a.overallWinRate
+      if (sortBy === 'total') return b.total - a.total
+      // 固定職業順序：同一個職業永遠在同一列，兩個時間區間才比得起來。
+      const ai = CLASS_ORDER_INDEX.get(a.key) ?? 9999
+      const bi = CLASS_ORDER_INDEX.get(b.key) ?? 9999
+      return ai - bi || a.label.localeCompare(b.label)
+    })
 
     const labels = sorted.map((r) => r.label)
+    const emptyRows = sorted.map((r) => r.total === 0)
 
-    // ↓ 新增：每列次行顯示字串與顏色（≥50% 綠、<50% 紅）
-    const bottomLabels = sorted.map((r) => `${r.overallWinRate.toFixed(1)}% (${r.total})`)
-    const bottomColors = sorted.map((r) => (r.overallWinRate >= 50 ? '#2e7d32' : '#c62828'))
+    const bottomLabels = sorted.map((r) =>
+      r.total === 0 ? '—' : `${r.overallWinRate.toFixed(1)}% (${r.total})`
+    )
+    const bottomColors = sorted.map((r) => {
+      if (r.total === 0) return 'rgba(255,255,255,0.35)'
+      if (isLowSample(r.total)) return 'rgba(255,255,255,0.55)'
+      return r.overallWinRate >= 50 ? '#2e7d32' : '#c62828'
+    })
 
-    // console.log(bottomLabels)
-    // console.log(bottomColors)
-    const firstRenderVals = sorted.map((r) => r.renderFirstVal)
-    const secondRenderVals = sorted.map((r) => r.renderSecondVal)
-    const firstRawVals = sorted.map((r) => r.rawFirstVal)
-    const secondRawVals = sorted.map((r) => r.rawSecondVal)
-    const firstWins = sorted.map((r) => r.firstWins)
-    const firstTotals = sorted.map((r) => r.firstTotal)
-    const secondWins = sorted.map((r) => r.secondWins)
-    const secondTotals = sorted.map((r) => r.secondTotal)
+    const firstLow = sorted.map((r) => isLowSample(r.firstTotal))
+    const secondLow = sorted.map((r) => isLowSample(r.secondTotal))
 
     return {
       labels,
-      _bottomLabels: bottomLabels, // ← 插件會用到
-      _bottomColors: bottomColors, // ← 插件會用到
+      _bottomLabels: bottomLabels,
+      _bottomColors: bottomColors,
+      _emptyRows: emptyRows,
       datasets: [
         {
           label: '先攻',
-          data: firstRenderVals,
-          rawVals: firstRawVals,
-          backgroundColor: FIRST_COLOR,
+          data: sorted.map((r) => r.renderFirstVal),
+          rawVals: sorted.map((r) => r.rawFirstVal),
+          backgroundColor: firstLow.map((low) => (low ? FIRST_COLOR_DIM : FIRST_COLOR)),
+          borderColor: FIRST_COLOR,
+          borderWidth: firstLow.map((low) => (low ? 1 : 0)),
           borderRadius: 6,
-          wins: firstWins,
-          totals: firstTotals
+          wins: sorted.map((r) => r.firstWins),
+          totals: sorted.map((r) => r.firstTotal),
+          lowSample: firstLow
         },
         {
           label: '後攻',
-          data: secondRenderVals,
-          rawVals: secondRawVals,
-          backgroundColor: SECOND_COLOR,
+          data: sorted.map((r) => r.renderSecondVal),
+          rawVals: sorted.map((r) => r.rawSecondVal),
+          backgroundColor: secondLow.map((low) => (low ? SECOND_COLOR_DIM : SECOND_COLOR)),
+          borderColor: SECOND_COLOR,
+          borderWidth: secondLow.map((low) => (low ? 1 : 0)),
           borderRadius: 6,
-          wins: secondWins,
-          totals: secondTotals
+          wins: sorted.map((r) => r.secondWins),
+          totals: sorted.map((r) => r.secondTotal),
+          lowSample: secondLow
         }
       ] as any
     }
@@ -351,9 +339,11 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
 
   const bottomStuff = useMemo(() => {
     const dAny: any = chartData
-    const bl: string[] = (dAny?._bottomLabels as string[]) ?? []
-    const bc: string[] = (dAny?._bottomColors as string[]) ?? []
-    return { bottomLabels: bl, bottomColors: bc }
+    return {
+      bottomLabels: (dAny?._bottomLabels as string[]) ?? [],
+      bottomColors: (dAny?._bottomColors as string[]) ?? [],
+      emptyRows: (dAny?._emptyRows as boolean[]) ?? []
+    }
   }, [chartData])
 
   const options = useMemo(
@@ -390,19 +380,28 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
               const t = totals[ctx.dataIndex] ?? 0
               if (raw == null || !t) return `${ctx.dataset.label}: 尚無資料`
               return `${ctx.dataset.label}: ${raw.toFixed(1)}% (${w}/${t})`
+            },
+            afterLabel: (ctx: any) => {
+              const totals: number[] = ctx.dataset?.totals ?? []
+              const t = totals[ctx.dataIndex] ?? 0
+              return t > 0 && t < LOW_SAMPLE_THRESHOLD ? '樣本不足，勝率僅供參考' : ''
             }
           }
         },
         coloredTicks: {
           bottomLabels: bottomStuff.bottomLabels,
-          bottomColors: bottomStuff.bottomColors
-        }
+          bottomColors: bottomStuff.bottomColors,
+          dimmed: bottomStuff.emptyRows
+        },
+        emptyRowMarker: { emptyRows: bottomStuff.emptyRows }
       }
     }),
-    [leftPadding, bottomStuff.bottomLabels, bottomStuff.bottomColors]
+    [leftPadding, bottomStuff.bottomLabels, bottomStuff.bottomColors, bottomStuff.emptyRows]
   )
 
-  if (!stats || !stats.byOpponent || Object.keys(stats.byOpponent).length === 0) {
+  // `byOpponent` now always carries every class, so an empty result set is
+  // identified by the match count rather than by the shape of the object.
+  if (!stats || !stats.byOpponent || stats.overall.all.total === 0) {
     return (
       <Box
         display="flex"
@@ -426,7 +425,7 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
         </Typography>
 
         <Typography variant="caption" sx={{ opacity: 0.6, textAlign: 'center' }}>
-          完成更多對戰後，即可查看統計數據
+          這組篩選條件下沒有任何對戰紀錄，試著放寬時間區間或關閉牌組／CR 篩選
         </Typography>
       </Box>
     )
@@ -440,7 +439,6 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
   const winFirst = Number(stats.overall.first.winRate.toFixed(1))
   const winSecond = Number(stats.overall.second.winRate.toFixed(1))
   const winAll = Number(stats.overall.all.winRate.toFixed(1))
-
   return (
     <Card sx={{ background: 'rgba(255,255,255,0.06)', color: '#fff' }}>
       <CardContent>
@@ -462,17 +460,12 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
                 <Typography variant="h6" display={'flex'}>
                   {'['}
                   <Box display={'flex'} mx={1}>
-                    {stats.myDecks.map((v, index) => {
-                      // const color = classesMap[String(stats.myClass)]?.color ?? undefined
-                      const label = v.name
-
-                      return (
-                        <Box key={v.id}>
-                          {label}
-                          {index < stats.myDecks!.length - 1 && '、'}
-                        </Box>
-                      )
-                    })}
+                    {stats.myDecks.map((v, index) => (
+                      <Box key={v.id}>
+                        {v.name}
+                        {index < stats.myDecks!.length - 1 && '、'}
+                      </Box>
+                    ))}
                   </Box>
                   {']'}
                 </Typography>
@@ -491,13 +484,7 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             CR 區間：{stats.crMin} ~ {stats.crMax}
           </Typography>
         )}
-        <Box
-          mt={1.5}
-          display="flex"
-          gap={2}
-          flexWrap="nowrap" // ← 不允許自動換行
-          alignItems="baseline"
-        >
+        <Box mt={1.5} display="flex" gap={2} flexWrap="nowrap" alignItems="baseline">
           {/* 總場數 */}
           <Box display="inline-flex" alignItems="baseline" sx={{ whiteSpace: 'nowrap' }}>
             <Typography variant="subtitle1" sx={{ opacity: 0.8 }} component="span">
@@ -571,13 +558,18 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             )}
           </Box>
         </Box>
+
+        <Typography variant="caption" sx={{ opacity: 0.55, display: 'block', mt: 0.5 }}>
+          ⚠ 與半透明柱體代表樣本不足 {LOW_SAMPLE_THRESHOLD} 場，勝率僅供參考。
+        </Typography>
+
         <Divider sx={{ my: 1 }} />
 
         <Box sx={{ width: '100%', height }}>
           <Bar
             data={chartData}
             options={options}
-            plugins={[valueLabelPlugin, coloredTicksPlugin]}
+            plugins={[valueLabelPlugin, coloredTicksPlugin, emptyRowMarkerPlugin]}
           />
         </Box>
       </CardContent>

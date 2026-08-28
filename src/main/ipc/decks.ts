@@ -1,7 +1,15 @@
 import { ipcMain } from 'electron'
-import type { Prisma, PrismaClient, ClassName, Deck, DeckCategory } from '@prisma/client'
-import { getPrisma } from '../db/prismaClient.js'
-import { getStatsCacheVersion, invalidateStatsCaches } from '../statsCache.js'
+import type { Kysely, Transaction } from 'kysely'
+import type { ClassName, Deck, DeckCategory, GameMode } from '../../shared/domain.js'
+import {
+  type Database,
+  deckCategoryFromRow,
+  deckFromRow,
+  getDb,
+  newCategoryId,
+  nowMs,
+  toMs
+} from '../data/db/client.js'
 import { broadcast } from '../utils/broadcast.js'
 import { RangeKey } from './helper.js'
 
@@ -21,7 +29,6 @@ type DeckUpdateInput = {
   name?: string
   categoryId?: string | null
   // 避免語意混亂，不在 update 中改職業；若有需要另開 API。
-  // class?: ClassName
   isDefault?: boolean
 }
 
@@ -29,8 +36,7 @@ type Ok<T> = { ok: true; data: T }
 type Err = { ok: false; error: string }
 type Res<T> = Ok<T> | Err
 
-type Tx = Prisma.TransactionClient
-type Db = PrismaClient | Tx
+type Db = Kysely<Database> | Transaction<Database>
 type DeckStatsRow = {
   deckId: number
   total: number
@@ -39,16 +45,10 @@ type DeckStatsRow = {
 }
 type ReferenceDataScope = 'decks' | 'tags' | 'categories' | 'all'
 
-const STATS_CACHE_TTL_MS = 3000
-const deckStatsCache = new Map<string, { expiresAt: number; value: DeckStatsRow[] }>()
-
-function statsCacheKey(params: Record<string, unknown>): string {
-  return JSON.stringify(params, (_key, value) => {
-    if (value instanceof Date) return value.getTime()
-    if (Array.isArray(value)) return [...value].sort()
-    return value
-  })
-}
+// The 3s stats cache that used to sit here existed to hide the Prisma engine's
+// per-call overhead. An in-process better-sqlite3 aggregate over this data size
+// is microseconds, so the cache - and the version bookkeeping that kept it
+// honest - is gone rather than ported.
 
 function notifyReferenceDataChanged(scope: ReferenceDataScope): void {
   broadcast('reference-data:changed', { scope })
@@ -63,8 +63,8 @@ const wrap = async <T>(fn: () => Promise<T>): Promise<Res<T>> => {
   try {
     const data = await fn()
     return { ok: true, data }
-  } catch (e: any) {
-    return { ok: false, error: e?.message ?? 'Unknown error' }
+  } catch (e: unknown) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Unknown error' }
   }
 }
 
@@ -87,7 +87,11 @@ const assertValidName = (name?: string): string => {
 async function ensureCategoryExists(db: Db, categoryId?: string | null): Promise<void> {
   const cid = coerceCategoryId(categoryId)
   if (!cid) return
-  const exists = await db.deckCategory.findUnique({ where: { id: cid } })
+  const exists = await db
+    .selectFrom('DeckCategory')
+    .select('id')
+    .where('id', '=', cid)
+    .executeTakeFirst()
   if (!exists) throw new Error('NOT_FOUND:Category')
 }
 
@@ -97,10 +101,12 @@ async function hasNameDuplicateCI(
   db: Db,
   params: { cls: string; categoryId: string | null; name: string; excludeId?: number }
 ): Promise<boolean> {
-  const rows = await db.deck.findMany({
-    where: { class: params.cls, categoryId: params.categoryId },
-    select: { id: true, name: true }
-  })
+  let query = db.selectFrom('Deck').select(['id', 'name']).where('class', '=', params.cls)
+  query =
+    params.categoryId === null
+      ? query.where('categoryId', 'is', null)
+      : query.where('categoryId', '=', params.categoryId)
+  const rows = await query.execute()
   const target = norm(params.name)
   return rows.some(
     (r) => (params.excludeId ? r.id !== params.excludeId : true) && norm(r.name) === target
@@ -113,14 +119,14 @@ const toDateSafe = (v: unknown): Date | null => {
     const d = new Date(Number(v))
     return isNaN(d.getTime()) ? null : d
   }
-  const d = new Date(v as any)
+  const d = new Date(v as string | Date)
   return isNaN(d.getTime()) ? null : d
 }
 
 const computeRange = (p: {
   rangeKey?: RangeKey
-  start?: any
-  end?: any
+  start?: unknown
+  end?: unknown
 }): {
   start?: Date
   end?: Date
@@ -156,17 +162,21 @@ const computeRange = (p: {
  * ================================ */
 
 export function registerDecksIpc(): void {
-  const prisma: PrismaClient = getPrisma()
+  const db = getDb()
 
   // 取全部分類（穩定排序）
   ipcMain.handle(
     'deckCategories:all',
     async (): Promise<Res<DeckCategory[]>> =>
-      wrap(() =>
-        prisma.deckCategory.findMany({
-          orderBy: [{ sort: 'asc' }, { name: 'asc' }]
-        })
-      )
+      wrap(async () => {
+        const rows = await db
+          .selectFrom('DeckCategory')
+          .selectAll()
+          .orderBy('sort', 'asc')
+          .orderBy('name', 'asc')
+          .execute()
+        return rows.map(deckCategoryFromRow)
+      })
   )
 
   // 取全部牌組（給前端用的排序；回傳必要欄位）
@@ -180,25 +190,17 @@ export function registerDecksIpc(): void {
         >[]
       >
     > =>
-      wrap(() =>
-        prisma.deck.findMany({
-          orderBy: [
-            { class: 'asc' },
-            { isDefault: 'desc' },
-            { updatedAt: 'desc' },
-            { name: 'asc' }
-          ],
-          select: {
-            id: true,
-            name: true,
-            class: true,
-            categoryId: true,
-            isDefault: true,
-            createdAt: true,
-            updatedAt: true
-          }
-        })
-      )
+      wrap(async () => {
+        const rows = await db
+          .selectFrom('Deck')
+          .selectAll()
+          .orderBy('class', 'asc')
+          .orderBy('isDefault', 'desc')
+          .orderBy('updatedAt', 'desc')
+          .orderBy('name', 'asc')
+          .execute()
+        return rows.map(deckFromRow)
+      })
   )
 
   // 牌組戰績：依我方牌組統計勝率
@@ -208,6 +210,7 @@ export function registerDecksIpc(): void {
       _e,
       params: {
         deckIds?: number[]
+        mode?: GameMode | 'all'
         rangeKey?: RangeKey
         start?: string | number | Date | null
         end?: string | number | Date | null
@@ -215,51 +218,37 @@ export function registerDecksIpc(): void {
     ): Promise<Res<DeckStatsRow[]>> =>
       wrap(async () => {
         const { start, end } = computeRange(params)
-        const cacheKey = statsCacheKey({
-          version: getStatsCacheVersion(),
-          deckIds: params.deckIds ?? [],
-          start: start?.getTime() ?? null,
-          end: end?.getTime() ?? null
-        })
-        const cached = deckStatsCache.get(cacheKey)
-        if (cached && cached.expiresAt > Date.now()) return cached.value
 
-        const where: Prisma.MatchWhereInput = {
-          my_deckId: { not: null },
-          result: { not: null }
-        }
-        if (params.deckIds?.length) where.my_deckId = { in: params.deckIds }
-        if (start && end) where.playedAt = { gte: start, lte: end }
-        else if (start) where.playedAt = { gte: start }
-        else if (end) where.playedAt = { lte: end }
+        let query = db
+          .selectFrom('Match')
+          .select(({ fn, eb }) => [
+            'my_deckId',
+            fn.countAll<number>().as('total'),
+            // SQLite has no FILTER-free conditional count shorter than SUM.
+            eb.fn.sum<number>(eb.case().when('result', '=', 1).then(1).else(0).end()).as('wins')
+          ])
+          .where('my_deckId', 'is not', null)
+          .where('result', 'is not', null)
+          .groupBy('my_deckId')
 
-        const grouped = await prisma.match.groupBy({
-          by: ['my_deckId', 'result'],
-          where,
-          _count: { _all: true }
-        })
+        if (params.deckIds?.length) query = query.where('my_deckId', 'in', params.deckIds)
+        if (params.mode && params.mode !== 'all') query = query.where('mode', '=', params.mode)
+        if (start) query = query.where('playedAt', '>=', toMs(start))
+        if (end) query = query.where('playedAt', '<=', toMs(end))
 
-        const stats = new Map<number, { total: number; wins: number }>()
-        grouped.forEach((row) => {
-          if (row.my_deckId == null) return
-          const current = stats.get(row.my_deckId) ?? { total: 0, wins: 0 }
-          const count = row._count._all
-          current.total += count
-          if (row.result === true) current.wins += count
-          stats.set(row.my_deckId, current)
-        })
-
-        const result = Array.from(stats.entries()).map(([deckId, { total, wins }]) => {
-          const rate = total > 0 ? +((wins / total) * 100).toFixed(2) : 0
-          return {
-            deckId,
-            total,
-            wins,
-            winRate: rate
-          }
-        })
-        deckStatsCache.set(cacheKey, { expiresAt: Date.now() + STATS_CACHE_TTL_MS, value: result })
-        return result
+        const grouped = await query.execute()
+        return grouped
+          .filter((row) => row.my_deckId != null)
+          .map((row) => {
+            const total = Number(row.total)
+            const wins = Number(row.wins ?? 0)
+            return {
+              deckId: row.my_deckId as number,
+              total,
+              wins,
+              winRate: total > 0 ? +((wins / total) * 100).toFixed(2) : 0
+            }
+          })
       })
   )
 
@@ -269,10 +258,14 @@ export function registerDecksIpc(): void {
     async (_e, input: { name: string }): Promise<Res<DeckCategory>> =>
       wrap(async () => {
         const name = assertValidName(input?.name)
-        const created = await prisma.deckCategory.create({ data: { name } })
-        invalidateStatsCaches()
+        const now = nowMs()
+        const row = await db
+          .insertInto('DeckCategory')
+          .values({ id: newCategoryId(), name, createdAt: now, updatedAt: now })
+          .returningAll()
+          .executeTakeFirstOrThrow()
         notifyReferenceDataChanged('categories')
-        return created
+        return deckCategoryFromRow(row)
       })
   )
 
@@ -286,7 +279,7 @@ export function registerDecksIpc(): void {
 
         const categoryId = coerceCategoryId(input.categoryId)
 
-        const created = await prisma.$transaction(async (tx) => {
+        const created = await db.transaction().execute(async (tx) => {
           await ensureCategoryExists(tx, categoryId)
 
           // 不分大小寫重名檢查（同職業 + 同分類）
@@ -298,22 +291,29 @@ export function registerDecksIpc(): void {
           if (dup) throw new Error('DUPLICATE_NAME')
 
           if (input.isDefault) {
-            await tx.deck.updateMany({ where: { class: input.class }, data: { isDefault: false } })
+            await tx
+              .updateTable('Deck')
+              .set({ isDefault: 0 })
+              .where('class', '=', input.class)
+              .execute()
           }
 
-          const created = await tx.deck.create({
-            data: {
+          const now = nowMs()
+          return tx
+            .insertInto('Deck')
+            .values({
               name,
               class: input.class,
               categoryId,
-              isDefault: !!input.isDefault
-            }
-          })
-          return created
+              isDefault: input.isDefault ? 1 : 0,
+              createdAt: now,
+              updatedAt: now
+            })
+            .returningAll()
+            .executeTakeFirstOrThrow()
         })
-        invalidateStatsCaches()
         notifyReferenceDataChanged('decks')
-        return created
+        return deckFromRow(created)
       })
   )
 
@@ -325,11 +325,15 @@ export function registerDecksIpc(): void {
         const { id } = input
         if (!id) throw new Error('INVALID_INPUT:ID is required')
 
-        const updated = await prisma.$transaction(async (tx) => {
-          const current = await tx.deck.findUnique({ where: { id } })
+        const updated = await db.transaction().execute(async (tx) => {
+          const current = await tx
+            .selectFrom('Deck')
+            .selectAll()
+            .where('id', '=', id)
+            .executeTakeFirst()
           if (!current) throw new Error('NOT_FOUND:Deck')
 
-          const data: Partial<Pick<Deck, 'name' | 'categoryId' | 'isDefault'>> = {}
+          const data: { name?: string; categoryId?: string | null; isDefault?: number } = {}
 
           if (typeof input.name === 'string') {
             data.name = assertValidName(input.name)
@@ -347,7 +351,7 @@ export function registerDecksIpc(): void {
               typeof data.categoryId !== 'undefined' ? data.categoryId : current.categoryId
             const nextName = typeof data.name === 'string' ? data.name : current.name
             const dup = await hasNameDuplicateCI(tx, {
-              cls: current.class as ClassName,
+              cls: current.class,
               categoryId: nextCatId ?? null,
               name: nextName,
               excludeId: id
@@ -358,37 +362,38 @@ export function registerDecksIpc(): void {
           // isDefault 調整（同職業僅能有一個）
           if (typeof input.isDefault === 'boolean') {
             if (input.isDefault) {
-              await tx.deck.updateMany({
-                where: { class: current.class },
-                data: { isDefault: false }
-              })
-              data.isDefault = true
+              await tx
+                .updateTable('Deck')
+                .set({ isDefault: 0 })
+                .where('class', '=', current.class)
+                .execute()
+              data.isDefault = 1
             } else {
-              data.isDefault = false
+              data.isDefault = 0
             }
           }
 
-          const updated = await tx.deck.update({
-            where: { id },
-            data
-          })
-          return updated
+          return tx
+            .updateTable('Deck')
+            .set({ ...data, updatedAt: nowMs() })
+            .where('id', '=', id)
+            .returningAll()
+            .executeTakeFirstOrThrow()
         })
-        invalidateStatsCaches()
         notifyReferenceDataChanged('decks')
-        return updated
+        return deckFromRow(updated)
       })
   )
 
-  // 刪除牌組（若 schema 設定 FK onDelete: SetNull/Restrict，這裡會依設定表現）
+  // 刪除牌組。FK 的 onDelete: SetNull 定義在 schema（001_init.sql），行為不變。
   ipcMain.handle(
     'decks:delete',
     async (_e, { id }: { id: number }): Promise<Res<{ success: true }>> =>
       wrap(async () => {
-        await prisma.deck.delete({ where: { id } })
-        invalidateStatsCaches()
+        const deleted = await db.deleteFrom('Deck').where('id', '=', id).executeTakeFirst()
+        if (deleted.numDeletedRows === 0n) throw new Error('NOT_FOUND:Deck')
         notifyReferenceDataChanged('decks')
-        return { success: true }
+        return { success: true as const }
       })
   )
 
@@ -397,27 +402,27 @@ export function registerDecksIpc(): void {
     'decks:setDefaultForClass',
     async (_e, { deckId }: { deckId: number }): Promise<Res<Deck>> =>
       wrap(async () => {
-        const updated = await prisma.$transaction(async (tx) => {
-          const deck = await tx.deck.findUnique({ where: { id: deckId } })
+        const updated = await db.transaction().execute(async (tx) => {
+          const deck = await tx
+            .selectFrom('Deck')
+            .selectAll()
+            .where('id', '=', deckId)
+            .executeTakeFirst()
           if (!deck) throw new Error('NOT_FOUND:Deck')
-          await tx.deck.updateMany({ where: { class: deck.class }, data: { isDefault: false } })
-          const updated = await tx.deck.update({ where: { id: deckId }, data: { isDefault: true } })
-          return updated
+          await tx
+            .updateTable('Deck')
+            .set({ isDefault: 0 })
+            .where('class', '=', deck.class)
+            .execute()
+          return tx
+            .updateTable('Deck')
+            .set({ isDefault: 1, updatedAt: nowMs() })
+            .where('id', '=', deckId)
+            .returningAll()
+            .executeTakeFirstOrThrow()
         })
-        invalidateStatsCaches()
         notifyReferenceDataChanged('decks')
-        return updated
+        return deckFromRow(updated)
       })
   )
-
-  // （可選）查詢某職業的預設牌組
-  // ipcMain.handle(
-  //   'decks:getDefault',
-  //   async (_e, { class: cls }: { class: ClassName }): Promise<Res<Deck | null>> =>
-  //     wrap(() =>
-  //       prisma.deck.findFirst({
-  //         where: { class: cls, isDefault: true }
-  //       })
-  //     )
-  // )
 }

@@ -1,7 +1,7 @@
-import type { ClassName, GameMode, PlayOrder } from '@prisma/client'
+import type { ClassName, GameMode, PlayOrder } from './domain.js'
 
-type Stat = { wins: number; total: number; winRate: number }
-type SideStats = { first: Stat; second: Stat; all: Stat }
+export type Stat = { wins: number; total: number; winRate: number }
+export type SideStats = { first: Stat; second: Stat; all: Stat }
 
 export type RankedWinrateByOpponent = {
   myClass: ClassName
@@ -17,11 +17,32 @@ export type RankedWinrateByOpponent = {
 
 export type RangeKey = 'today' | '7d' | '30d' | 'all' | 'custom'
 
+/**
+ * Whether the game is there at all, broadcast on the detection poll so any
+ * window can distinguish "not detected" from "detected but nothing recorded".
+ */
+export interface GameStatus {
+  running: boolean
+  /** Running but minimised or without bounds, so capture is suspended. */
+  paused: boolean
+  capturing: boolean
+}
+
 export interface BattleStatus {
   inBattle: boolean
   ownClass: ClassName | null
   enemyClass: ClassName | null
   playOrder: PlayOrder | null
+  /**
+   * The mode of the battle in progress, as soon as anything knows it.
+   *
+   * `null` is a real state, not a gap. A ranked match carries no mode evidence
+   * until its result screen, so it stays null for the whole battle; 2Pick and
+   * CPU are labelled before the first card is played and arrive here at once.
+   * The HUD treats null as "fall back to the last recorded match" rather than
+   * as "no mode".
+   */
+  mode: GameMode | null
 }
 
 export type QueryPayload = {
@@ -36,6 +57,8 @@ export type QueryPayload = {
   note?: 'any' | 'with' | 'without'
   crMin?: number | null
   crMax?: number | null
+  /** Keyset cursor for the match list's stable playedAt/id ordering. */
+  cursor?: { playedAt: string; id: number } | null
   pageIndex?: number
   pageSize?: number
 }

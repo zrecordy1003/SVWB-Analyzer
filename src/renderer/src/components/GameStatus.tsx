@@ -3,8 +3,7 @@ import { useSvwbStatus } from '@renderer/hooks/useSvwbStatus'
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
 import WarningIcon from '@mui/icons-material/Warning'
-import CheckIcon from '@mui/icons-material/Check'
-import ErrorIcon from '@mui/icons-material/Error'
+import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import Typography from '@mui/material/Typography'
 import { CircularProgress, Fade, Zoom } from '@mui/material'
 
@@ -54,7 +53,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
   if (isLoading) {
     return (
       <Tooltip title="讀取遊戲狀態中" placement="right" disableHoverListener={open}>
-        <Box ml={'13px'} display="flex" justifyContent="center" alignItems="center">
+        <Box width="100%" display="flex" justifyContent="center" alignItems="center">
           <CircularProgress size="2rem" />
           <Typography ml={2} color="info" fontWeight="bold">
             狀態讀取中
@@ -84,7 +83,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
 
   if (!open) {
     return (
-      <Box ml={'17.5px'} display="flex" flexDirection="column" alignItems="center" gap={2}>
+      <Box width="100%" display="flex" flexDirection="column" alignItems="center" gap={2}>
         {!running && (
           <Tooltip
             title="未偵測到遊戲"
@@ -95,7 +94,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
             }}
           >
             <Box display="flex" alignItems="center" justifyContent="center">
-              <ErrorIcon color="error" />
+              <SportsEsportsIcon color="error" />
             </Box>
           </Tooltip>
         )}
@@ -109,7 +108,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
             }}
           >
             <Box display="flex" alignItems="center" justifyContent="center">
-              <CheckIcon color="success" />
+              <SportsEsportsIcon color="success" />
             </Box>
           </Tooltip>
         )}
@@ -147,7 +146,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
     <Box ml={'17.5px'} display="flex" flexDirection="column" alignItems="start" gap={2}>
       {!running && (
         <Box display="flex" alignItems="center" color={running ? 'success.main' : 'error.main'}>
-          <ErrorIcon sx={{ mr: 1 }} />
+          <SportsEsportsIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
             <Typography>未偵測到遊戲</Typography>
           </Fade>
@@ -155,7 +154,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
       )}
       {running && !isMinimized && (
         <Box display="flex" alignItems="center" color={running ? 'success.main' : 'error.main'}>
-          {running ? <CheckIcon sx={{ mr: 1 }} /> : <ErrorIcon sx={{ mr: 1 }} />}
+          <SportsEsportsIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
             <Typography>{running ? '遊戲執行中' : '未偵測到遊戲'}</Typography>
           </Fade>

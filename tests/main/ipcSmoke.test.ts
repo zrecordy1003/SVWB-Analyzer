@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { registerDecksIpc } from '../../src/main/ipc/decks'
 import { registerMatchesIpc } from '../../src/main/ipc/matches'
 import { registerTagsIpc } from '../../src/main/ipc/tags'
-import { getPrisma } from '../../src/main/db/prismaClient'
-import { createMigratedTestDb, removeTestDb, type TestDb } from '../helpers/db'
+import { createMigratedTestDb, insertMatch, removeTestDb, type TestDb } from '../helpers/db'
 
 const electronMock = vi.hoisted(() => ({
   handlers: new Map<string, (...args: any[]) => unknown>()
@@ -63,21 +62,18 @@ describe('IPC smoke flow', () => {
 
     const tag = await invoke<any>('tags:create', ' ladder ')
     const playedAt = new Date('2026-05-20T12:00:00Z')
-    const match = await getPrisma().match.create({
-      data: {
+    const match = {
+      id: await insertMatch({
         result: true,
         play_order: 'first',
         my_class: 'elf',
         oppo_class: 'royal',
         mode: 'ranked',
         my_deckId: deck.data.id,
-        year: playedAt.getUTCFullYear(),
-        month: playedAt.getUTCMonth() + 1,
-        day: playedAt.getUTCDate(),
         playedAt,
         endedAt: new Date('2026-05-20T12:05:00Z')
-      }
-    })
+      })
+    }
 
     await invoke('matches:setTags', match.id, ['ladder'])
 
@@ -95,6 +91,69 @@ describe('IPC smoke flow', () => {
       id: match.id,
       my_deck: { id: deck.data.id, name: 'Smoke Deck' },
       tags: [{ tag: { id: tag.id, name: 'ladder' } }]
+    })
+
+    const list = await invoke<{ rows: any[]; total: number }>('matches:queryList', {
+      pageIndex: 0,
+      pageSize: 10,
+      rangeKey: 'all',
+      tagIds: [tag.id]
+    })
+    expect(list).toMatchObject({ total: 1 })
+    expect(list.rows[0]).toMatchObject({
+      id: match.id,
+      my_deck: { id: deck.data.id, name: 'Smoke Deck' },
+      tagCount: 1,
+      tags: [{ id: tag.id, name: 'ladder' }]
+    })
+
+    const extras = await invoke<{ note: string | null; tags: { id: number; name: string }[] }>(
+      'matches:getExtras',
+      match.id
+    )
+    expect(extras).toEqual({ note: null, tags: [{ id: tag.id, name: 'ladder' }] })
+
+    const secondMatch = {
+      id: await insertMatch({
+        result: false,
+        play_order: 'second',
+        my_class: 'witch',
+        oppo_class: 'dragon',
+        mode: 'ranked',
+        playedAt
+      })
+    }
+    const firstCursorPage = await invoke<{
+      rows: any[]
+      total: number | null
+      hasMore: boolean
+      nextCursor: { playedAt: string; id: number } | null
+    }>('matches:queryList', { pageSize: 1, rangeKey: 'all' })
+    expect(firstCursorPage).toMatchObject({
+      total: 2,
+      hasMore: true,
+      rows: [{ id: secondMatch.id }]
+    })
+    expect(firstCursorPage.nextCursor).toEqual({
+      playedAt: playedAt.toISOString(),
+      id: secondMatch.id
+    })
+
+    const secondCursorPage = await invoke<{
+      rows: any[]
+      total: number | null
+      hasMore: boolean
+      nextCursor: { playedAt: string; id: number } | null
+    }>('matches:queryList', {
+      pageSize: 1,
+      rangeKey: 'all',
+      cursor: firstCursorPage.nextCursor
+    })
+    expect(secondCursorPage).toMatchObject({
+      total: null,
+      hasMore: false,
+      nextCursor: null,
+      rows: [{ id: match.id }]
     })
 
     const stats = await invoke<any>('decks:stats', {

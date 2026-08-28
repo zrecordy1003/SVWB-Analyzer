@@ -1,21 +1,26 @@
-import { Box, Chip, Skeleton, Typography } from '@mui/material'
-import { Match } from '@prisma/client'
-import { classesMap, modesMap } from '@renderer/map/classMap'
+import { Box, Skeleton, Typography } from '@mui/material'
+import { Match } from '@shared/domain'
+import { classesMap } from '@renderer/map/classMap'
+import { playOrderOf } from '@renderer/map/playOrder'
+import ModeLabel from '@renderer/components/Common/ModeLabel'
+import PlayOrderMark from '@renderer/components/Common/PlayOrderMark'
+import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
+import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
 import React from 'react'
 
 interface RecentProps {
   fetchData: Match[]
   isLoading?: boolean
   error?: string | null
+  compact?: boolean
 }
 
-function formatPlayedAt(value: Date | string): string {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
-
-const Recent: React.FC<RecentProps> = ({ fetchData, isLoading = false, error = null }) => {
+const Recent: React.FC<RecentProps> = ({
+  fetchData,
+  isLoading = false,
+  error = null,
+  compact = false
+}) => {
   if (isLoading && fetchData.length === 0) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, minHeight: 0 }}>
@@ -34,16 +39,106 @@ const Recent: React.FC<RecentProps> = ({ fetchData, isLoading = false, error = n
     )
   }
 
+  if (compact) {
+    const compactMatches = fetchData.slice(0, 5)
+    const wins = compactMatches.filter((match) => match.result === true).length
+    return (
+      <Box sx={{ minHeight: 0, WebkitAppRegion: 'no-drag' }}>
+        {error && (
+          <Typography variant="caption" sx={{ display: 'block', color: '#F2A3A3', mb: 0.75 }}>
+            {error}
+          </Typography>
+        )}
+        {compactMatches.length === 0 ? (
+          <Box
+            sx={{
+              py: 1.5,
+              textAlign: 'center',
+              borderRadius: 1.25,
+              bgcolor: 'rgba(214,226,244,0.045)',
+              border: '1px solid rgba(214,226,244,0.08)'
+            }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              尚無近期對戰紀錄
+            </Typography>
+          </Box>
+        ) : (
+          <>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'baseline',
+                justifyContent: 'space-between',
+                mb: 0.75
+              }}
+            >
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                最近 {compactMatches.length} 場
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#75E2A8', fontWeight: 750 }}>
+                {wins} 勝 {compactMatches.length - wins} 敗
+              </Typography>
+            </Box>
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${compactMatches.length}, minmax(0, 1fr))`,
+                gap: 0.5
+              }}
+            >
+              {compactMatches.map((match) => {
+                const isWin = match.result === true
+                return (
+                  <Box
+                    key={match.id}
+                    title={`${classesMap[match.my_class]?.label} vs ${classesMap[match.oppo_class]?.label}`}
+                    sx={{
+                      minWidth: 0,
+                      py: 0.75,
+                      borderRadius: 1,
+                      textAlign: 'center',
+                      bgcolor: isWin ? 'rgba(117,226,168,0.14)' : 'rgba(242,140,140,0.14)',
+                      border: `1px solid ${isWin ? 'rgba(117,226,168,0.25)' : 'rgba(242,140,140,0.25)'}`
+                    }}
+                  >
+                    <Typography
+                      sx={{ color: isWin ? '#75E2A8' : '#F28C8C', fontWeight: 850, lineHeight: 1 }}
+                    >
+                      {isWin ? '勝利' : '敗北'}
+                    </Typography>
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        color: playOrderOf(match.play_order).color,
+                        fontSize: 10,
+                        fontWeight: 800
+                      }}
+                    >
+                      {playOrderOf(match.play_order).label}
+                    </Typography>
+                  </Box>
+                )
+              })}
+            </Box>
+          </>
+        )}
+      </Box>
+    )
+  }
+
   return (
     <Box
       sx={{
         flex: 1,
-        overflowY: 'auto',
+        // No height ceiling: the caller hands over a fixed, small number of
+        // rows and the window height follows the content, so a cap could only
+        // ever slice the last row in half.
         display: 'flex',
         flexDirection: 'column',
         gap: 0.75,
         minHeight: 0,
-        pr: 0.25,
+        overflowY: 'auto',
         WebkitAppRegion: 'no-drag'
       }}
     >
@@ -84,128 +179,114 @@ const Recent: React.FC<RecentProps> = ({ fetchData, isLoading = false, error = n
         </Box>
       )}
 
-      {fetchData.map((m) => (
-        <Box
-          key={m.id}
-          sx={{
-            px: 1,
-            py: 0.85,
-            borderRadius: 1.25,
-            bgcolor: 'rgba(214,226,244,0.055)',
-            border: '1px solid rgba(214,226,244,0.08)',
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) auto',
-            alignItems: 'center',
-            gap: 1,
-            minHeight: 56,
-            transition: 'background-color 160ms ease-out, border-color 160ms ease-out',
-            '&:hover': {
-              bgcolor: 'rgba(214,226,244,0.085)',
-              borderColor: 'rgba(214,226,244,0.15)'
-            },
-            '@media (prefers-reduced-motion: reduce)': {
-              transition: 'none'
-            }
-          }}
-        >
-          <Box sx={{ minWidth: 0 }}>
+      {fetchData.map((m) => {
+        const isWin = m.result === true
+        const resultLabel = m.result == null ? '—' : isWin ? '勝' : '敗'
+        const resultColor = m.result == null ? '#8A93A0' : isWin ? '#75E2A8' : '#F28C8C'
+        const resultBackground =
+          m.result == null
+            ? 'rgba(138,147,160,0.14)'
+            : isWin
+              ? 'rgba(117,226,168,0.14)'
+              : 'rgba(242,140,140,0.14)'
+
+        return (
+          <Box
+            key={m.id}
+            sx={{
+              display: 'flex',
+              alignItems: 'stretch',
+              minHeight: 52,
+              borderRadius: 1.25,
+              overflow: 'hidden',
+              bgcolor: 'rgba(214,226,244,0.055)',
+              border: '1px solid rgba(214,226,244,0.08)',
+              transition: 'background-color 160ms ease-out, border-color 160ms ease-out',
+              '&:hover': {
+                bgcolor: 'rgba(214,226,244,0.085)',
+                borderColor: 'rgba(214,226,244,0.15)'
+              },
+              '@media (prefers-reduced-motion: reduce)': {
+                transition: 'none'
+              }
+            }}
+          >
+            {/*
+              Same anatomy as the match list card: the outcome owns a coloured
+              rail on the left, with play order directly under it, so the two
+              facts that decide how the row reads are found in one place.
+            */}
             <Box
               sx={{
+                width: 46,
+                flexShrink: 0,
+                px: 0.25,
                 display: 'flex',
+                flexDirection: 'column',
                 alignItems: 'center',
-                gap: 0.65,
-                minWidth: 0,
-                mb: 0.35
+                justifyContent: 'center',
+                gap: 0.3,
+                bgcolor: resultBackground,
+                color: resultColor
               }}
             >
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: 750,
-                  color: classesMap[m.my_class]?.color,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  minWidth: 0
-                }}
-              >
-                {classesMap[m.my_class]?.label}
+              <Typography sx={{ fontSize: 15, fontWeight: 850, lineHeight: 1 }}>
+                {resultLabel}
               </Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(214,226,244,0.45)' }}>
-                vs
-              </Typography>
-              <Typography
-                variant="body2"
-                sx={{
-                  fontWeight: 750,
-                  color: classesMap[m.oppo_class]?.color,
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  minWidth: 0
-                }}
-              >
-                {classesMap[m.oppo_class]?.label}
-              </Typography>
+              <PlayOrderMark order={m.play_order} dense />
             </Box>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.65, flexWrap: 'wrap' }}>
-              {m.mode && (
+            <Box sx={{ flex: 1, minWidth: 0, px: 0.9, py: 0.6 }}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5,
+                  minWidth: 0,
+                  mb: 0.3
+                }}
+              >
                 <Typography
-                  variant="caption"
-                  color={m.mode ? `${modesMap[m.mode]?.color}.main` : 'text.secondary'}
-                  sx={{ fontWeight: 650, lineHeight: 1.2 }}
-                >
-                  {modesMap[m.mode]?.label}
-                </Typography>
-              )}
-              {typeof m.bp === 'number' && (
-                <Typography
-                  variant="caption"
+                  variant="body2"
                   sx={{
-                    color: m.bp >= 0 ? '#75E2A8' : '#F28C8C',
-                    fontWeight: 700,
-                    lineHeight: 1.2
+                    fontWeight: 750,
+                    color: classesMap[m.my_class]?.color,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    minWidth: 0
                   }}
                 >
-                  BP {m.bp >= 0 ? '+' : ''}
-                  {m.bp}
+                  {classesMap[m.my_class]?.label}
                 </Typography>
-              )}
-              <Typography variant="caption" sx={{ color: 'rgba(214,226,244,0.55)' }}>
-                {formatPlayedAt(m.playedAt)}
-              </Typography>
+                <Typography variant="caption" sx={{ color: 'rgba(214,226,244,0.45)' }}>
+                  vs
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 750,
+                    color: classesMap[m.oppo_class]?.color,
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    minWidth: 0
+                  }}
+                >
+                  {classesMap[m.oppo_class]?.label}
+                </Typography>
+              </Box>
+
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.65, minWidth: 0 }}>
+                <ModeLabel mode={m.mode} dense />
+                <PlayedAtLabel playedAt={m.playedAt} dense />
+                <Box sx={{ flex: 1 }} />
+                <MatchScoreBlock match={m} dense />
+              </Box>
             </Box>
           </Box>
-
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
-            <Chip
-              size="small"
-              label={m.result ? '勝' : '敗'}
-              sx={{
-                height: 22,
-                minWidth: 38,
-                borderRadius: 1,
-                fontWeight: 800,
-                bgcolor: m.result ? 'rgba(117,226,168,0.14)' : 'rgba(242,140,140,0.14)',
-                color: m.result ? '#75E2A8' : '#F28C8C',
-                border: `1px solid ${m.result ? 'rgba(117,226,168,0.24)' : 'rgba(242,140,140,0.24)'}`,
-                '& .MuiChip-label': { px: 0.85 }
-              }}
-            />
-            <Typography
-              variant="caption"
-              sx={{
-                color: m.play_order === 'first' ? '#66D8F5' : '#E87AC5',
-                fontWeight: 750,
-                lineHeight: 1
-              }}
-            >
-              {m.play_order === 'first' ? '先攻' : '後攻'}
-            </Typography>
-          </Box>
-        </Box>
-      ))}
+        )
+      })}
     </Box>
   )
 }

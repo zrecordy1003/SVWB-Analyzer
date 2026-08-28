@@ -1,0 +1,21 @@
+[package]
+name = "svwb-vision-node-addon"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# A thin Node addon wrapper. The matching logic lives in the sibling
+# `svwb-vision-native` crate, which stays free of Node symbols so it can be
+# unit-tested and run from the `calibrate` binary without linking against node.
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+svwb-vision-native = { path = "../vision-native" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+napi = { version = "2", default-features = false, features = ["napi8"] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"
+

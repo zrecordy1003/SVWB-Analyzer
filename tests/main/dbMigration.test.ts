@@ -1,67 +1,60 @@
-import { PrismaClient } from '@prisma/client'
+import { sql } from 'kysely'
 import { afterEach, describe, expect, it } from 'vitest'
-import { initDatabaseAt } from '../../src/main/db/initDb'
-import { createMigratedTestDb, removeTestDb, type TestDb } from '../helpers/db'
+import {
+  createMigratedTestDb,
+  migrateWithEngine,
+  removeTestDb,
+  testDb,
+  type TestDb
+} from '../helpers/db'
 
-let testDb: TestDb | undefined
+let db: TestDb | undefined
 
-async function prismaFor(dbUrl: string): Promise<PrismaClient> {
-  const prisma = new PrismaClient({ datasources: { db: { url: dbUrl } } })
-  await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON;')
-  return prisma
-}
-
-describe('database migrations', () => {
+describe('database migrations (owned by svwb-engine)', () => {
   afterEach(async () => {
-    await removeTestDb(testDb)
-    testDb = undefined
+    await removeTestDb(db)
+    db = undefined
   })
 
   it('applies all bundled migrations idempotently to a fresh SQLite database', async () => {
-    testDb = await createMigratedTestDb()
-    const prisma = await prismaFor(testDb.dbUrl)
+    db = await createMigratedTestDb()
 
-    try {
-      const versions = await prisma.$queryRawUnsafe<{ version: number }[]>(
-        'SELECT version FROM schema_migrations ORDER BY version'
-      )
-      expect(versions.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5])
+    const versions = await sql<{ version: number }>`
+      SELECT version FROM schema_migrations ORDER BY version
+    `.execute(testDb())
+    expect(versions.rows.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5, 6, 7])
 
-      await initDatabaseAt({
-        dbPath: testDb.dbPath,
-        migrationsDir: testDb.migrationsDir,
-        backup: false
-      })
+    // Second run must be a no-op, not a re-application.
+    migrateWithEngine(db.dbPath, db.migrationsDir)
 
-      const versionsAfterSecondRun = await prisma.$queryRawUnsafe<{ version: number }[]>(
-        'SELECT version FROM schema_migrations ORDER BY version'
-      )
-      expect(versionsAfterSecondRun.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5])
-    } finally {
-      await prisma.$disconnect()
-    }
+    const after = await sql<{ version: number }>`
+      SELECT version FROM schema_migrations ORDER BY version
+    `.execute(testDb())
+    expect(after.rows.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5, 6, 7])
+
+    const columns = await sql<{ name: string }>`
+      SELECT name FROM pragma_table_info('Match') ORDER BY name
+    `.execute(testDb())
+    expect(columns.rows.map((row) => row.name)).toEqual(expect.arrayContaining(['mp', 'delta_mp']))
   })
 
   it('creates the runtime indexes used by match list and deck statistics queries', async () => {
-    testDb = await createMigratedTestDb()
-    const prisma = await prismaFor(testDb.dbUrl)
+    db = await createMigratedTestDb()
 
-    try {
-      const indexes = await prisma.$queryRawUnsafe<{ name: string }[]>(
-        'SELECT name FROM sqlite_master WHERE type = "index" ORDER BY name'
-      )
-      expect(indexes.map((row) => row.name)).toEqual(
-        expect.arrayContaining([
-          'idx_match_mydeck_playedAt',
-          'idx_match_result_mydeck_playedAt',
-          'idx_match_currentcr_playedAt',
-          'idx_match_mode_playedAt',
-          'idx_match_playedAt_id',
-          'idx_match_ymd_id'
-        ])
-      )
-    } finally {
-      await prisma.$disconnect()
-    }
+    const indexes = await sql<{ name: string }>`
+      SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name
+    `.execute(testDb())
+    expect(indexes.rows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        'idx_match_mydeck_playedAt',
+        'idx_match_result_mydeck_playedAt',
+        'idx_match_currentcr_playedAt',
+        'idx_match_mode_playedAt',
+        'idx_match_playedAt_id',
+        'idx_match_myclass_playedAt_id',
+        'idx_match_oppoclass_playedAt_id',
+        'idx_match_ymd_id'
+      ])
+    )
   })
 })

@@ -26,3 +26,13 @@ export function getCaptureTmpImagePath(): string {
 export function getTesseractCacheDir(): string {
   return ensureDir(path.join(app.getPath('userData'), 'cache', 'tesseract'))
 }
+
+/**
+ * Where the analyzer records recognition anomalies it notices about itself.
+ *
+ * Local only - nothing here is ever uploaded. The user exports it deliberately
+ * from the settings page when they want to report a problem.
+ */
+export function getDiagnosticsDir(): string {
+  return ensureDir(path.join(app.getPath('userData'), 'diagnostics'))
+}

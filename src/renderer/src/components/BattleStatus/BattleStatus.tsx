@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { classesMap } from '@renderer/map/classMap'
 import { Box, Typography, Stack, Chip } from '@mui/material'
 
-import RadarIcon from '@mui/icons-material/Radar'
+import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined'
 
 interface BattleState {
@@ -134,7 +134,7 @@ const BattleStatus = (): React.JSX.Element => {
       return (
         <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
           <Box sx={rippleSx} display={'flex'}>
-            <RadarIcon fontSize="large" />
+            <CenterFocusStrongIcon fontSize="large" />
           </Box>
           <Typography variant="h6">偵測中</Typography>
         </Stack>

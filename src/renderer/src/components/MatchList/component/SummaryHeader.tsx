@@ -6,8 +6,8 @@ import LooksTwoTwoToneIcon from '@mui/icons-material/LooksTwoTwoTone'
 // import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 // import MilitaryTechIcon from '@mui/icons-material/MilitaryTech'
-import type { ClassName, GameMode, PlayOrder } from '@prisma/client'
-import dayjs from 'dayjs'
+import type { ClassName, GameMode, PlayOrder } from '@shared/domain'
+import { format as formatDate } from 'date-fns'
 import { classesMap, modesMap } from '@renderer/map/classMap'
 
 type Props = {
@@ -83,7 +83,7 @@ const SummaryHeader: React.FC<Props> = (props) => {
   //     ? `${Math.floor(durationTime / 60)}:${String(durationTime % 60).padStart(2, '0')}`
   //     : '—'
 
-  const playedAtText = playedAt ? dayjs(playedAt).format('YYYY/MM/DD HH:mm') : '—'
+  const playedAtText = playedAt ? formatDate(new Date(playedAt), 'yyyy/MM/dd HH:mm') : '—'
 
   return (
     <Stack

@@ -1,7 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
-import Store from 'electron-store'
+import { store } from './store.js'
 
-const store = new Store()
 let wired = false
 
 export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {

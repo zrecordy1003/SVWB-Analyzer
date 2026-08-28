@@ -32,7 +32,12 @@ export default defineConfig({
   renderer: {
     resolve: {
       alias: {
-        '@renderer': resolve('src/renderer/src')
+        '@renderer': resolve('src/renderer/src'),
+        // `tsconfig.web.json` has always declared this one, so type-only imports
+        // resolved and typecheck stayed green - but the bundler never knew about
+        // it, so the first renderer module to import a *value* from `@shared`
+        // failed the build instead.
+        '@shared': resolve('src/shared')
       }
     },
     plugins: [

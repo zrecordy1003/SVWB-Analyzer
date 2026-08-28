@@ -1,6 +1,5 @@
-import { ClassName, GameMode, PlayOrder } from '@prisma/client'
-import { getPrisma } from '../db/prismaClient.js'
-import { getStatsCacheVersion } from '../statsCache.js'
+import { ClassName, GameMode, PlayOrder } from '../../shared/domain.js'
+import { getDb } from '../data/db/client.js'
 import type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
 
 export type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
@@ -8,21 +7,16 @@ export type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
 type Stat = { wins: number; total: number; winRate: number }
 type SideStats = { first: Stat; second: Stat; all: Stat }
 
-const STATS_CACHE_TTL_MS = 3000
-const rankedWinrateCache = new Map<string, { expiresAt: number; value: RankedWinrateByOpponent }>()
-
-function statsCacheKey(params: Record<string, unknown>): string {
-  return JSON.stringify(params, (_key, value) => {
-    if (value instanceof Date) return value.getTime()
-    if (Array.isArray(value)) return [...value].sort()
-    return value
-  })
-}
+// The 3s TTL cache and its version bookkeeping used to live here, hiding the
+// Prisma engine's per-call overhead. An in-process better-sqlite3 GROUP BY over
+// this data size is microseconds, so the cache is deleted rather than ported -
+// removing it is also the acceptance test that the overhead really left.
 
 /** 取得 ranked 對戰：指定 myClass、可選日期區間；依對手職業 × 先/後手 統計勝率 */
 export async function getRankedWinrateByOpponent(params: {
   myClass: ClassName
-  gameMode?: GameMode
+  /** `'all'` drops the mode filter entirely; omitted still means ranked. */
+  gameMode?: GameMode | 'all'
   rangeKey?: RangeKey
   start?: Date | number | string // inclusive；不給=不限
   end?: Date | number | string // inclusive；不給=不限
@@ -31,7 +25,7 @@ export async function getRankedWinrateByOpponent(params: {
   crMin?: number
   crMax?: number
 }): Promise<RankedWinrateByOpponent> {
-  const prisma = getPrisma()
+  const db = getDb()
   const { myClass, rangeKey } = params
 
   // 1) 先把顧客傳入的 start/end 轉成 Date（若有）
@@ -45,68 +39,61 @@ export async function getRankedWinrateByOpponent(params: {
     endDateExclusive = endExclusive
   }
 
-  // 3) 組 where
-  const whereBase: any = {
-    mode: params.gameMode ? params.gameMode : GameMode.ranked,
-    my_class: myClass
-  }
-  if (startDate || endDateExclusive) {
-    whereBase.playedAt = {}
-    if (startDate) whereBase.playedAt.gte = startDate
-    if (endDateExclusive) whereBase.playedAt.lt = endDateExclusive
-  }
+  // 3) 一次 groupBy 取得總場數與勝場數，避免 totals/wins 分成兩次查詢。
+  let query = db
+    .selectFrom('Match')
+    .select(({ fn }) => ['oppo_class', 'play_order', 'result', fn.countAll<number>().as('count')])
+    .where('my_class', '=', myClass)
+    .groupBy(['oppo_class', 'play_order', 'result'])
 
-  if (params.myDeckIds?.length) {
-    whereBase.my_deckId = { in: params.myDeckIds }
+  if (params.gameMode !== 'all') {
+    query = query.where('mode', '=', params.gameMode ?? GameMode.ranked)
   }
+  if (startDate) query = query.where('playedAt', '>=', startDate.getTime())
+  if (endDateExclusive) query = query.where('playedAt', '<', endDateExclusive.getTime())
+  if (params.myDeckIds?.length) query = query.where('my_deckId', 'in', params.myDeckIds)
   if (params.tagIds?.length) {
     // 任一符合 (OR within selected tags)
-    whereBase.tags = { some: { tagId: { in: params.tagIds } } }
-
-    // 若想改成「必須同時包含所有所選標籤（AND）」：
-    // whereBase.AND = [
-    //   ...(whereBase.AND ?? []),
-    //   ...params.tagIds.map((tid) => ({ tags: { some: { tagId: tid } } }))
-    // ]
+    const ids = params.tagIds
+    query = query.where(({ exists, selectFrom }) =>
+      exists(
+        selectFrom('MatchTag')
+          .select('MatchTag.matchId')
+          .whereRef('MatchTag.matchId', '=', 'Match.id')
+          .where('MatchTag.tagId', 'in', ids)
+      )
+    )
   }
+  if (typeof params.crMin === 'number') query = query.where('current_cr', '>=', params.crMin)
+  if (typeof params.crMax === 'number') query = query.where('current_cr', '<=', params.crMax)
 
-  if (typeof params.crMin === 'number' || typeof params.crMax === 'number') {
-    whereBase.current_cr = {}
-    if (typeof params.crMin === 'number') whereBase.current_cr.gte = params.crMin
-    if (typeof params.crMax === 'number') whereBase.current_cr.lte = params.crMax
-  }
-
-  const cacheKey = statsCacheKey({
-    version: getStatsCacheVersion(),
-    myClass,
-    gameMode: params.gameMode ?? GameMode.ranked,
-    start: startDate?.getTime() ?? null,
-    end: endDateExclusive?.getTime() ?? null,
-    myDeckIds: params.myDeckIds ?? [],
-    tagIds: params.tagIds ?? [],
-    crMin: params.crMin ?? null,
-    crMax: params.crMax ?? null
-  })
-  const cached = rankedWinrateCache.get(cacheKey)
-  if (cached && cached.expiresAt > Date.now()) return cached.value
-
-  // 4) 一次 groupBy 取得總場數與勝場數，避免 totals/wins 分成兩次查詢。
-  const grouped = await prisma.match.groupBy({
-    by: ['oppo_class', 'play_order', 'result'],
-    where: whereBase,
-    _count: { _all: true } as const
-  })
+  const grouped = await query.execute()
 
   const empty: Stat = { wins: 0, total: 0, winRate: 0 }
-  const byOpponent: Record<string, SideStats> = {}
+  /**
+   * Seeded with every class, not just the ones that turned up in the results.
+   * Letting the shape follow the data made the chart grow and shrink between
+   * filters and silently dropped the "never faced this class" case, which is
+   * itself information. Consumers already treat a zeroed bucket and a missing
+   * one the same way, so this only ever adds rows.
+   */
+  const byOpponent: Record<string, SideStats> = Object.fromEntries(
+    Object.values(ClassName).map((name) => [
+      String(name),
+      { first: { ...empty }, second: { ...empty }, all: { ...empty } }
+    ])
+  )
   const overall: SideStats = { first: { ...empty }, second: { ...empty }, all: { ...empty } }
 
   for (const r of grouped) {
     const opp = String(r.oppo_class)
     const side = r.play_order === PlayOrder.first ? ('first' as const) : ('second' as const)
-    const total = Number((r._count as any)?._all ?? 0)
-    const w = r.result === true ? total : 0
+    const total = Number(r.count)
+    // result is stored 0/1; 1 is a win.
+    const w = r.result === 1 ? total : 0
 
+    // A row whose class is not in the enum (older data, hand-edited db) still
+    // gets a bucket rather than being dropped.
     byOpponent[opp] ??= { first: { ...empty }, second: { ...empty }, all: { ...empty } }
 
     // side 統計
@@ -135,10 +122,11 @@ export async function getRankedWinrateByOpponent(params: {
   let myDecks: { id: number; name: string }[] | undefined
   if (params.myDeckIds?.length) {
     const order = new Map(params.myDeckIds.map((id, i) => [id, i]))
-    const decks = await prisma.deck.findMany({
-      where: { id: { in: params.myDeckIds } },
-      select: { id: true, name: true }
-    })
+    const decks = await db
+      .selectFrom('Deck')
+      .select(['id', 'name'])
+      .where('id', 'in', params.myDeckIds)
+      .execute()
     myDecks = decks
       .filter((d) => order.has(d.id)) // 忽略不存在的 id
       .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
@@ -148,16 +136,17 @@ export async function getRankedWinrateByOpponent(params: {
   let tags: { id: number; name: string }[] | undefined
   if (params.tagIds?.length) {
     const order = new Map(params.tagIds.map((id, i) => [id, i]))
-    const tagRows = await prisma.tag.findMany({
-      where: { id: { in: params.tagIds } },
-      select: { id: true, name: true }
-    })
+    const tagRows = await db
+      .selectFrom('Tag')
+      .select(['id', 'name'])
+      .where('id', 'in', params.tagIds)
+      .execute()
     tags = tagRows
       .filter((t) => order.has(t.id))
       .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
   }
 
-  const result = {
+  return {
     myClass,
     start: startDate ? startDate.getTime() : null,
     end: endDateExclusive ? endDateExclusive.getTime() - 1 : null,
@@ -168,8 +157,6 @@ export async function getRankedWinrateByOpponent(params: {
     crMin: typeof params.crMin === 'number' ? params.crMin : null,
     crMax: typeof params.crMax === 'number' ? params.crMax : null
   }
-  rankedWinrateCache.set(cacheKey, { expiresAt: Date.now() + STATS_CACHE_TTL_MS, value: result })
-  return result
 }
 
 /* ---------- helpers ---------- */

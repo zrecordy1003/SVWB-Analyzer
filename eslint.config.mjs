@@ -36,5 +36,16 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'off'
     }
   },
+  {
+    // Standalone diagnostic scripts under tools/ are plain CommonJS: they load
+    // the native .node addon directly, which require() is the only way to do
+    // while the app itself is ESM. They are not part of the shipped bundle, so
+    // the TypeScript-oriented app rules do not apply.
+    files: ['tools/**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
   eslintConfigPrettier
 )

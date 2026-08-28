@@ -16,15 +16,27 @@ export interface ModeOption {
   id: string
   label: string
   color: ChipColor
+  /**
+   * Explicit hex for the places the mode is emphasised with weight and a glow
+   * instead of a chip - `color` only names a MUI palette slot, which cannot be
+   * turned into a shadow.
+   */
+  tone: string
 }
 
 export const modes: ModeOption[] = [
-  { id: 'ranked', label: '階級對戰', color: 'info' },
-  { id: 'twoPick', label: '2Pick', color: 'error' },
-  { id: 'weekendPlaza', label: '週末廣場賽', color: 'secondary' },
-  { id: 'unranked', label: '自由對戰', color: 'primary' },
-  { id: 'cpu', label: '練習模式', color: 'success' },
-  { id: 'custom', label: '自訂對戰', color: 'warning' }
+  { id: 'ranked', label: '階級對戰', color: 'info', tone: '#66D8F5' },
+  { id: 'twoPick', label: '2Pick', color: 'error', tone: '#F28C8C' },
+  { id: 'weekendPlaza', label: '週末廣場賽', color: 'secondary', tone: '#E87AC5' },
+  { id: 'unranked', label: '自由對戰', color: 'primary', tone: '#8AB4F8' },
+  { id: 'cpu', label: '練習模式', color: 'success', tone: '#75E2A8' },
+  { id: 'custom', label: '自訂對戰', color: 'warning', tone: '#F2C879' },
+  /**
+   * 模式辨識失敗的落點，不是玩家選得到的模式。刻意留在這個清單裡，因為每個
+   * 篩選器都是從 `modes` 長出來的 - 使用者要能問「我有多少場沒辨識到」，也
+   * 要能把它們挑出來手動更正。灰色的 `tone` 讓它在視覺上不與真正的模式競爭。
+   */
+  { id: 'unknown', label: '未辨識', color: 'warning', tone: '#8A8F98' }
 ]
 
 export const classesMap = Object.fromEntries(classes.map((c) => [c.id, c] as [string, typeof c]))

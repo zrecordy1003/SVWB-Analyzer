@@ -29,10 +29,13 @@ describe('analyzer fixture manifest', () => {
     }
   })
 
-  it.skipIf(loadAnalyzerFixtureManifest().cases.length === 0)(
-    'has at least one declared screenshot for analyzer regression coverage',
-    () => {
-      expect(loadAnalyzerFixtureManifest().cases.length).toBeGreaterThan(0)
-    }
-  )
+  // NOTE: there used to be a second case here asserting the manifest had at
+  // least one entry, guarded by `it.skipIf(cases.length === 0)` - so it skipped
+  // in precisely the situation where it would have failed, and could never
+  // report anything. Removed rather than left as decorative coverage.
+  //
+  // Real screenshot-backed recognition assertions currently live elsewhere:
+  // `tests/fixtures/captures/` (note: no `s`) holds the actual captures, checked by
+  // `tools/vision-node-addon/check-*.cjs` against the Rust matcher. See the
+  // README in `tests/fixtures/analyzer` before adding cases to this manifest.
 })

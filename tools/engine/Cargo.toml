@@ -1,0 +1,30 @@
+[package]
+name = "svwb-engine"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The perception engine: capture -> recognise -> state machine -> persist, all
+# in one process. See docs/engine-refactor-plan.md.
+#
+# It is a standalone binary rather than a Node addon on purpose. The whole point
+# is that `svwb-engine replay <video>` runs the SHIPPED state machine, so the
+# regression fixtures stop testing a hand-copied mirror of it. A binary that
+# cannot be loaded outside Electron would reproduce the defect it exists to fix.
+
+[dependencies]
+svwb-vision-native = { path = "../vision-native" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.149"
+# Match persistence. Bundled so the packaged app carries its own sqlite rather
+# than depending on whatever the OS ships.
+rusqlite = { version = "0.32", features = ["bundled"] }
+# Only for local-time year/month/day columns, which mirror JS getFullYear().
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[target.'cfg(windows)'.dependencies]
+# Live capture (Windows Graphics Capture), the same crate the standalone
+# capture tool used - so frames match what that tool produced, minus the
+# PNG-to-disk round trip.
+windows-capture = "2.0.1"

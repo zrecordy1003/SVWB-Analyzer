@@ -1,54 +1,29 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import fs from 'fs'
-import Store from 'electron-store'
+import { store } from './store.js'
 
 // 輕依賴先載（重依賴延遲到用到才 import）
-import { isShadowverseRunning } from './svwbDetector.js'
-import {
-  getCaptureImagePath,
-  getCaptureTemporaryPath,
-  spawnCapture,
-  stopCapture
-} from './manageCaptureTool.js'
+import { isGameWindowFocused, isShadowverseRunning } from './recognition/svwbDetector.js'
+import { getCaptureImagePath, getCaptureTmpImagePath } from './paths.js'
+import { attachCapture, detachCapture } from './recognition/engine.js'
 
 // DB 與更新延後：只載入 helper，初始化放到事件之後
-import { initDatabase } from './db/initDb.js'
+import { initDatabase } from './data/db/initDb.js'
 import { setupAutoUpdates } from './updates.js'
-import { getBattleStatus, type BattleStatus } from './analyzer.js'
-import { disableAutoLaunch, enableAutoLaunch } from './startOnBoot/startOnBoot.js'
-import { createHudWindow } from './hud.js'
+import { getBattleStatus, type BattleStatus } from './recognition/engine.js'
+import type { GameStatus } from '../shared/types.js'
+import { createHudWindow, isHudDragging, syncHudWithGame } from './windows/hud.js'
 // import { attachCloseGuard } from './closeGuard.js'
-import { createAppTray } from './tray.js'
-import { attachSmartClose } from './smartClose.js'
-import { openExitConfirmDialog } from './exitConfirmDialog.js'
+import { createAppTray } from './windows/tray.js'
+import { attachSmartClose } from './windows/smartClose.js'
+import { openExitConfirmDialog } from './windows/exitConfirmDialog.js'
+import { broadcast } from './utils/broadcast.js'
 
-// OpenCV is compiled during development with the local SDK. Packaged builds only
-// ship the release runtime DLLs; headers and .lib files are not runtime assets.
-process.env.OPENCV4NODEJS_DISABLE_AUTOBUILD = '1'
-process.env.OPENCV_BIN_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'opencv', 'bin')
-  : path.join(__dirname, '../../resources/opencv/bin')
-
-if (!app.isPackaged) {
-  process.env.OPENCV_INCLUDE_DIR = path.join(__dirname, '../../resources/opencv/include')
-  process.env.OPENCV_LIB_DIR = path.join(__dirname, '../../resources/opencv/lib')
-}
-
-const store = new Store({
-  defaults: {
-    settings: {
-      hudShow: true,
-      askBeforeExit: true,
-      onCloseBehavior: 'minimize',
-      enableNotifications: true,
-      autoCheckUpdates: true
-    }
-  }
-})
+// Image recognition is handled by a self-contained Rust addon
+// (tools/svwb-vision.node), so no OpenCV SDK paths or runtime DLLs are needed.
 
 // --- 單例鎖 ---
 const gotTheLock = app.requestSingleInstanceLock()
@@ -57,6 +32,11 @@ if (!gotTheLock) {
 }
 
 const MIN_SPLASH_MS = 800
+// The main UI has a persistent navigation rail, a deck selector and data-heavy
+// views. Below this size, controls start colliding rather than reflowing into a
+// useful desktop layout.
+const MAIN_WINDOW_MIN_WIDTH = 1100
+const MAIN_WINDOW_MIN_HEIGHT = 700
 let splashShownAt = 0
 
 let tray: Electron.Tray | null = null
@@ -80,14 +60,16 @@ let _stopAnalyzer: StopAnalyzerFn | null = null
 
 async function ensureAnalyzer(): Promise<void> {
   if (_getBattleStatus && _startAnalyzer && _stopAnalyzer) return
-  const mod = (await import('./analyzer.js')) as {
+  // The recognition pipeline now lives in `svwb-engine`; this module only
+  // supervises it. Same three functions, so nothing else in this file changes.
+  const mod = (await import('./recognition/engine.js')) as {
     getBattleStatus: GetBattleStatusFn
-    startAnalyzer: StartAnalyzerFn
-    stopAnalyzer: StopAnalyzerFn
+    startEngine: StartAnalyzerFn
+    stopEngine: StopAnalyzerFn
   }
   _getBattleStatus = mod.getBattleStatus
-  _startAnalyzer = mod.startAnalyzer
-  _stopAnalyzer = mod.stopAnalyzer
+  _startAnalyzer = mod.startEngine
+  _stopAnalyzer = mod.stopEngine
 }
 
 // --- DB on-demand（第一次用到才 init） ---
@@ -102,7 +84,7 @@ async function ensureAnalyzer(): Promise<void> {
 // --- 清理擷取圖片 ---
 function clearCaptureImage(): void {
   const imagePath = getCaptureImagePath()
-  const tmpImagePath = getCaptureTemporaryPath()
+  const tmpImagePath = getCaptureTmpImagePath()
 
   if (fs.existsSync(imagePath)) {
     fs.unlinkSync(imagePath)
@@ -155,6 +137,8 @@ function createWindow(): void {
     // ...saved,
     width: saved?.width ?? defaultWidth,
     height: saved?.height ?? defaultHeight,
+    minWidth: MAIN_WINDOW_MIN_WIDTH,
+    minHeight: MAIN_WINDOW_MIN_HEIGHT,
     ...(saved.x && saved.y ? { x: saved.x, y: saved.y } : { center: true }),
     show: false,
     autoHideMenuBar: true,
@@ -207,12 +191,14 @@ function createWindow(): void {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
-  // 開發時自動開 DevTools；正式版不要開
-  if (is.dev) mainWindow.webContents.openDevTools()
+  // DevTools can consume a renderer and materially skew scrolling/performance
+  // tests. Opt in explicitly when investigating rather than opening it for
+  // every development run.
+  if (is.dev && process.env['OPEN_DEVTOOLS'] === '1') mainWindow.webContents.openDevTools()
 
   hudWindow = createHudWindow()
 
-  if (!tray) tray = createAppTray(mainWindow, hudWindow, app.exit)
+  if (!tray) tray = createAppTray(mainWindow, app.exit)
 
   mainWindow.on('closed', () => {
     if (hudWindow && !hudWindow.isDestroyed()) {
@@ -282,6 +268,19 @@ async function isSystemIdle(thresholdSec: number): Promise<boolean> {
   return false
 }
 
+/**
+ * Latest broadcast game status, kept so a window that opens (or reloads) after
+ * the last change can ask for it instead of waiting for the next transition.
+ */
+let lastGameStatus: GameStatus | null = null
+
+/**
+ * Foreground-focus ticker; see the comment where it is started. One frame at
+ * 60Hz, so the HUD appears in the same frame the game takes focus.
+ */
+const FOCUS_POLL_MS = 16
+let focusTimer: ReturnType<typeof setInterval> | null = null
+
 // --- 遊戲狀態輪詢 ---
 function startPollingForGame(): void {
   if (pollingTimer) return
@@ -300,7 +299,9 @@ function startPollingForGame(): void {
     if (pollingInFlight) return
     pollingInFlight = true
     try {
-      const svwbStatus = await isShadowverseRunning()
+      // Synchronous since the PowerShell round-trips were removed: this is now
+      // a handle re-check, or at worst one window enumeration.
+      const svwbStatus = isShadowverseRunning()
       const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
       if (!win || win.isDestroyed() || win.webContents?.isDestroyed()) return
 
@@ -316,6 +317,26 @@ function startPollingForGame(): void {
 
       // 「擷取」的暫停條件（和之前相同）：最小化 / 無 Bounds 視為不可擷取
       const treatAsPaused = isGameRunning && (!hasBounds || isMinimized)
+
+      // The HUD is a separate window, so `win.webContents.send` below never
+      // reaches it. Broadcast a compact status so the HUD can say *why* it has
+      // nothing to show - "game not detected" and "no matches yet" look
+      // identical otherwise, which is the worst message for a new user.
+      // Only on change: this poll runs every second and the state rarely moves.
+      const gameStatus: GameStatus = {
+        running: isGameRunning,
+        paused: treatAsPaused,
+        capturing: isGameRunning && !treatAsPaused && svwbStatus?.hwnd != null
+      }
+      if (
+        !lastGameStatus ||
+        lastGameStatus.running !== gameStatus.running ||
+        lastGameStatus.paused !== gameStatus.paused ||
+        lastGameStatus.capturing !== gameStatus.capturing
+      ) {
+        lastGameStatus = gameStatus
+        broadcast('game:status', gameStatus)
+      }
 
       // 更新時間戳
       if (isGameRunning) lastGameRunningAt = now
@@ -338,40 +359,23 @@ function startPollingForGame(): void {
 
       if (shouldCapture) {
         win.webContents.send('battle:recog', true)
+        // The engine owns capture now, so it must be up before the attach; the
+        // attach itself is idempotent and re-sent every poll, which is also
+        // what re-establishes capture after an engine restart.
+        if (!isAnalyzerRunning) {
+          await ensureAnalyzer()
+          _startAnalyzer?.(win)
+          isAnalyzerRunning = true
+        }
+        attachCapture(hwnd)
         if (!isCapturing) {
           isCapturing = true
           win.webContents.send('capture:status', true)
-          try {
-            await spawnCapture({
-              hwnd,
-              outputPath: getCaptureImagePath(),
-              intervalMs: 500,
-              onEvent: (event) => {
-                if (event.event === 'frame_error' || event.event === 'error') {
-                  console.warn('[Capture]', event.message)
-                }
-                if (
-                  event.event === 'window_closed' ||
-                  event.event === 'error' ||
-                  event.event === 'exited'
-                ) {
-                  isCapturing = false
-                  if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
-                    win.webContents.send('capture:status', false)
-                  }
-                }
-              }
-            })
-          } catch (error) {
-            isCapturing = false
-            win.webContents.send('capture:status', false)
-            throw error
-          }
         }
       } else {
         win.webContents.send('battle:recog', false)
         if (isCapturing) {
-          await stopCapture()
+          detachCapture()
           isCapturing = false
           win.webContents.send('capture:status', false)
         }
@@ -441,17 +445,44 @@ function startPollingForGame(): void {
   void poll()
   pollingTimer = setInterval(() => void poll(), 1000)
 
+  // Foreground checks run on their own, much faster timer: the HUD follows the
+  // game's focus, and lag on an alt-tab is the one thing that would give away
+  // that this is a separate window.
+  //
+  // Polling rather than `SetWinEventHook`, deliberately. The hook would be
+  // instant and wake nothing, but it registers a *global* hook that any
+  // anti-cheat on the machine can enumerate - and this app sits in the
+  // background while the user plays other games. A read-only
+  // `GetForegroundWindow` registers nothing, injects nothing and is what every
+  // overlay and task manager on Windows already does. Sixteen milliseconds of
+  // latency is not worth putting someone's other games at risk.
+  //
+  // The cost is measured, not assumed: 19.4us per call on a development
+  // machine, so ~0.12% of one core. For scale, the game-detection `poll` below
+  // shells out to PowerShell, which costs ~389ms per spawn.
+  //
+  // (node-window-manager's own `window-activated` event is itself a 50ms poll
+  // of the same call, so subscribing to it would buy nothing here.)
+  focusTimer = setInterval(() => {
+    // The focus check is a synchronous native call; at 16ms it owns a real
+    // share of the main loop. While the user is dragging the HUD, position
+    // updates need that time more than focus tracking does - and mid-drag the
+    // answer cannot change anything the drag would not override anyway.
+    if (isHudDragging()) return
+    syncHudWithGame(isGameWindowFocused())
+  }, FOCUS_POLL_MS)
+
   // 系統事件：睡眠/鎖定 → 只停擷取，不立即停分析（交給 30 分鐘門檻）
   powerMonitor.on('suspend', async () => {
     try {
-      await stopCapture()
+      detachCapture()
     } catch (e) {
       console.log(e)
     }
   })
   powerMonitor.on('lock-screen', async () => {
     try {
-      await stopCapture()
+      detachCapture()
     } catch (e) {
       console.log(e)
     }
@@ -460,6 +491,8 @@ function startPollingForGame(): void {
   app.once('quit', () => {
     if (pollingTimer) clearInterval(pollingTimer)
     pollingTimer = null
+    if (focusTimer) clearInterval(focusTimer)
+    focusTimer = null
   })
 }
 
@@ -478,46 +511,44 @@ app.whenReady().then(async () => {
   const { registerTagsIpc } = await import('./ipc/tags.js')
   registerTagsIpc()
 
+  const { registerDiagnosticsIpc } = await import('./ipc/diagnostics.js')
+  registerDiagnosticsIpc()
+
   app.on('browser-window-created', (_e, window) => {
     optimizer.watchWindowShortcuts(window)
   })
 
-  ipcMain.handle('app:getVersion', () => app.getVersion())
+  const { registerSettingsIpc } = await import('./ipc/settings.js')
+  registerSettingsIpc()
 
-  ipcMain.on('settings:startOnBoot', (_event, enable) => {
-    if (enable) {
-      enableAutoLaunch()
-    } else {
-      disableAutoLaunch()
-    }
-  })
+  const { recordLaunch, registerSupportIpc } = await import('./support/supportPrompt.js')
+  recordLaunch()
+  registerSupportIpc()
 
-  // IPC
+  // These two stay here: they close over this file's analyzer accessor and the
+  // last status the game poll broadcast, neither of which belongs in ipc/.
   ipcMain.handle('battle:getStatus', async () => {
     await ensureAnalyzer()
     return _getBattleStatus?.()
   })
 
-  // Decks：先確保 DB 準備好再操作
-  ipcMain.handle('decks:getAll', async () => {
-    const { getDecks } = await import('./database.js')
-    return getDecks()
-  })
-  ipcMain.handle('decks:add', async (_e, name: string, svClass: string) => {
-    const { addDeck } = await import('./database.js')
-    return addDeck(name, svClass)
-  })
+  // `game:status` is only broadcast on change, so a window that opens between
+  // transitions needs to be able to ask.
+  ipcMain.handle('game:getStatus', () => lastGameStatus)
 
-  // settings（不需要 DB）
-  ipcMain.handle('settings:get', (_event, key: string) => store.get(key))
-  ipcMain.handle('settings:set', (_event, key: string, value: any) => store.set(key, value))
-  ipcMain.handle('settings:delete', (_event, key: string) => store.delete(key as never))
-  ipcMain.handle('settings:clear', () => store.clear())
-  ipcMain.handle('settings:has', (_event, key: string) => store.has(key as never))
-  ipcMain.handle('settings:getAll', () => store.store)
+  // The HUD's "完整對戰歷史" link. Registered here rather than in windows/hud.ts
+  // because this file is the only holder of the main window.
+  ipcMain.handle('hud:openMatchHistory', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.show()
+    mainWindow.focus()
+    mainWindow.webContents.send('app:navigate', 'MatchList')
+    return true
+  })
 
   // 停止 capture
-  ipcMain.on('stop-capture', () => stopCapture())
+  ipcMain.on('stop-capture', () => detachCapture())
 
   // 建立視窗
   createSplash()
@@ -532,7 +563,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', async () => {
-  stopCapture()
+  detachCapture()
   try {
     await _stopAnalyzer?.()
   } catch (e) {
@@ -542,7 +573,7 @@ app.on('window-all-closed', async () => {
 })
 
 app.on('before-quit', async () => {
-  stopCapture()
+  detachCapture()
   try {
     await _stopAnalyzer?.()
   } catch (e) {

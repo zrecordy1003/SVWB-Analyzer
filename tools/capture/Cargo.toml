@@ -13,7 +13,3 @@ serde_json = "1.0.149"
 windows-capture = "2.0.1"
 windows = { version = "0.62.2", features = ["Win32_Storage_FileSystem"] }
 
-[profile.release]
-lto = true
-codegen-units = 1
-strip = true

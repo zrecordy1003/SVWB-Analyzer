@@ -10,16 +10,21 @@ import {
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
   ListSubheader,
   Stack,
   TextField,
+  Tooltip,
   Typography,
   Button
 } from '@mui/material'
 import { createFilterOptions } from '@mui/material/Autocomplete'
-import type { ClassName } from '@prisma/client'
-import DeckEditDialog from './DeckEditDialog'
+import type { ClassName } from '@shared/domain'
+import DeckFormDrawer from './deck-picker/DeckFormDrawer'
 import { classesMap } from '@renderer/map/classMap'
+import AddIcon from '@mui/icons-material/Add'
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
+import EditIcon from '@mui/icons-material/Edit'
 
 /* ================================
  * Types
@@ -90,12 +95,12 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
   const [categories, setCategories] = React.useState<Category[]>([])
   const [options, setOptions] = React.useState<Option[]>([])
 
-  // ---------- Dialog state ----------
-  const [createOpen, setCreateOpen] = React.useState(false)
-  const [editOpen, setEditOpen] = React.useState<null | Option>(null)
-  const [confirmOpen, setConfirmOpen] = React.useState<null | Option>(null)
-  const [deleting, setDeleting] = React.useState(false)
-  const [createCategoryId] = React.useState<string | ''>('')
+  // ---------- Deck-management state ----------
+  const [isCreateDrawerOpen, setIsCreateDrawerOpen] = React.useState(false)
+  const [deckBeingEdited, setDeckBeingEdited] = React.useState<null | Option>(null)
+  const [deckPendingDeletion, setDeckPendingDeletion] = React.useState<null | Option>(null)
+  const [isDeletingDeck, setIsDeletingDeck] = React.useState(false)
+  const [initialCreateCategoryId] = React.useState<string | ''>('')
 
   // ---------- Load data once ----------
   React.useEffect(() => {
@@ -171,25 +176,33 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
     [categories, onChange]
   )
 
-  const handleUpdated = React.useCallback((deck: DeckRow) => {
-    setOptions((prev) =>
-      prev.map((o) => (o.id === deck.id ? { ...o, ...deck, categoryName: o.categoryName } : o))
-    )
-  }, [])
+  const handleUpdated = React.useCallback(
+    (deck: DeckRow) => {
+      const categoryName = deck.categoryId
+        ? (categories.find((category) => category.id === deck.categoryId)?.name ?? '')
+        : ''
+      setOptions((previous) =>
+        previous.map((option) =>
+          option.id === deck.id ? { ...option, ...deck, categoryName } : option
+        )
+      )
+    },
+    [categories]
+  )
 
   const doDelete = React.useCallback(
     async (target: Option) => {
-      setDeleting(true)
+      setIsDeletingDeck(true)
       try {
         const res = await window.electron.ipcRenderer.invoke('decks:delete', { id: target.id })
         if (!res?.ok) throw new Error(res?.error ?? '刪除失敗')
         setOptions((prev) => prev.filter((o) => o.id !== target.id))
         if (value === target.id) onChange(null)
-        setConfirmOpen(null)
+        setDeckPendingDeletion(null)
       } catch (err: any) {
         alert(err?.message ?? '刪除失敗')
       } finally {
-        setDeleting(false)
+        setIsDeletingDeck(false)
       }
     },
     [onChange, value]
@@ -204,7 +217,10 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
       <Autocomplete<Option, false, false, false>
         value={selectedOption}
         onChange={(_, opt) => {
-          if (opt?.__create__) return
+          if (opt?.__create__) {
+            setIsCreateDrawerOpen(true)
+            return
+          }
           onChange(opt ? { id: opt.id, name: opt.name, class: opt.class } : null)
         }}
         options={filteredOptions}
@@ -274,43 +290,23 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
           )
         }}
         renderOption={(props, option) => {
-          // 哨兵：顯示「新增牌組」
-          // if (option.__create__) {
-          //   return (
-          //     <Box
-          //       component="li"
-          //       {...props}
-          //       onMouseDown={(e) => e.preventDefault()} // 避免 mousedown 直接關閉下拉
-          //       sx={{ display: 'flex', justifyContent: 'space-between', width: '90%' }}
-          //       onClick={(e) => {
-          //         e.stopPropagation()
-          //         setCreateCategoryId(firstSortedCategoryId || '')
-          //         setCreateOpen(true)
-          //       }}
-          //     >
-          //       <Typography
-          //         variant="body2"
-          //         color="text.secondary"
-          //         display="flex"
-          //         alignItems="center"
-          //         gap={1}
-          //       >
-          //         <AddIcon fontSize="small" />
-          //         新增牌組
-          //       </Typography>
-          //     </Box>
-          //   )
-          // }
           const color = classesMap[option.class]?.color as string | undefined
           if (option.__create__) {
             return (
-              <Box my={3} display={'flex'} alignItems={'center'} gap={1}>
-                <Chip
-                  size="small"
-                  label={classesMap[option.class].label}
-                  sx={{ bgcolor: color ? `${color}50` : undefined }}
-                />
-                目前暫無牌組
+              <Box
+                component="li"
+                {...props}
+                sx={{ display: 'flex', alignItems: 'center', gap: 1.25, py: 1.25 }}
+              >
+                <AddIcon fontSize="small" color="primary" />
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>
+                    新增{classesMap[option.class].label}牌組
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    目前尚未建立可選用的牌組
+                  </Typography>
+                </Box>
               </Box>
             )
           }
@@ -336,79 +332,81 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
                 <Typography noWrap>{option.name}</Typography>
               </Stack>
 
-              {/* <Stack direction="row" alignItems="center" spacing={0.5} sx={{ ml: 'auto' }}>
-                <Tooltip title="編輯">
+              <Stack direction="row" alignItems="center" spacing={0.25} sx={{ ml: 'auto' }}>
+                <Tooltip title="編輯牌組">
                   <IconButton
                     size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setEditOpen(option)
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setDeckBeingEdited(option)
                     }}
                   >
                     <EditIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-
-                <Tooltip title="刪除">
+                <Tooltip title="刪除牌組">
                   <IconButton
                     size="small"
                     color="error"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setConfirmOpen(option)
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setDeckPendingDeletion(option)
                     }}
                   >
                     <DeleteForeverIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-              </Stack> */}
+              </Stack>
             </Box>
           )
         }}
       />
 
-      {/* 新增 Deck（預設分類：群組右上新增 or 空清單按鈕） */}
+      {/* 新增牌組 */}
       {klass && (
-        <DeckEditDialog
-          open={createOpen}
-          mode="create"
-          init={null}
-          klass={klass}
+        <DeckFormDrawer
+          open={isCreateDrawerOpen}
+          intent="create"
+          initialDeck={null}
+          deckClass={klass}
           categories={categories}
-          defaultCategoryId={createCategoryId}
-          onClose={() => setCreateOpen(false)}
-          onSaved={handleCreated}
+          initialCategoryId={initialCreateCategoryId}
+          onClose={() => setIsCreateDrawerOpen(false)}
+          onSubmitSuccess={handleCreated}
         />
       )}
 
-      {/* 編輯 Deck */}
-      {editOpen && (
-        <DeckEditDialog
-          open={!!editOpen}
-          mode="edit"
-          init={editOpen}
-          klass={editOpen.class}
+      {/* 編輯牌組 */}
+      {deckBeingEdited && (
+        <DeckFormDrawer
+          open={!!deckBeingEdited}
+          intent="edit"
+          initialDeck={deckBeingEdited}
+          deckClass={deckBeingEdited.class}
           categories={categories}
-          onClose={() => setEditOpen(null)}
-          onSaved={handleUpdated}
+          onClose={() => setDeckBeingEdited(null)}
+          onSubmitSuccess={handleUpdated}
         />
       )}
 
       {/* 刪除確認 */}
-      <Dialog open={!!confirmOpen} onClose={() => (deleting ? undefined : setConfirmOpen(null))}>
+      <Dialog
+        open={!!deckPendingDeletion}
+        onClose={() => (isDeletingDeck ? undefined : setDeckPendingDeletion(null))}
+      >
         <DialogTitle>刪除確認</DialogTitle>
-        <DialogContent>確定要刪除「{confirmOpen?.name}」嗎？此動作無法復原。</DialogContent>
+        <DialogContent>確定要刪除「{deckPendingDeletion?.name}」嗎？此動作無法復原。</DialogContent>
         <DialogActions>
-          <Button onClick={() => setConfirmOpen(null)} disabled={deleting}>
+          <Button onClick={() => setDeckPendingDeletion(null)} disabled={isDeletingDeck}>
             取消
           </Button>
           <Button
             variant="contained"
             color="error"
-            onClick={() => confirmOpen && doDelete(confirmOpen)}
-            disabled={deleting}
+            onClick={() => deckPendingDeletion && doDelete(deckPendingDeletion)}
+            disabled={isDeletingDeck}
           >
-            {deleting ? '刪除中…' : '刪除'}
+            {isDeletingDeck ? '刪除中…' : '刪除'}
           </Button>
         </DialogActions>
       </Dialog>

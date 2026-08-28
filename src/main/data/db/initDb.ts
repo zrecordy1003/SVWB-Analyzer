@@ -1,0 +1,52 @@
+/**
+ * Brings the database up to the shipped schema before anything reads it.
+ *
+ * The migration logic itself lives in `svwb-engine migrate` - one owner, handed
+ * over in one change (docs/engine-refactor-plan.md, 判斷題 D-5). This module
+ * kept its name and its single entry point so `index.ts` did not have to care;
+ * what it now does is resolve the paths, run the engine synchronously, and set
+ * `DATABASE_URL` for the Prisma client the UI still reads through.
+ *
+ * Synchronous on purpose: nothing may query a database that is still mid-schema,
+ * and "wait for the migration" is exactly what app startup is for.
+ */
+import { app } from 'electron'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync } from 'node:fs'
+import path from 'node:path'
+
+import { configureDbPath } from './client.js'
+
+function getDbPath(): string {
+  const dir = path.join(app.getPath('userData'), 'db')
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  return path.join(dir, 'app.db')
+}
+
+function getEnginePath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'tools', 'svwb-engine.exe')
+    : path.join(__dirname, '../../tools/target/release', 'svwb-engine.exe')
+}
+
+function getMigrationsDir(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'migrations')
+    : path.join(__dirname, '../../resources/migrations')
+}
+
+export async function initDatabase(): Promise<void> {
+  const dbPath = getDbPath()
+
+  // Failing loudly here beats a UI quietly querying half a schema. The engine
+  // prints {"applied":N} on success and a reason on stderr otherwise.
+  const out = execFileSync(
+    getEnginePath(),
+    ['migrate', '--db', dbPath, '--migrations', getMigrationsDir()],
+    { encoding: 'utf8', windowsHide: true }
+  )
+  console.log('[DB] migrations:', out.trim())
+
+  // The UI's data layer opens lazily on first use; it only needs the path.
+  configureDbPath(dbPath)
+}

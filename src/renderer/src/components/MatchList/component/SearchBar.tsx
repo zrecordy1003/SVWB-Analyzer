@@ -2,23 +2,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Autocomplete,
+  Badge,
   Box,
+  Button,
   Checkbox,
   Chip,
+  Collapse,
+  Drawer,
+  IconButton,
   TextField,
+  Tooltip,
   Typography,
   ToggleButton,
   ToggleButtonGroup,
-  Slider,
   Switch,
-  FormControlLabel,
   useTheme
 } from '@mui/material'
+import TuneIcon from '@mui/icons-material/Tune'
+import CloseIcon from '@mui/icons-material/Close'
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
 import { zhTW as dfZhTW } from 'date-fns/locale'
-import type { GameMode } from '@prisma/client'
+import type { GameMode } from '@shared/domain'
 import { classes, classesMap, modes, modesMap } from '@renderer/map/classMap'
 import type { RangeKey } from '@shared/types'
 
@@ -108,6 +114,9 @@ type Props = {
   crBounds?: { min: number; max: number; step?: number }
   refreshDecks: () => void
   refreshTags: () => void
+  /** Delay restoration until reference data is available, then release the first list query. */
+  initializationReady: boolean
+  onInitialized: () => void
 }
 
 const SearchBar = ({
@@ -117,7 +126,9 @@ const SearchBar = ({
   tagOptions,
   crBounds,
   refreshDecks,
-  refreshTags
+  refreshTags,
+  initializationReady,
+  onInitialized
 }: Props) => {
   // 職業排序：用 classes.map 動態產生
   const CLASS_ORDER = useMemo(() => classes.map((c) => String(c.id)), [])
@@ -144,30 +155,22 @@ const SearchBar = ({
 
   const [openStart, setOpenStart] = useState(false)
   const [openEnd, setOpenEnd] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const loadedRef = useRef(false)
+  const initializationStartedRef = useRef(false)
 
   // ---- CR 總範圍（可由 props 覆蓋）----
   const CR_MIN_BOUND = crBounds?.min ?? 0
   const CR_MAX_BOUND = crBounds?.max ?? 3000
   const CR_STEP = crBounds?.step ?? 1
 
-  // ---- 快速預設（官方 + 你新增）----
-  const CR_PRESETS: Array<{ key: string; label: string; min: number | null; max: number | null }> =
-    [
-      { key: 'lt1650', label: '< 1650', min: null, max: 1649 },
-      { key: 'epic', label: '1650–1749', min: 1650, max: 1749 },
-      { key: 'ultimate', label: '1750–1849', min: 1750, max: 1849 },
-      { key: 'legend', label: '1850+', min: 1850, max: null },
-      { key: 'gte2000', label: '2000+', min: 2000, max: null }
-    ]
-
-  // ---- Slider 刻度 ----
-  const marks = [
-    { value: 1500, label: '1500' },
-    { value: 1650, label: '1650' },
-    { value: 1750, label: '1750' },
-    { value: 1850, label: '1850' },
-    { value: 2000, label: '2000' }
+  // ---- CR 分段（官方段位切點）：整條範圍切成連續區段，點選區段來組出範圍 ----
+  const CR_BANDS: Array<{ key: string; label: string; min: number; max: number }> = [
+    { key: 'lt1650', label: '1650 以下', min: CR_MIN_BOUND, max: 1649 },
+    { key: 'b1650', label: '1650 – 1749', min: 1650, max: 1749 },
+    { key: 'b1750', label: '1750 – 1849', min: 1750, max: 1849 },
+    { key: 'b1850', label: '1850 – 1999', min: 1850, max: 1999 },
+    { key: 'gte2000', label: '2000 以上', min: 2000, max: CR_MAX_BOUND }
   ]
 
   // safety values
@@ -187,6 +190,8 @@ const SearchBar = ({
 
   /* ---------- 初始還原 ---------- */
   useEffect(() => {
+    if (!initializationReady || initializationStartedRef.current) return
+    initializationStartedRef.current = true
     ;(async () => {
       const saved = await settingsGet<PersistShape>(SETTINGS_KEY)
       if (saved) {
@@ -226,9 +231,10 @@ const SearchBar = ({
         })
       }
       loadedRef.current = true
+      onInitialized()
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deckOptions, tagOptions, CR_MIN_BOUND, CR_MAX_BOUND])
+  }, [initializationReady])
 
   /* ---------- 任一設定變更就保存 ---------- */
   useEffect(() => {
@@ -352,154 +358,62 @@ const SearchBar = ({
     }
   }
 
-  const applyPreset = (preset: { min: number | null; max: number | null }) => {
-    const min = preset.min ?? CR_MIN_BOUND
-    const max = preset.max ?? CR_MAX_BOUND
-    if (!crEnabledSafe) onFiltersChange({ crEnabled: true })
-    setCrDraft([min, max]) // ★ 先改草稿
-    onFiltersChange({ crMin: min, crMax: max }) // ★ 點預設視同一次提交
+  // 分段是否落在目前套用範圍內（完全被涵蓋才算選取）
+  const isBandActive = (band: { min: number; max: number }) =>
+    crEnabledSafe && band.min >= crMinSafe && band.max <= crMaxSafe
+
+  // 點選分段：以「最低選取段的下限 ~ 最高選取段的上限」組成連續範圍；全部取消則關閉 CR 篩選
+  const handleBandsChange = (keys: string[]) => {
+    const selected = CR_BANDS.filter((b) => keys.includes(b.key))
+    if (selected.length === 0) {
+      onFiltersChange({ crEnabled: false })
+      return
+    }
+    const lo = Math.min(...selected.map((b) => b.min))
+    const hi = Math.max(...selected.map((b) => b.max))
+    setCrDraft([lo, hi])
+    onFiltersChange({ crEnabled: true, crMin: lo, crMax: hi })
   }
+
+  // 手動輸入的統一提交點：夾住範圍並保證 min <= max
+  const commitCr = (nextMin: number, nextMax: number) => {
+    let lo = clamp(Number.isFinite(nextMin) ? nextMin : CR_MIN_BOUND, CR_MIN_BOUND, CR_MAX_BOUND)
+    let hi = clamp(Number.isFinite(nextMax) ? nextMax : CR_MAX_BOUND, CR_MIN_BOUND, CR_MAX_BOUND)
+    if (lo > hi) [lo, hi] = [hi, lo]
+    setCrDraft([lo, hi])
+    onFiltersChange({ crMin: lo, crMax: hi })
+  }
+
+  // 進階篩選（職業 / 牌組 / 標籤 / 備註 / CR）目前套用中的條件數，顯示在「進階篩選」按鈕上
+  const advancedActiveCount =
+    my.length +
+    oppo.length +
+    decksSafe.length +
+    tagsSafe.length +
+    (noteSafe !== 'any' ? 1 : 0) +
+    (crEnabledSafe ? 1 : 0)
+
+  // hover「進階篩選」按鈕時顯示的已套用條件摘要
+  const advancedSummary = useMemo(() => {
+    const capList = (names: string[], cap = 3) =>
+      names.length <= cap
+        ? names.join('、')
+        : `${names.slice(0, cap).join('、')} +${names.length - cap}`
+    const rows: Array<{ label: string; value: string }> = []
+    if (my.length) rows.push({ label: '我方職業', value: capList(my.map((c) => c.label)) })
+    if (oppo.length) rows.push({ label: '對方職業', value: capList(oppo.map((c) => c.label)) })
+    if (decksSafe.length) rows.push({ label: '牌組', value: capList(decksSafe.map((d) => d.name)) })
+    if (tagsSafe.length) rows.push({ label: '標籤', value: capList(tagsSafe.map((t) => t.name)) })
+    if (noteSafe !== 'any')
+      rows.push({ label: '備註', value: noteSafe === 'with' ? '有備註' : '無備註' })
+    if (crEnabledSafe) rows.push({ label: 'CR', value: `${crMinSafe} – ${crMaxSafe}` })
+    return rows
+  }, [my, oppo, decksSafe, tagsSafe, noteSafe, crEnabledSafe, crMinSafe, crMaxSafe])
 
   return (
     <Box>
-      {/* 第一排：職業 / 模式 */}
-      <Box mb={2} display="flex" gap={2} flexWrap="wrap">
-        {/* 我方職業 */}
-        <Autocomplete
-          openText=""
-          multiple
-          disableCloseOnSelect
-          options={classes}
-          getOptionLabel={(option) => option.label}
-          isOptionEqualToValue={(opt, val) => opt.id === val.id}
-          value={my}
-          onChange={(_, newVal) => onFiltersChange({ my: newVal })}
-          renderInput={(params) => <TextField {...params} label="我方職業" variant="outlined" />}
-          renderOption={(props, option, { selected }) => (
-            <li {...props}>
-              <Checkbox
-                checked={selected}
-                size="small"
-                sx={{ color: option.color, '&.Mui-checked': { color: option.color } }}
-              />
-              <Typography color={option.color}>{option.label}</Typography>
-            </li>
-          )}
-          renderTags={(value, getTagProps) => {
-            const limit = 2
-            const visible = value.slice(0, limit)
-            const extra = value.length - limit
-            return [
-              ...visible.map((opt, idx) => {
-                const { key: _key, ...tagProps } = getTagProps({ index: idx })
-                return (
-                  <Chip
-                    key={opt.id}
-                    label={opt.label}
-                    {...tagProps}
-                    sx={{
-                      background: `${opt.color}22`,
-                      color: opt.color,
-                      fontWeight: 600,
-                      borderRadius: '1.3em',
-                      mr: 0.5,
-                      mb: 0.5,
-                      fontSize: '0.95em',
-                      border: 'none'
-                    }}
-                  />
-                )
-              }),
-              extra > 0 && <Chip key="extra" label={`+${extra}`} />
-            ].filter(Boolean)
-          }}
-          slotProps={{ listbox: { sx: { maxHeight: 'none' } } }}
-          sx={{ minWidth: 320 }}
-        />
-
-        {/* 對方職業 */}
-        <Autocomplete
-          openText=""
-          multiple
-          disableCloseOnSelect
-          options={classes}
-          getOptionLabel={(option) => option.label}
-          isOptionEqualToValue={(opt, val) => opt.id === val.id}
-          value={oppo}
-          onChange={(_, newVal) => onFiltersChange({ oppo: newVal })}
-          renderInput={(params) => <TextField {...params} label="對方職業" variant="outlined" />}
-          renderOption={(props, option, { selected }) => (
-            <li {...props}>
-              <Checkbox
-                checked={selected}
-                size="small"
-                sx={{ color: option.color, '&.Mui-checked': { color: option.color } }}
-              />
-              <Typography color={option.color}>{option.label}</Typography>
-            </li>
-          )}
-          renderTags={(value, getTagProps) => {
-            const limit = 2
-            const visible = value.slice(0, limit)
-            const extra = value.length - limit
-            return [
-              ...visible.map((opt, idx) => {
-                const { key: _key, ...tagProps } = getTagProps({ index: idx })
-                return (
-                  <Chip
-                    key={opt.id}
-                    label={opt.label}
-                    {...tagProps}
-                    sx={{
-                      background: `${opt.color}22`,
-                      color: opt.color,
-                      fontWeight: 600,
-                      borderRadius: '1.3em',
-                      mr: 0.5,
-                      mb: 0.5,
-                      fontSize: '0.95em',
-                      border: 'none'
-                    }}
-                  />
-                )
-              }),
-              extra > 0 && <Chip key="extra" label={`+${extra}`} />
-            ].filter(Boolean)
-          }}
-          slotProps={{ listbox: { sx: { maxHeight: 'none' } } }}
-          sx={{ minWidth: 320 }}
-        />
-
-        {/* 模式（可清空） */}
-        <Autocomplete
-          openText=""
-          options={modes}
-          getOptionLabel={(opt) => opt.label}
-          isOptionEqualToValue={(opt, val) => opt.id === val.id}
-          value={mode ? (modes.find((opt) => opt.id === mode) ?? null) : null}
-          onChange={(_, newVal) =>
-            onFiltersChange({ mode: (newVal?.id as GameMode | undefined) ?? null })
-          }
-          renderInput={(params) => (
-            <TextField
-              {...params}
-              label="模式"
-              variant="outlined"
-              sx={{ '& .MuiInputBase-input': { color: mode ? inputColor : undefined } }}
-            />
-          )}
-          renderOption={(props, option) => (
-            <li {...props}>
-              <Typography color={option.color}>{option.label}</Typography>
-            </li>
-          )}
-          disableClearable={false}
-          sx={{ width: 200 }}
-        />
-      </Box>
-
-      {/* 第二排：快速區間 + 自訂日期 */}
-      <Box display="flex" gap={2} mb={2} alignItems="center" flexWrap="wrap">
+      {/* 常駐精簡列：日期範圍 + 模式 + 進階篩選入口 */}
+      <Box display="flex" gap={2} mb={1.5} alignItems="center" flexWrap="wrap">
         <ToggleButtonGroup
           size="small"
           value={rangeKey}
@@ -572,218 +486,456 @@ const SearchBar = ({
             </LocalizationProvider>
           </Box>
         )}
-      </Box>
 
-      {/* 第三排：依牌組 / 依標籤 */}
-      <Box display="flex" gap={2} mb={2} flexWrap="wrap" alignItems="center">
-        {/* 依牌組（多選）：分組 + 收斂 chips；若選了職業只顯示該職業的牌組 */}
+        {/* 模式（可清空） */}
         <Autocomplete
-          onOpen={() => refreshDecks()}
           openText=""
-          multiple
-          disableCloseOnSelect
-          options={deckOptionsSortedFiltered}
-          getOptionLabel={(d) => d.name}
-          value={decksSafe}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
-          onChange={(_, val) => onFiltersChange({ decks: val ?? [] })}
-          groupBy={(opt) => groupKeyOf(opt)}
-          renderGroup={(params) => (
-            <li key={params.key}>
-              <Typography sx={{ px: 1, py: 0.5, fontWeight: 700, opacity: 0.8 }}>
-                {displayGroupLabel(params.group)}
-              </Typography>
-              <ul style={{ margin: 0, paddingLeft: 8 }}>{params.children}</ul>
-            </li>
+          options={modes}
+          getOptionLabel={(opt) => opt.label}
+          isOptionEqualToValue={(opt, val) => opt.id === val.id}
+          value={mode ? (modes.find((opt) => opt.id === mode) ?? null) : null}
+          onChange={(_, newVal) =>
+            onFiltersChange({ mode: (newVal?.id as GameMode | undefined) ?? null })
+          }
+          renderInput={(params) => (
+            <TextField
+              {...params}
+              label="模式"
+              variant="outlined"
+              size="small"
+              sx={{ '& .MuiInputBase-input': { color: mode ? inputColor : undefined } }}
+            />
           )}
-          renderInput={(params) => <TextField {...params} label="依牌組" variant="outlined" />}
-          renderOption={(props, opt, { selected }) => (
+          renderOption={(props, option) => (
             <li {...props}>
-              <Checkbox checked={selected} size="small" />
-              <Chip
-                size="small"
-                label={classesMap[opt.classId!]?.label ?? '—'}
-                sx={{
-                  bgcolor: classesMap[opt.classId!]?.color
-                    ? `${classesMap[opt.classId!].color}50`
-                    : undefined,
-                  mr: 1
-                }}
-              />
-              <Typography>{opt.name}</Typography>
+              <Typography color={option.color}>{option.label}</Typography>
             </li>
           )}
-          renderTags={(value, getTagProps) => {
-            const limit = 2
-            const visible = value.slice(0, limit)
-            const extra = value.length - limit
-            return [
-              ...visible.map((opt, idx) => (
-                <Box key={opt.id}>
-                  <Chip
-                    label={opt.name}
-                    {...getTagProps({ index: idx })}
-                    sx={{ mr: 0.5, mb: 0.5 }}
-                  />
-                </Box>
-              )),
-              extra > 0 && <Chip key="extra" label={`+${extra}`} />
-            ].filter(Boolean)
-          }}
-          slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
-          sx={{ minWidth: 320 }}
+          disableClearable={false}
+          sx={{ width: 180 }}
         />
 
-        {/* 依標籤（多選） */}
-        <Autocomplete
-          onOpen={() => refreshTags()}
-          openText=""
-          multiple
-          disableCloseOnSelect
-          options={tagOptions}
-          getOptionLabel={(t) => t.name}
-          value={tagsSafe}
-          isOptionEqualToValue={(a, b) => a.id === b.id}
-          onChange={(_, val) => onFiltersChange({ tags: val ?? [] })}
-          renderInput={(params) => <TextField {...params} label="依標籤" variant="outlined" />}
-          renderOption={(props, opt, { selected }) => (
-            <li {...props}>
-              <Checkbox checked={selected} size="small" />
-              <Typography>{opt.name}</Typography>
-            </li>
-          )}
-          renderTags={(value, getTagProps) => {
-            const limit = 2
-            const visible = value.slice(0, limit)
-            const extra = value.length - limit
-            return [
-              ...visible.map((opt, idx) => {
-                const { key: _key, ...tagProps } = getTagProps({ index: idx })
-                return (
-                  <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
-                )
-              }),
-              extra > 0 && <Chip key="extra" label={`+${extra}`} />
-            ].filter(Boolean)
-          }}
-          slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
-          sx={{ minWidth: 320 }}
-        />
-      </Box>
+        <Box flex={1} />
 
-      {/* 第四排：備註 / CR 區間（開關 + 預設 + 雙頭拉桿 + 輸入框） */}
-      <Box display="flex" gap={2} mb={1.5} alignItems="center" flexWrap="wrap">
-        <ToggleButtonGroup
-          size="small"
-          value={noteSafe}
-          exclusive
-          onChange={(_, v: NoteFilter) => v && onFiltersChange({ note: v })}
+        <Tooltip
+          arrow
+          placement="bottom-end"
+          title={
+            advancedSummary.length === 0 ? (
+              '尚未套用進階篩選'
+            ) : (
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, py: 0.5 }}>
+                {advancedSummary.map((row) => (
+                  <Box key={row.label} sx={{ display: 'flex', gap: 1 }}>
+                    <Typography variant="caption" sx={{ opacity: 0.7, flexShrink: 0 }}>
+                      {row.label}
+                    </Typography>
+                    <Typography variant="caption">{row.value}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            )
+          }
         >
-          <ToggleButton value="any" sx={{ width: 80 }}>
-            <Typography>不限</Typography>
-          </ToggleButton>
-          <ToggleButton value="with" sx={{ width: 80 }}>
-            <Typography>有備註</Typography>
-          </ToggleButton>
-          <ToggleButton value="without" sx={{ width: 80 }}>
-            <Typography>無備註</Typography>
-          </ToggleButton>
-        </ToggleButtonGroup>
+          <Badge badgeContent={advancedActiveCount} color="primary">
+            <Button
+              variant={advancedActiveCount > 0 ? 'contained' : 'outlined'}
+              size="small"
+              startIcon={<TuneIcon />}
+              onClick={() => setAdvancedOpen(true)}
+            >
+              進階篩選
+            </Button>
+          </Badge>
+        </Tooltip>
+      </Box>
 
-        <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, gap: 1 }}>
-          <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-            <FormControlLabel
-              control={
+      {/* 進階篩選：職業 / 牌組 / 標籤 / 備註 / CR，收在抽屜內避免長期佔用垂直空間 */}
+      <Drawer
+        anchor="right"
+        open={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+        slotProps={{
+          paper: {
+            sx: {
+              width: 400,
+              bgcolor: 'background.default',
+              backgroundImage: 'none'
+            }
+          }
+        }}
+      >
+        {/* sticky header：捲動時關閉按鈕保持可見 */}
+        <Box
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 2,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: 2.5,
+            py: 1.5,
+            bgcolor: 'background.default',
+            borderBottom: '1px solid',
+            borderColor: 'divider'
+          }}
+        >
+          <Typography variant="h6">進階篩選</Typography>
+          <IconButton onClick={() => setAdvancedOpen(false)} size="small" aria-label="關閉進階篩選">
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        </Box>
+
+        <Box sx={{ p: 2.5 }} role="presentation">
+          <Box display="flex" flexDirection="column" gap={2}>
+            {/* 我方職業 */}
+            <Autocomplete
+              openText=""
+              multiple
+              disableCloseOnSelect
+              options={classes}
+              getOptionLabel={(option) => option.label}
+              isOptionEqualToValue={(opt, val) => opt.id === val.id}
+              value={my}
+              onChange={(_, newVal) => onFiltersChange({ my: newVal })}
+              renderInput={(params) => (
+                <TextField {...params} label="我方職業" variant="outlined" />
+              )}
+              renderOption={(props, option, { selected }) => (
+                <li {...props}>
+                  <Checkbox
+                    checked={selected}
+                    size="small"
+                    sx={{ color: option.color, '&.Mui-checked': { color: option.color } }}
+                  />
+                  <Typography color={option.color}>{option.label}</Typography>
+                </li>
+              )}
+              renderTags={(value, getTagProps) => {
+                const limit = 2
+                const visible = value.slice(0, limit)
+                const extra = value.length - limit
+                return [
+                  ...visible.map((opt, idx) => {
+                    const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                    return (
+                      <Chip
+                        key={opt.id}
+                        label={opt.label}
+                        {...tagProps}
+                        sx={{
+                          background: `${opt.color}22`,
+                          color: opt.color,
+                          fontWeight: 600,
+                          borderRadius: '1.3em',
+                          mr: 0.5,
+                          mb: 0.5,
+                          fontSize: '0.95em',
+                          border: 'none'
+                        }}
+                      />
+                    )
+                  }),
+                  extra > 0 && <Chip key="extra" label={`+${extra}`} />
+                ].filter(Boolean)
+              }}
+              slotProps={{ listbox: { sx: { maxHeight: 'none' } } }}
+              sx={{ width: '100%' }}
+            />
+
+            {/* 對方職業 */}
+            <Autocomplete
+              openText=""
+              multiple
+              disableCloseOnSelect
+              options={classes}
+              getOptionLabel={(option) => option.label}
+              isOptionEqualToValue={(opt, val) => opt.id === val.id}
+              value={oppo}
+              onChange={(_, newVal) => onFiltersChange({ oppo: newVal })}
+              renderInput={(params) => (
+                <TextField {...params} label="對方職業" variant="outlined" />
+              )}
+              renderOption={(props, option, { selected }) => (
+                <li {...props}>
+                  <Checkbox
+                    checked={selected}
+                    size="small"
+                    sx={{ color: option.color, '&.Mui-checked': { color: option.color } }}
+                  />
+                  <Typography color={option.color}>{option.label}</Typography>
+                </li>
+              )}
+              renderTags={(value, getTagProps) => {
+                const limit = 2
+                const visible = value.slice(0, limit)
+                const extra = value.length - limit
+                return [
+                  ...visible.map((opt, idx) => {
+                    const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                    return (
+                      <Chip
+                        key={opt.id}
+                        label={opt.label}
+                        {...tagProps}
+                        sx={{
+                          background: `${opt.color}22`,
+                          color: opt.color,
+                          fontWeight: 600,
+                          borderRadius: '1.3em',
+                          mr: 0.5,
+                          mb: 0.5,
+                          fontSize: '0.95em',
+                          border: 'none'
+                        }}
+                      />
+                    )
+                  }),
+                  extra > 0 && <Chip key="extra" label={`+${extra}`} />
+                ].filter(Boolean)
+              }}
+              slotProps={{ listbox: { sx: { maxHeight: 'none' } } }}
+              sx={{ width: '100%' }}
+            />
+
+            {/* 依牌組（多選）：分組 + 收斂 chips；若選了職業只顯示該職業的牌組 */}
+            <Autocomplete
+              onOpen={() => refreshDecks()}
+              openText=""
+              multiple
+              disableCloseOnSelect
+              options={deckOptionsSortedFiltered}
+              getOptionLabel={(d) => d.name}
+              value={decksSafe}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              onChange={(_, val) => onFiltersChange({ decks: val ?? [] })}
+              groupBy={(opt) => groupKeyOf(opt)}
+              renderGroup={(params) => (
+                <li key={params.key}>
+                  <Typography sx={{ px: 1, py: 0.5, fontWeight: 700, opacity: 0.8 }}>
+                    {displayGroupLabel(params.group)}
+                  </Typography>
+                  <ul style={{ margin: 0, paddingLeft: 8 }}>{params.children}</ul>
+                </li>
+              )}
+              renderInput={(params) => <TextField {...params} label="依牌組" variant="outlined" />}
+              renderOption={(props, opt, { selected }) => (
+                <li {...props}>
+                  <Checkbox checked={selected} size="small" />
+                  <Chip
+                    size="small"
+                    label={classesMap[opt.classId!]?.label ?? '—'}
+                    sx={{
+                      bgcolor: classesMap[opt.classId!]?.color
+                        ? `${classesMap[opt.classId!].color}50`
+                        : undefined,
+                      mr: 1
+                    }}
+                  />
+                  <Typography>{opt.name}</Typography>
+                </li>
+              )}
+              renderTags={(value, getTagProps) => {
+                const limit = 2
+                const visible = value.slice(0, limit)
+                const extra = value.length - limit
+                return [
+                  ...visible.map((opt, idx) => (
+                    <Box key={opt.id}>
+                      <Chip
+                        label={opt.name}
+                        {...getTagProps({ index: idx })}
+                        sx={{ mr: 0.5, mb: 0.5 }}
+                      />
+                    </Box>
+                  )),
+                  extra > 0 && <Chip key="extra" label={`+${extra}`} />
+                ].filter(Boolean)
+              }}
+              slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
+              sx={{ width: '100%' }}
+            />
+
+            {/* 依標籤（多選） */}
+            <Autocomplete
+              onOpen={() => refreshTags()}
+              openText=""
+              multiple
+              disableCloseOnSelect
+              options={tagOptions}
+              getOptionLabel={(t) => t.name}
+              value={tagsSafe}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              onChange={(_, val) => onFiltersChange({ tags: val ?? [] })}
+              renderInput={(params) => <TextField {...params} label="依標籤" variant="outlined" />}
+              renderOption={(props, opt, { selected }) => (
+                <li {...props}>
+                  <Checkbox checked={selected} size="small" />
+                  <Typography>{opt.name}</Typography>
+                </li>
+              )}
+              renderTags={(value, getTagProps) => {
+                const limit = 2
+                const visible = value.slice(0, limit)
+                const extra = value.length - limit
+                return [
+                  ...visible.map((opt, idx) => {
+                    const { key: _key, ...tagProps } = getTagProps({ index: idx })
+                    return (
+                      <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
+                    )
+                  }),
+                  extra > 0 && <Chip key="extra" label={`+${extra}`} />
+                ].filter(Boolean)
+              }}
+              slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
+              sx={{ width: '100%' }}
+            />
+
+            {/* 備註 */}
+            <ToggleButtonGroup
+              size="small"
+              value={noteSafe}
+              exclusive
+              onChange={(_, v: NoteFilter) => v && onFiltersChange({ note: v })}
+            >
+              <ToggleButton value="any" sx={{ width: 80 }}>
+                <Typography>不限</Typography>
+              </ToggleButton>
+              <ToggleButton value="with" sx={{ width: 80 }}>
+                <Typography>有備註</Typography>
+              </ToggleButton>
+              <ToggleButton value="without" sx={{ width: 80 }}>
+                <Typography>無備註</Typography>
+              </ToggleButton>
+            </ToggleButtonGroup>
+
+            {/* CR 區間：卡片式區塊（標題 + 開關 + 目前範圍，展開後有預設 / 拉桿 / 手動輸入） */}
+            <Box
+              sx={{
+                border: '1px solid',
+                borderColor: crEnabledSafe ? 'primary.main' : 'divider',
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                overflow: 'hidden',
+                transition: 'border-color .2s'
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1,
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}
+                onClick={() => toggleCrEnabled(!crEnabledSafe)}
+              >
+                <Typography sx={{ fontWeight: 600 }}>CR 篩選</Typography>
+                {crEnabledSafe && (
+                  <Chip
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    label={`${crDraft[0]} – ${crDraft[1]}`}
+                  />
+                )}
+                <Box flex={1} />
                 <Switch
+                  size="small"
                   checked={crEnabledSafe}
+                  onClick={(e) => e.stopPropagation()}
                   onChange={(_, checked) => toggleCrEnabled(checked)}
                 />
-              }
-              label="CR 篩選"
-              sx={{ mr: 1 }}
-            />
-            {/* 快速預設 */}
-            <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-              {CR_PRESETS.map((p) => {
-                const active =
-                  crEnabledSafe &&
-                  (p.min == null ? crMinSafe === CR_MIN_BOUND : crMinSafe === p.min) &&
-                  (p.max == null ? crMaxSafe === CR_MAX_BOUND : crMaxSafe === p.max)
-                return (
-                  <Chip
-                    key={p.key}
-                    label={p.label}
-                    variant={active ? 'filled' : 'outlined'}
-                    color={active ? 'primary' : 'default'}
-                    size="small"
-                    onClick={() => applyPreset(p)}
-                    disabled={!crEnabledSafe}
-                    sx={{ borderRadius: '999px' }}
-                  />
-                )
-              })}
-            </Box>
-          </Box>
+              </Box>
 
-          <Box display="flex" alignItems="center" gap={1.25} width={1200}>
-            <Typography sx={{ whiteSpace: 'nowrap', opacity: crEnabledSafe ? 1 : 0.6 }}>
-              CR 區間
-            </Typography>
-            <Box sx={{ flex: 1, opacity: crEnabledSafe ? 1 : 0.5 }}>
-              <Slider
-                disabled={!crEnabledSafe}
-                value={crDraft} // ★ 用草稿
-                min={CR_MIN_BOUND}
-                max={CR_MAX_BOUND}
-                step={CR_STEP}
-                onChange={(_, v) => setCrDraft(v as [number, number])} // ★ 只改草稿，不查詢
-                onChangeCommitted={(_, v) => {
-                  // ★ 放開後才提交 -> 觸發查詢
-                  const [minV, maxV] = v as number[]
-                  onFiltersChange({ crMin: minV, crMax: maxV })
-                }}
-                valueLabelDisplay="auto"
-                marks={marks}
-                sx={{
-                  mx: 1,
-                  '& .MuiSlider-thumb': { boxShadow: 3 },
-                  '& .MuiSlider-rail': { opacity: 0.3 }
-                }}
-              />
+              <Collapse in={crEnabledSafe}>
+                <Box sx={{ px: 2, pb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                  {/* 分段選取：點選一段或多段，套用範圍 = 最低段下限 ~ 最高段上限（連續） */}
+                  <Box>
+                    <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                      選擇分數段（可多選，範圍為連續區間）
+                    </Typography>
+                    <ToggleButtonGroup
+                      orientation="vertical"
+                      fullWidth
+                      size="small"
+                      value={CR_BANDS.filter(isBandActive).map((b) => b.key)}
+                      onChange={(_, keys: string[]) => handleBandsChange(keys)}
+                      sx={{ mt: 0.75 }}
+                    >
+                      {CR_BANDS.map((b) => (
+                        <ToggleButton
+                          key={b.key}
+                          value={b.key}
+                          sx={{
+                            justifyContent: 'space-between',
+                            px: 1.5,
+                            textTransform: 'none',
+                            '&.Mui-selected': {
+                              bgcolor: 'primary.main',
+                              color: 'primary.contrastText',
+                              '&:hover': { bgcolor: 'primary.dark' }
+                            }
+                          }}
+                        >
+                          <Typography variant="body2" fontWeight={600}>
+                            {b.label}
+                          </Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                            {b.min} – {b.max}
+                          </Typography>
+                        </ToggleButton>
+                      ))}
+                    </ToggleButtonGroup>
+                  </Box>
+
+                  {/* 自訂範圍：失焦或 Enter 才提交 */}
+                  <Typography variant="caption" sx={{ opacity: 0.7, mb: -1 }}>
+                    自訂範圍
+                  </Typography>
+                  <Box display="flex" alignItems="center" gap={1.25}>
+                    <TextField
+                      label="最低"
+                      size="small"
+                      type="number"
+                      value={crDraft[0]}
+                      onChange={(e) => setCrDraft([Number(e.target.value), crDraft[1]])}
+                      onBlur={() => commitCr(crDraft[0], crDraft[1])}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitCr(crDraft[0], crDraft[1])
+                      }}
+                      slotProps={{
+                        htmlInput: { min: CR_MIN_BOUND, max: CR_MAX_BOUND, step: CR_STEP }
+                      }}
+                      sx={{ flex: 1 }}
+                    />
+                    <Typography sx={{ opacity: 0.5 }}>–</Typography>
+                    <TextField
+                      label="最高"
+                      size="small"
+                      type="number"
+                      value={crDraft[1]}
+                      onChange={(e) => setCrDraft([crDraft[0], Number(e.target.value)])}
+                      onBlur={() => commitCr(crDraft[0], crDraft[1])}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') commitCr(crDraft[0], crDraft[1])
+                      }}
+                      slotProps={{
+                        htmlInput: { min: CR_MIN_BOUND, max: CR_MAX_BOUND, step: CR_STEP }
+                      }}
+                      sx={{ flex: 1 }}
+                    />
+                  </Box>
+                </Box>
+              </Collapse>
             </Box>
-            <TextField
-              label="最低"
-              size="small"
-              type="number"
-              value={crDraft[0]}
-              onChange={(e) => {
-                const v = clamp(Number(e.target.value), CR_MIN_BOUND, crMaxSafe)
-                setCrDraft([v, crDraft[1]])
-                onFiltersChange({ crMin: v })
-              }}
-              InputProps={{ inputProps: { min: CR_MIN_BOUND, max: CR_MAX_BOUND, step: CR_STEP } }}
-              sx={{ width: 110 }}
-              // disabled={!crEnabledSafe}
-              disabled
-            />
-            <TextField
-              label="最高"
-              size="small"
-              type="number"
-              value={crDraft[1]}
-              onChange={(e) => {
-                const v = clamp(Number(e.target.value), crMinSafe, CR_MAX_BOUND)
-                setCrDraft([crDraft[0], v])
-                onFiltersChange({ crMax: v })
-              }}
-              InputProps={{ inputProps: { min: CR_MIN_BOUND, max: CR_MAX_BOUND, step: CR_STEP } }}
-              sx={{ width: 110 }}
-              // disabled={!crEnabledSafe}
-              disabled
-            />
           </Box>
         </Box>
-      </Box>
+      </Drawer>
     </Box>
   )
 }

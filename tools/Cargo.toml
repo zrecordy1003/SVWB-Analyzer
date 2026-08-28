@@ -1,0 +1,17 @@
+# Workspace over the three Rust crates.
+#
+# Before this, each crate was its own workspace root, so each had a private
+# `target/` (795MB combined) and the `image` crate was compiled twice - once for
+# `vision-native` and again for `vision-node-addon`, which depends on it by path.
+# One workspace shares a single `target/` and a single lockfile.
+[workspace]
+resolver = "3"
+members = ["capture", "engine", "vision-native", "vision-node-addon"]
+
+# Profiles MUST live here. Cargo ignores `[profile.*]` in a workspace member and
+# only warns, so leaving these in the member manifests would silently drop LTO
+# and the single codegen unit from the shipped binaries.
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
