@@ -1,6 +1,6 @@
 // src/renderer/components/matches/MatchList.tsx
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Box, Typography } from '@mui/material'
+import { Alert, Box, Snackbar, Typography } from '@mui/material'
 
 import SearchBar, {
   type Filters as SearchFilters,
@@ -74,10 +74,15 @@ const MatchList = (): React.JSX.Element => {
 
   // 編輯 / 刪除
   const [editId, setEditId] = useState<number | null>(null)
+  const [deckError, setDeckError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: number | null }>({
     open: false,
     id: null
   })
+
+  // 就地更新單列時要拿到最新一版的該列，但又不想讓 rows 進 callback 的相依
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
 
   // 外部通知（引擎寫入或使用者編輯）→ 就地對齊最新一頁，不重置捲動位置
   const syncRecentRef = useRef(syncRecent)
@@ -97,6 +102,27 @@ const MatchList = (): React.JSX.Element => {
 
   const openEdit = useCallback((id: number) => setEditId(id), [])
   const closeEdit = useCallback(() => setEditId(null), [])
+
+  // 卡片上的牌組下拉：寫完才更新該列，失敗就維持原樣並說明，不做樂觀更新
+  const setDeck = useCallback(
+    async (id: number, side: 'my' | 'oppo', deckId: number) => {
+      const deck = allDecks.find((d) => d.id === deckId)
+      if (!deck) return
+      try {
+        await window.electron.ipcRenderer.invoke('matches:updateDeck', id, side, deckId)
+        const current = rowsRef.current.find((r) => r.id === id)
+        if (!current) return
+        const picked = { id: deck.id, name: deck.name }
+        patchRow(
+          id,
+          side === 'my' ? { ...current, my_deck: picked } : { ...current, oppo_deck: picked }
+        )
+      } catch (e: any) {
+        setDeckError(e?.message ?? '設定牌組失敗')
+      }
+    },
+    [allDecks, patchRow]
+  )
 
   const requestDelete = useCallback((id: number) => setConfirmDelete({ open: true, id }), [])
   const handleConfirmDelete = useCallback(
@@ -135,8 +161,10 @@ const MatchList = (): React.JSX.Element => {
       <Box flex={1} minHeight={0}>
         <VirtualMatchList
           rows={rows}
+          deckOptions={allDecks}
           onEdit={openEdit}
           onDelete={requestDelete}
+          onSetDeck={setDeck}
           hasMore={hasMore}
           isLoadingMore={isLoadingMore}
           isInitialLoading={isInitialLoading}
@@ -168,6 +196,17 @@ const MatchList = (): React.JSX.Element => {
         message="此操作無法復原。"
         onClose={handleConfirmDelete}
       />
+
+      <Snackbar
+        open={!!deckError}
+        autoHideDuration={4000}
+        onClose={() => setDeckError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setDeckError(null)}>
+          {deckError}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }

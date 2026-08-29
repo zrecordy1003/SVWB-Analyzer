@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
 import MatchCard, { MATCH_CARD_CONTENT_HEIGHT } from './MatchCard'
+import type { InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
 
 const LOAD_MORE_THRESHOLD = 5
@@ -10,8 +11,10 @@ const ROW_HEIGHT = MATCH_CARD_CONTENT_HEIGHT + 2 + 12
 
 type Props = {
   rows: MatchRow[]
+  deckOptions: InlineDeckOption[]
   onEdit: (id: number) => void
   onDelete: (id: number) => void
+  onSetDeck: (id: number, side: 'my' | 'oppo', deckId: number) => void
   hasMore: boolean
   isLoadingMore: boolean
   isInitialLoading: boolean
@@ -22,8 +25,10 @@ type Props = {
 
 const VirtualMatchList: React.FC<Props> = ({
   rows,
+  deckOptions,
   onEdit,
   onDelete,
+  onSetDeck,
   hasMore,
   isLoadingMore,
   isInitialLoading,
@@ -167,7 +172,13 @@ const VirtualMatchList: React.FC<Props> = ({
                   backfaceVisibility: 'hidden'
                 }}
               >
-                <MatchCard match={match} onEdit={onEdit} onDelete={onDelete} />
+                <MatchCard
+                  match={match}
+                  deckOptions={deckOptions}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                  onSetDeck={onSetDeck}
+                />
               </Box>
             )
           })}

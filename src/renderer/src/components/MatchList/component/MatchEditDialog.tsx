@@ -25,7 +25,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import { format as formatDate } from 'date-fns'
 import type { Match, GameMode, PlayOrder, Tag, Deck, ClassName } from '@shared/domain'
-import { modesMap } from '@renderer/map/classMap'
+import { isDecklessMode, modesMap } from '@renderer/map/classMap'
 import DeckPicker, { type DeckLite } from './DeckPicker'
 import SummaryHeader from './SummaryHeader'
 import { Close } from '@mui/icons-material'
@@ -340,6 +340,9 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
 
   const tagList = useMemo(() => data?.tags?.map((x) => x.tag) ?? [], [data])
 
+  // 2Pick 之類的模式沒有牌組：不給選，存檔時也把改模式之前殘留的牌組一起清掉
+  const deckless = isDecklessMode(data?.mode)
+
   const handleSave = async () => {
     if (!data) return
     setLoading(true)
@@ -354,8 +357,8 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
         mode: (data.mode ?? null) as GameMode | null,
         bp: data.bp ?? null,
         durationTime: data.durationTime ?? null,
-        my_deckId: data.my_deckId ?? null,
-        oppo_deckId: data.oppo_deckId ?? null,
+        my_deckId: deckless ? null : (data.my_deckId ?? null),
+        oppo_deckId: deckless ? null : (data.oppo_deckId ?? null),
         note: data.note ?? null,
         playedAt: toISO(data.playedAt),
         tagIds: tagList.map((t) => t.id)
@@ -605,44 +608,50 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
                 牌組
               </Typography>
 
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                  gap: 2,
-                  alignItems: 'start'
-                }}
-              >
-                <DeckPicker
-                  label="我方牌組"
-                  klass={data.my_class}
-                  value={data.my_deckId ?? null}
-                  onChange={(deck: DeckLite | null) =>
-                    setData({
-                      ...data,
-                      my_deckId: deck?.id ?? null,
-                      my_deck: deck
-                        ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
-                        : null
-                    })
-                  }
-                />
+              {deckless ? (
+                <Typography variant="body2" color="text.secondary">
+                  {modesMap[data.mode as string]?.label ?? '此模式'}的牌是抽出來的，不記錄牌組。
+                </Typography>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                    gap: 2,
+                    alignItems: 'start'
+                  }}
+                >
+                  <DeckPicker
+                    label="我方牌組"
+                    klass={data.my_class}
+                    value={data.my_deckId ?? null}
+                    onChange={(deck: DeckLite | null) =>
+                      setData({
+                        ...data,
+                        my_deckId: deck?.id ?? null,
+                        my_deck: deck
+                          ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
+                          : null
+                      })
+                    }
+                  />
 
-                <DeckPicker
-                  label="對手牌組"
-                  klass={data.oppo_class}
-                  value={data.oppo_deckId ?? null}
-                  onChange={(deck: DeckLite | null) =>
-                    setData({
-                      ...data,
-                      oppo_deckId: deck?.id ?? null,
-                      oppo_deck: deck
-                        ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
-                        : null
-                    })
-                  }
-                />
-              </Box>
+                  <DeckPicker
+                    label="對手牌組"
+                    klass={data.oppo_class}
+                    value={data.oppo_deckId ?? null}
+                    onChange={(deck: DeckLite | null) =>
+                      setData({
+                        ...data,
+                        oppo_deckId: deck?.id ?? null,
+                        oppo_deck: deck
+                          ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
+                          : null
+                      })
+                    }
+                  />
+                </Box>
+              )}
             </Box>
 
             <Divider />

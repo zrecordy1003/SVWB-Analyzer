@@ -5,11 +5,12 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import NotesIcon from '@mui/icons-material/Notes'
 
-import { classesMap } from '@renderer/map/classMap'
+import { classesMap, isDecklessMode } from '@renderer/map/classMap'
 import ModeLabel from '@renderer/components/Common/ModeLabel'
 import PlayOrderMark from '@renderer/components/Common/PlayOrderMark'
 import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
 import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
+import InlineDeckSelect, { type InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
 
 /**
@@ -24,25 +25,34 @@ const VISIBLE_TAGS = 2
 /**
  * The centre column is a fixed width so the VS lands on the same x on every
  * row, which is what makes a list of matchups scannable down the column rather
- * than word by word.
+ * than word by word. Only as wide as the word itself: the matchup reads as one
+ * unit, so the two sides sit close and the VS separates them by contrast rather
+ * than by distance.
  */
-const VS_COLUMN_WIDTH = 56
+const VS_COLUMN_WIDTH = 28
+
+/**
+ * 牌組名一律截在這個寬度：12.5px 的中文字約五個字。牌組名長短差很多，放任它們
+ * 各自佔滿就沒有一條可以往下掃的邊界；截斷後完整名稱仍留在 title 上。
+ */
+const DECK_NAME_MAX_WIDTH = 68
 
 /**
  * Our half is a fixed width rather than a share of the row: text starts at the
  * left edge and the VS still lands on the same x every time. A short name
  * therefore leaves a gap before the VS - the deliberate cost of keeping both
- * the left edge and the VS column fixed. Sized to just clear the widest fixed
- * string either line can hold - the "未設定牌組" placeholder and the longest
- * class name - so the gap stays as small as it can be; real deck names longer
- * than that ellipsise.
+ * the left edge and the VS column fixed. Sized to just clear the widest thing
+ * either line can hold - a truncated deck name, the deck placeholder with its
+ * caret, and the longest class name - so the gap stays as small as it can be.
  */
-const MY_SIDE_WIDTH = 68
+const MY_SIDE_WIDTH = DECK_NAME_MAX_WIDTH
 
 type Props = {
   match: MatchRow
+  deckOptions: InlineDeckOption[]
   onEdit: (id: number) => void
   onDelete: (id: number) => void
+  onSetDeck: (id: number, side: 'my' | 'oppo', deckId: number) => void
 }
 
 /**
@@ -55,12 +65,18 @@ type Props = {
  * fixed width so the VS column that follows it never moves; the opponent's
  * takes whatever is left. Either one ellipsises rather than pushing the layout
  * around.
+ *
+ * With no deck recorded the line becomes a picker rather than dead text: that
+ * is the one edit worth making straight from the list.
  */
-const Side: React.FC<{ className: string; deckName?: string | null; side: 'my' | 'oppo' }> = ({
-  className,
-  deckName,
-  side
-}) => (
+const Side: React.FC<{
+  className: string
+  deckName?: string | null
+  side: 'my' | 'oppo'
+  deckless: boolean
+  deckOptions: InlineDeckOption[]
+  onSelectDeck: (deckId: number) => void
+}> = ({ className, deckName, side, deckless, deckOptions, onSelectDeck }) => (
   <Box
     sx={{
       display: 'flex',
@@ -78,24 +94,30 @@ const Side: React.FC<{ className: string; deckName?: string | null; side: 'my' |
     >
       {classesMap[className]?.label ?? className}
     </Typography>
-    <Typography
-      variant="body2"
-      noWrap
-      sx={{
-        fontSize: 12.5,
-        lineHeight: 1.35,
-        maxWidth: '100%',
-        color: deckName ? 'text.secondary' : 'text.disabled',
-        fontStyle: deckName ? 'normal' : 'italic'
-      }}
-      title={deckName || undefined}
-    >
-      {deckName || '未設定牌組'}
-    </Typography>
+    {/* 沒有牌組欄的模式連空行都不留：留著只是把卡片撐得更空。職業那列本來就垂直
+        置中，少一行只是這一側整體置中，不會歪掉 */}
+    {deckless ? null : deckName ? (
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{
+          fontSize: 12.5,
+          lineHeight: 1.35,
+          maxWidth: DECK_NAME_MAX_WIDTH,
+          color: 'text.secondary'
+        }}
+        title={deckName}
+      >
+        {deckName}
+      </Typography>
+    ) : (
+      <InlineDeckSelect klass={className} options={deckOptions} onSelect={onSelectDeck} />
+    )}
   </Box>
 )
 
-const MatchCard: React.FC<Props> = ({ match: m, onEdit, onDelete }) => {
+const MatchCard: React.FC<Props> = ({ match: m, deckOptions, onEdit, onDelete, onSetDeck }) => {
+  const deckless = isDecklessMode(m.mode)
   const isWin = m.result === true
   const resultLabel = m.result == null ? '未定' : isWin ? '勝利' : '敗北'
   const resultColor = m.result == null ? '#7d8490' : isWin ? '#69d8a8' : '#f0829a'
@@ -228,8 +250,15 @@ const MatchCard: React.FC<Props> = ({ match: m, onEdit, onDelete }) => {
             </Box>
 
             {/* 職業在上、牌組在下；兩側往中間對齊，VS 欄固定寬讓每列的 VS 對齊 */}
-            <Box display="flex" alignItems="center" gap={0.75} minWidth={0} height={42}>
-              <Side className={m.my_class} deckName={m.my_deck?.name} side="my" />
+            <Box display="flex" alignItems="center" gap={0.25} minWidth={0} height={42}>
+              <Side
+                className={m.my_class}
+                deckName={m.my_deck?.name}
+                side="my"
+                deckless={deckless}
+                deckOptions={deckOptions}
+                onSelectDeck={(deckId) => onSetDeck(m.id, 'my', deckId)}
+              />
 
               <Box
                 sx={{
@@ -249,7 +278,14 @@ const MatchCard: React.FC<Props> = ({ match: m, onEdit, onDelete }) => {
                 </Typography>
               </Box>
 
-              <Side className={m.oppo_class} deckName={m.oppo_deck?.name} side="oppo" />
+              <Side
+                className={m.oppo_class}
+                deckName={m.oppo_deck?.name}
+                side="oppo"
+                deckless={deckless}
+                deckOptions={deckOptions}
+                onSelectDeck={(deckId) => onSetDeck(m.id, 'oppo', deckId)}
+              />
             </Box>
 
             <Box display="flex" alignItems="center" gap={1.25} minWidth={0} height={22}>

@@ -8,7 +8,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 // import MilitaryTechIcon from '@mui/icons-material/MilitaryTech'
 import type { ClassName, GameMode, PlayOrder } from '@shared/domain'
 import { format as formatDate } from 'date-fns'
-import { classesMap, modesMap } from '@renderer/map/classMap'
+import { classesMap, isDecklessMode, modesMap } from '@renderer/map/classMap'
 
 type Props = {
   result: boolean | null | undefined
@@ -40,6 +40,9 @@ const SummaryHeader: React.FC<Props> = (props) => {
     // durationTime,
     playedAt
   } = props
+
+  // 2Pick 之類沒有牌組的模式：這裡也不留「未設置」那一行
+  const deckless = isDecklessMode(mode)
 
   const resultChip =
     result == null ? (
@@ -103,34 +106,38 @@ const SummaryHeader: React.FC<Props> = (props) => {
     >
       <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
         <Box sx={{ color: classesMap[my_class]?.color }}>{classesMap[my_class]?.label}</Box>
-        <Box
-          sx={{
-            color: classesMap[my_class]?.color
-              ? my_deckName
-                ? classesMap[my_class]?.color
-                : 'gray'
-              : undefined,
-            opacity: 0.9
-          }}
-        >
-          {my_deckName ? `${my_deckName}` : '未設置'}
-        </Box>
+        {!deckless && (
+          <Box
+            sx={{
+              color: classesMap[my_class]?.color
+                ? my_deckName
+                  ? classesMap[my_class]?.color
+                  : 'gray'
+                : undefined,
+              opacity: 0.9
+            }}
+          >
+            {my_deckName ? `${my_deckName}` : '未設置'}
+          </Box>
+        )}
       </Box>
 
       <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
         <Box sx={{ color: classesMap[oppo_class]?.color }}>{classesMap[oppo_class]?.label}</Box>
-        <Box
-          sx={{
-            color: classesMap[oppo_class]?.color
-              ? oppo_deckName
-                ? classesMap[oppo_class]?.color
-                : 'gray'
-              : undefined,
-            opacity: 0.9
-          }}
-        >
-          {oppo_deckName ? `${oppo_deckName}` : '未設置'}
-        </Box>
+        {!deckless && (
+          <Box
+            sx={{
+              color: classesMap[oppo_class]?.color
+                ? oppo_deckName
+                  ? classesMap[oppo_class]?.color
+                  : 'gray'
+                : undefined,
+              opacity: 0.9
+            }}
+          >
+            {oppo_deckName ? `${oppo_deckName}` : '未設置'}
+          </Box>
+        )}
       </Box>
 
       {/* <Chip

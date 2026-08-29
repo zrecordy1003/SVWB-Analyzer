@@ -39,6 +39,15 @@ export const modes: ModeOption[] = [
   { id: 'unknown', label: '未辨識', color: 'warning', tone: '#8A8F98' }
 ]
 
+/**
+ * 這些模式的牌是抽出來的，沒有「牌組」可言，所以整個 UI 都不給它們牌組欄位：
+ * 卡片不留那一行，編輯視窗不給選，存檔時也會把殘留的牌組清掉。
+ */
+const MODES_WITHOUT_DECK = new Set<string>(['twoPick'])
+
+export const isDecklessMode = (mode: string | null | undefined): boolean =>
+  !!mode && MODES_WITHOUT_DECK.has(mode)
+
 export const classesMap = Object.fromEntries(classes.map((c) => [c.id, c] as [string, typeof c]))
 
 export const modesMap = Object.fromEntries(modes.map((c) => [c.id, c] as [string, typeof c]))
