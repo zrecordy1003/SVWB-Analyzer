@@ -110,6 +110,8 @@ declare global {
         tagIds?: number[]
         crMin?: number
         crMax?: number
+        /** Keep only the N most recent matches that pass every other filter. */
+        limit?: number
       }): Promise<RankedWinrateByOpponent>
     }
   }

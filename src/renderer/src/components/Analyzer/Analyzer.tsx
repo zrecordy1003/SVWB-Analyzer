@@ -2,82 +2,62 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
-  Autocomplete,
+  Badge,
   Box,
+  Button,
   Chip,
   Collapse,
+  Divider,
+  Drawer,
+  IconButton,
+  Paper,
   Switch,
-  TextField,
   ToggleButton,
+  Tooltip,
   ToggleButtonGroup,
-  Typography,
-  Checkbox
+  Typography
 } from '@mui/material'
-import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
-import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
-import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
-import { zhTW as dfZhTW } from 'date-fns/locale'
+import CloseIcon from '@mui/icons-material/Close'
+import type { SvgIconComponent } from '@mui/icons-material'
+import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
+import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
+import MilitaryTechOutlinedIcon from '@mui/icons-material/MilitaryTechOutlined'
+import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined'
+import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import TuneIcon from '@mui/icons-material/Tune'
 
 import { classes, classesMap, modes } from '@renderer/map/classMap'
 import LineChart from './component/LineChart'
+import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
+import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
+import {
+  CrRangeEditor,
+  DeckEditor,
+  RangeEditor,
+  TagEditor,
+  type DeckLite,
+  type TagLite
+} from '@renderer/components/Common/filters/FilterEditors'
 import { useDecksTags } from '../../hooks/useDecksTags'
 import {
-  CR_MAX_BOUND,
-  CR_MIN_BOUND,
+  ADVANCED_FILTER_LABELS,
+  MATCH_LIMIT_PRESETS,
+  advancedFilterChips,
   buildQueryParams,
-  clampCr,
+  clearAdvancedFilter,
+  clearAllAdvancedFilters,
   defaultFilters,
   diffPersistPatch,
+  enableAdvancedFilter,
+  followBattlePatch,
   hydrateFilters,
+  type AdvancedFilterKey,
   type AnalyzerFilters,
-  type FilterVocabulary,
-  type ModeFilter
+  type FilterVocabulary
 } from './filterState'
 
 import type { ClassName } from '@shared/domain'
-import type { RangeKey, RankedWinrateByOpponent } from '@shared/types'
-
-type DeckLite = {
-  id: number
-  name: string
-  classId: string | number | null
-  deckCategoryId?: string | null
-  categoryName?: string | null
-  categorySort?: number | null
-}
-
-type TagLite = { id: number; name: string }
-
-function endOf(d: Date): Date {
-  const x = new Date(d)
-  x.setHours(23, 59, 59, 999)
-  return x
-}
-function startOf(d: Date): Date {
-  const x = new Date(d)
-  x.setHours(0, 0, 0, 0)
-  return x
-}
-
-const datePickerStyle = {
-  day: {
-    sx: {
-      '&.MuiPickersDay-dayOutsideMonth': { opacity: 0.35 },
-      '&.Mui-disabled': {
-        opacity: 1,
-        color: 'text.disabled',
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        border: '1px dashed',
-        borderColor: 'divider',
-        position: 'relative'
-      },
-      '&.Mui-selected.Mui-disabled': {
-        backgroundColor: 'action.disabledBackground',
-        color: 'text.disabled'
-      }
-    }
-  }
-}
+import type { BattleStatus, RankedWinrateByOpponent } from '@shared/types'
 
 const CLASS_ORDER = classes.map((c) => String(c.id))
 const classOrderIndex = new Map<string, number>(CLASS_ORDER.map((id, idx) => [id, idx]))
@@ -88,32 +68,34 @@ const FILTER_VOCABULARY: FilterVocabulary = {
   modeIds: modes.map((m) => String(m.id))
 }
 
-const CR_STEP = 1
-const CR_BANDS: Array<{ key: string; label: string; min: number; max: number }> = [
-  { key: 'lt1650', label: '1650 以下', min: CR_MIN_BOUND, max: 1649 },
-  { key: 'b1650', label: '1650 – 1749', min: 1650, max: 1749 },
-  { key: 'b1750', label: '1750 – 1849', min: 1750, max: 1849 },
-  { key: 'b1850', label: '1850 – 1999', min: 1850, max: 1999 },
-  { key: 'gte2000', label: '2000 以上', min: 2000, max: CR_MAX_BOUND }
-]
+/**
+ * One glyph per condition, used on the chip, in the ＋ menu and on both
+ * headings - the same condition must look the same wherever it turns up.
+ * 牌組 borrows the icon the nav already uses for 牌組戰績.
+ */
+const ADVANCED_FILTER_ICONS: Record<AdvancedFilterKey, SvgIconComponent> = {
+  range: DateRangeOutlinedIcon,
+  decks: StyleOutlinedIcon,
+  tags: LocalOfferOutlinedIcon,
+  cr: MilitaryTechOutlinedIcon
+}
+
+/** Every toolbar control is pinned to one height; mixed 32/40px reads as a bug. */
+const TOOLBAR_CONTROL_HEIGHT = 36
 
 /** Long enough to swallow a burst of clicks, short enough to feel immediate. */
 const QUERY_DEBOUNCE_MS = 180
 const PERSIST_DEBOUNCE_MS = 400
 
 const Analyzer: React.FC = () => {
-  const localeText = pickersZhTW.components.MuiLocalizationProvider.defaultProps.localeText
-  const [openStart, setOpenStart] = useState(false)
-  const [openEnd, setOpenEnd] = useState(false)
-
   const [filters, setFilters] = useState<AnalyzerFilters>(defaultFilters)
   const [analyzeData, setAnalyzeData] = useState<RankedWinrateByOpponent | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Draft CR values: the slider and the number fields edit these, and only a
-  // committed edit (mouse up, blur, Enter) reaches `filters` and fires a query.
-  const [crDraft, setCrDraft] = useState<[number, number]>([filters.crMin, filters.crMax])
-
+  // The date range, decks, tags and CR live in the right-hand drawer; the
+  // toolbar keeps class, mode and match count, plus a chip per active condition
+  // that edits the same condition in place.
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const { allDecks, allTags, refreshDecks, refreshTags } = useDecksTags()
 
   /**
@@ -132,10 +114,18 @@ const Analyzer: React.FC = () => {
   const filtersRef = useRef(filters)
   const prevClassRef = useRef<ClassName | null>(null)
   const prunedRef = useRef(false)
+  /** Read by the long-lived battle subscriptions, which never re-bind. */
+  const followRef = useRef(filters.followBattle)
+  /** Only a genuinely new match is followed; an edit to an old one is not. */
+  const followedMatchIdRef = useRef<number | null>(null)
 
   useEffect(() => {
     filtersRef.current = filters
   }, [filters])
+
+  useEffect(() => {
+    followRef.current = filters.followBattle
+  }, [filters.followBattle])
 
   const patchFilters = useCallback((patch: Partial<AnalyzerFilters>): void => {
     setFilters((prev) => ({ ...prev, ...patch }))
@@ -150,7 +140,6 @@ const Analyzer: React.FC = () => {
       const hydrated = hydrateFilters(raw, FILTER_VOCABULARY)
       persistedRef.current = hydrated
       prevClassRef.current = hydrated.myClass
-      setCrDraft([hydrated.crMin, hydrated.crMax])
       // Open the gate before the state lands so the query effect, which runs
       // after this render, sees a restored state and fires exactly once.
       settingsLoadedRef.current = true
@@ -230,19 +219,75 @@ const Analyzer: React.FC = () => {
     return () => clearTimeout(handle)
   }, [filters, runQuery])
 
+  /* ---------- 跟隨對戰 ---------- */
+
+  /**
+   * `battle:status` is broadcast on every recognition poll, and it repeats the
+   * same class for the whole battle. Spreading it unconditionally would mint a
+   * new filters object each poll, and the query effect keys off that object -
+   * one game would fire a query per poll. Bail out when nothing moved.
+   */
+  const applyFollowPatch = useCallback((patch: Partial<AnalyzerFilters>): void => {
+    setFilters((prev) => {
+      const next = { ...prev, ...patch }
+      return next.myClass === prev.myClass && next.gameMode === prev.gameMode ? prev : next
+    })
+  }, [])
+
+  /**
+   * A live battle names the class immediately; ranked names the mode only at
+   * its result screen, so this half of the follow moves the class now and the
+   * mode arrives with the recorded match below.
+   */
+  useEffect(() => {
+    const unsub = window.electron?.ipcRenderer.on(
+      'battle:status',
+      (_event: unknown, status: BattleStatus) => {
+        if (!followRef.current) return
+        const patch = followBattlePatch(status, FILTER_VOCABULARY)
+        if (patch) applyFollowPatch(patch)
+      }
+    )
+    return () => {
+      unsub && unsub()
+    }
+  }, [applyFollowPatch])
+
   /* ---------- 外部要求重抓（只訂閱一次） ---------- */
   useEffect(() => {
-    const handler = (): void => void runQuery(filtersRef.current)
+    const handler = (): void => {
+      void runQuery(filtersRef.current)
+      if (!followRef.current) return
+      // `needRefetch` also fires when a user edits or deletes a match, so the
+      // id gate is what keeps an edit to last week's game from dragging the
+      // filters onto whatever class that game was.
+      void window.matches
+        .fetchRecent(1)
+        .then((rows) => {
+          const latest = rows?.[0]
+          if (!latest || latest.id === followedMatchIdRef.current) return
+          followedMatchIdRef.current = latest.id
+          if (!followRef.current) return
+          const patch = followBattlePatch(
+            { ownClass: latest.my_class, mode: latest.mode },
+            FILTER_VOCABULARY
+          )
+          if (patch) applyFollowPatch(patch)
+        })
+        .catch(() => {})
+    }
     const unsub = window.electron?.ipcRenderer.on('matches:needRefetch', handler)
     return () => {
       unsub && unsub()
     }
-  }, [runQuery])
+  }, [applyFollowPatch, runQuery])
 
   /* ---------- 動態高度 ---------- */
-  const [chartHeight, setChartHeight] = useState<number>(Math.max(350, window.innerHeight - 580))
+  // 510 covers the toolbar's two rows - controls plus the always-present
+  // condition row - and the chart's own chrome.
+  const [chartHeight, setChartHeight] = useState<number>(Math.max(350, window.innerHeight - 510))
   useEffect(() => {
-    const onResize = (): void => setChartHeight(Math.max(350, window.innerHeight - 580))
+    const onResize = (): void => setChartHeight(Math.max(350, window.innerHeight - 510))
     onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -285,409 +330,213 @@ const Analyzer: React.FC = () => {
     return ((allTags ?? []) as TagLite[]).filter((t) => idSet.has(t.id))
   }, [allTags, filters.tagIds])
 
-  const groupKeyOf = (d: DeckLite): string => {
-    const k = String(d.categorySort ?? 9999).padStart(4, '0')
-    const name = d.categoryName ?? '未分類'
-    return `${k} ${name}`
-  }
-  const displayGroupLabel = (key: string): string => key.replace(/^\d+\s/, '')
-
   /* ---------- CR ---------- */
   const crActive = filters.crEnabled
 
-  // Keep the draft in step when the committed values move from elsewhere
-  // (a preset chip, a restored session).
-  useEffect(() => {
-    setCrDraft([filters.crMin, filters.crMax])
-  }, [filters.crMin, filters.crMax])
+  /* ---------- 場數 ---------- */
 
-  const commitCrDraft = useCallback(
-    (next: [number, number]): void => {
-      const lo = clampCr(Math.min(next[0], next[1]))
-      const hi = clampCr(Math.max(next[0], next[1]))
-      setCrDraft([lo, hi])
-      patchFilters({ crMin: lo, crMax: hi })
-    },
-    [patchFilters]
-  )
+  /**
+   * A stored count that is not one of the presets - written by the custom field
+   * this toolbar used to carry, or by an older build. It gets its own button
+   * rather than leaving the group blank, which would cap the query with nothing
+   * on screen saying so.
+   */
+  const strayLimit =
+    filters.matchLimit !== null && !MATCH_LIMIT_PRESETS.includes(filters.matchLimit)
+      ? filters.matchLimit
+      : null
 
-  const toggleCrEnabled = useCallback(
-    (checked: boolean): void => {
-      if (!checked) {
-        patchFilters({ crEnabled: false })
-        return
-      }
+  const limitToggleValue = filters.matchLimit === null ? 'all' : String(filters.matchLimit)
 
-      setCrDraft([filters.crMin, filters.crMax])
-      patchFilters({ crEnabled: true, crMin: filters.crMin, crMax: filters.crMax })
-    },
-    [filters.crMax, filters.crMin, patchFilters]
-  )
+  const advancedChips = useMemo(() => advancedFilterChips(filters), [filters])
 
-  const isCrBandActive = useCallback(
-    (band: (typeof CR_BANDS)[number]): boolean =>
-      crActive && band.min >= filters.crMin && band.max <= filters.crMax,
-    [crActive, filters.crMax, filters.crMin]
-  )
-
-  const handleCrBandsChange = useCallback(
-    (keys: string[]): void => {
-      const selected = CR_BANDS.filter((band) => keys.includes(band.key))
-      if (selected.length === 0) {
-        patchFilters({ crEnabled: false })
-        return
-      }
-
-      const lo = Math.min(...selected.map((band) => band.min))
-      const hi = Math.max(...selected.map((band) => band.max))
-      setCrDraft([lo, hi])
-      patchFilters({ crEnabled: true, crMin: lo, crMax: hi })
-    },
-    [patchFilters]
-  )
-
-  const handleChangeStart = (d: Date | null): void => {
-    if (d && filters.endDate && filters.endDate < d) {
-      patchFilters({ rangeKey: 'custom', startDate: d, endDate: endOf(d) })
-    } else {
-      patchFilters({ rangeKey: 'custom', startDate: d })
+  /**
+   * One editor per condition, rendered in two places: stacked in the drawer,
+   * and alone in the popover a chip opens. Same component either way, so the
+   * two surfaces cannot drift.
+   */
+  const renderEditor = (key: AdvancedFilterKey, autoFocus = false): React.ReactNode => {
+    switch (key) {
+      case 'range':
+        return (
+          <RangeEditor
+            rangeKey={filters.rangeKey}
+            startDate={filters.startDate}
+            endDate={filters.endDate}
+            onChange={patchFilters}
+          />
+        )
+      case 'decks':
+        return (
+          <DeckEditor
+            options={deckOptionsSortedFiltered}
+            value={selectedDecks}
+            onOpen={refreshDecks}
+            onChange={(deckIds) => patchFilters({ deckIds })}
+            autoFocus={autoFocus}
+          />
+        )
+      case 'tags':
+        return (
+          <TagEditor
+            options={(allTags ?? []) as TagLite[]}
+            value={selectedTags}
+            onOpen={refreshTags}
+            onChange={(tagIds) => patchFilters({ tagIds })}
+            autoFocus={autoFocus}
+          />
+        )
+      case 'cr':
+        // Editing the range is itself the request to apply it.
+        return (
+          <CrRangeEditor
+            min={filters.crMin}
+            max={filters.crMax}
+            onCommit={(crMin, crMax) => patchFilters({ crEnabled: true, crMin, crMax })}
+          />
+        )
     }
   }
-  const handleChangeEnd = (d: Date | null): void => {
-    if (d && filters.startDate && filters.startDate > d) {
-      patchFilters({ rangeKey: 'custom', startDate: startOf(d), endDate: d })
-    } else {
-      patchFilters({ rangeKey: 'custom', endDate: d })
-    }
-  }
+
+  /** Conditions with no chip yet - what the ＋ button can still offer. */
+  const addableKeys = useMemo<AdvancedFilterKey[]>(() => {
+    const active = new Set(advancedChips.map((chip) => chip.key))
+    return (Object.keys(ADVANCED_FILTER_LABELS) as AdvancedFilterKey[]).filter(
+      (key) => !active.has(key)
+    )
+  }, [advancedChips])
 
   return (
-    <Box sx={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-        {/* 職業選擇 */}
-        <ToggleButtonGroup
-          size="small"
-          value={filters.myClass}
-          exclusive
-          onChange={(_, val) => val && patchFilters({ myClass: val as ClassName })}
-          sx={{
-            flexWrap: 'wrap',
-            '& .Mui-selected': { bgcolor: classesMap[filters.myClass ?? 'elf'].bgColor },
-            '& .Mui-selected:hover': { bgcolor: classesMap[filters.myClass ?? 'elf'].bgColor }
-          }}
-        >
-          {classes.map((c) => (
-            <ToggleButton sx={{ width: '100px', minWidth: '100px' }} key={c.id} value={c.id}>
-              <Typography sx={{ color: c.color }}>{c.label}</Typography>
-            </ToggleButton>
-          ))}
-        </ToggleButtonGroup>
-
-        {/* 模式選擇 */}
-        <Box display="flex" justifyContent="space-between">
+    <Box sx={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+      {/* 工作列：一眼看得完的三件事 - 打什麼職業、什麼模式、算幾場。
+          其餘條件都收進抽屜，但生效中的會以 chip 回到這裡，
+          否則抽屜關上以後就沒有任何東西說明資料被縮小過。 */}
+      <Paper
+        variant="outlined"
+        sx={{ borderRadius: 2, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}
+      >
+        <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
+          {/* 職業：整張圖的主體，所以留在最外層、一次點擊就到 -
+              查詢沒有職業畫不出東西，模式只是限定詞。 */}
           <ToggleButtonGroup
             size="small"
-            value={filters.gameMode}
+            value={filters.myClass}
             exclusive
-            onChange={(_, val) => val && patchFilters({ gameMode: val as ModeFilter })}
-            sx={{ flexWrap: 'wrap' }}
-          >
-            {/* The backend has always understood `'all'`; it simply had no control. */}
-            <ToggleButton sx={{ width: '100px' }} value="all">
-              <Typography>全部</Typography>
-            </ToggleButton>
-            {modes
-              .filter((m) => m.id !== 'unknown')
-              .map((m) => (
-                <ToggleButton sx={{ width: '100px' }} key={m.id} value={m.id}>
-                  <Typography color={m.color}>{m.label}</Typography>
-                </ToggleButton>
-              ))}
-          </ToggleButtonGroup>
-        </Box>
-
-        {/* 快速區間 + 自訂日期 */}
-        <Box display="flex" gap={2} alignItems="center" flexWrap="wrap">
-          <ToggleButtonGroup
-            size="small"
-            value={filters.rangeKey}
-            exclusive
-            onChange={(_, v: RangeKey) => v && patchFilters({ rangeKey: v })}
-            sx={{ mb: 1 }}
-          >
-            <ToggleButton sx={{ width: '80px' }} value="today">
-              <Typography>今天</Typography>
-            </ToggleButton>
-            <ToggleButton sx={{ width: '80px' }} value="7d">
-              <Typography>7 天內</Typography>
-            </ToggleButton>
-            <ToggleButton sx={{ width: '80px' }} value="30d">
-              <Typography>30 天內</Typography>
-            </ToggleButton>
-            <ToggleButton sx={{ width: '80px' }} value="all">
-              <Typography>生涯</Typography>
-            </ToggleButton>
-            <ToggleButton sx={{ width: '80px' }} value="custom">
-              <Typography>自訂</Typography>
-            </ToggleButton>
-          </ToggleButtonGroup>
-
-          {filters.rangeKey === 'custom' && (
-            <LocalizationProvider
-              dateAdapter={AdapterDateFns}
-              adapterLocale={dfZhTW}
-              localeText={localeText}
-            >
-              <Box display="flex" gap={2}>
-                <DatePicker
-                  reduceAnimations
-                  label="開始日期"
-                  open={openStart}
-                  onOpen={() => setOpenStart(true)}
-                  onClose={() => setOpenStart(false)}
-                  value={filters.startDate}
-                  onChange={handleChangeStart}
-                  format="yyyy/MM/dd"
-                  disableFuture
-                  slotProps={{
-                    day: datePickerStyle.day,
-                    textField: { size: 'small', onClick: () => setOpenStart(true) },
-                    popper: { keepMounted: true }
-                  }}
-                />
-                <DatePicker
-                  reduceAnimations
-                  label="結束日期"
-                  open={openEnd}
-                  onOpen={() => setOpenEnd(true)}
-                  onClose={() => setOpenEnd(false)}
-                  value={filters.endDate}
-                  onChange={handleChangeEnd}
-                  format="yyyy/MM/dd"
-                  disableFuture
-                  slotProps={{
-                    day: datePickerStyle.day,
-                    textField: { size: 'small', onClick: () => setOpenEnd(true) },
-                    popper: { keepMounted: true }
-                  }}
-                />
-              </Box>
-            </LocalizationProvider>
-          )}
-        </Box>
-
-        {/* 依牌組 / 依標籤（牌組只顯示目前職業） */}
-        <Box display="flex" gap={2} flexWrap="wrap" alignItems="center">
-          <Autocomplete
-            onOpen={() => {
-              refreshDecks()
-            }}
-            multiple
-            disableCloseOnSelect
-            options={deckOptionsSortedFiltered}
-            getOptionLabel={(d) => d.name}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            value={selectedDecks}
-            onChange={(_, val) => patchFilters({ deckIds: (val ?? []).map((d) => d.id) })}
-            groupBy={(opt) => groupKeyOf(opt)}
-            renderGroup={(params) => (
-              <li key={params.key}>
-                <Typography sx={{ px: 1, py: 0.5, fontWeight: 700, opacity: 0.8 }}>
-                  {displayGroupLabel(params.group)}
-                </Typography>
-                <ul style={{ margin: 0, paddingLeft: 8 }}>{params.children}</ul>
-              </li>
-            )}
-            renderInput={(params) => <TextField {...params} label="依牌組" variant="outlined" />}
-            renderOption={(props, opt, { selected }) => (
-              <li {...props}>
-                <Checkbox checked={selected} size="small" />
-                <Chip
-                  size="small"
-                  label={opt.classId ? (classesMap[String(opt.classId)]?.label ?? '—') : '—'}
-                  sx={{
-                    bgcolor:
-                      opt.classId && classesMap[String(opt.classId)]?.color
-                        ? `${classesMap[String(opt.classId)].color}50`
-                        : undefined,
-                    mr: 1
-                  }}
-                />
-                <Typography>{opt.name}</Typography>
-              </li>
-            )}
-            renderTags={(value, getTagProps) => {
-              const limit = 2
-              const visible = value.slice(0, limit)
-              const extra = value.length - limit
-              return [
-                ...visible.map((opt, idx) => {
-                  const { key: _key, ...tagProps } = getTagProps({ index: idx })
-                  return (
-                    <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
-                  )
-                }),
-                extra > 0 && <Chip key="extra" label={`+${extra}`} />
-              ].filter(Boolean) as React.ReactNode[]
-            }}
-            slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
-            sx={{ minWidth: 320 }}
-          />
-
-          <Autocomplete
-            onOpen={() => {
-              refreshTags()
-            }}
-            multiple
-            disableCloseOnSelect
-            options={allTags as TagLite[]}
-            getOptionLabel={(t) => t.name}
-            isOptionEqualToValue={(a, b) => a.id === b.id}
-            value={selectedTags}
-            onChange={(_, val) => patchFilters({ tagIds: (val ?? []).map((t) => t.id) })}
-            renderInput={(params) => <TextField {...params} label="依標籤" variant="outlined" />}
-            renderOption={(props, opt, { selected }) => (
-              <li {...props}>
-                <Checkbox checked={selected} size="small" />
-                <Typography>{opt.name}</Typography>
-              </li>
-            )}
-            renderTags={(value, getTagProps) => {
-              const limit = 2
-              const visible = value.slice(0, limit)
-              const extra = value.length - limit
-              return [
-                ...visible.map((opt, idx) => {
-                  const { key: _key, ...tagProps } = getTagProps({ index: idx })
-                  return (
-                    <Chip key={opt.id} label={opt.name} {...tagProps} sx={{ mr: 0.5, mb: 0.5 }} />
-                  )
-                }),
-                extra > 0 && <Chip key="extra" label={`+${extra}`} />
-              ].filter(Boolean) as React.ReactNode[]
-            }}
-            slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
-            sx={{ minWidth: 320 }}
-          />
-        </Box>
-
-        {/* CR 篩選與對局列表採相同規則：分段可多選，合併為一段連續範圍。 */}
-        <Box
-          sx={{
-            border: '1px solid',
-            borderColor: crActive ? 'primary.main' : 'divider',
-            borderRadius: 2,
-            bgcolor: 'background.paper',
-            overflow: 'hidden',
-            transition: 'border-color .2s'
-          }}
-        >
-          <Box
+            // Picking by hand is a decision the next battle must not overwrite.
+            onChange={(_, val) =>
+              val && patchFilters({ myClass: val as ClassName, followBattle: false })
+            }
             sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              px: 2,
-              py: 1,
-              cursor: 'pointer',
-              userSelect: 'none'
+              flexWrap: 'wrap',
+              '& .MuiToggleButton-root': { height: TOOLBAR_CONTROL_HEIGHT, py: 0 },
+              '& .Mui-selected': { bgcolor: classesMap[filters.myClass ?? 'elf'].bgColor },
+              '& .Mui-selected:hover': { bgcolor: classesMap[filters.myClass ?? 'elf'].bgColor }
             }}
-            onClick={() => toggleCrEnabled(!crActive)}
           >
-            <Typography sx={{ fontWeight: 600 }}>CR 篩選</Typography>
-            {crActive && (
-              <Chip
-                size="small"
-                color="primary"
-                variant="outlined"
-                label={`${crDraft[0]} – ${crDraft[1]}`}
-              />
-            )}
-            <Box flex={1} />
-            <Switch
-              size="small"
-              checked={crActive}
-              onClick={(event) => event.stopPropagation()}
-              onChange={(_, checked) => toggleCrEnabled(checked)}
-            />
-          </Box>
-
-          <Collapse in={crActive}>
-            <Box sx={{ px: 2, pb: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              <Box>
-                <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                  選擇分數段（可多選，範圍為連續區間）
+            {classes.map((c) => (
+              <ToggleButton sx={{ width: '76px', minWidth: '76px' }} key={c.id} value={c.id}>
+                <Typography variant="body2" sx={{ color: c.color }}>
+                  {c.label}
                 </Typography>
-                <ToggleButtonGroup
-                  orientation="vertical"
-                  fullWidth
-                  size="small"
-                  value={CR_BANDS.filter(isCrBandActive).map((band) => band.key)}
-                  onChange={(_, keys: string[]) => handleCrBandsChange(keys)}
-                  sx={{ mt: 0.75 }}
-                >
-                  {CR_BANDS.map((band) => (
-                    <ToggleButton
-                      key={band.key}
-                      value={band.key}
-                      sx={{
-                        justifyContent: 'space-between',
-                        px: 1.5,
-                        textTransform: 'none',
-                        '&.Mui-selected': {
-                          bgcolor: 'primary.main',
-                          color: 'primary.contrastText',
-                          '&:hover': { bgcolor: 'primary.dark' }
-                        }
-                      }}
-                    >
-                      <Typography variant="body2" fontWeight={600}>
-                        {band.label}
-                      </Typography>
-                      <Typography variant="caption" sx={{ opacity: 0.7 }}>
-                        {band.min} – {band.max}
-                      </Typography>
-                    </ToggleButton>
-                  ))}
-                </ToggleButtonGroup>
-              </Box>
+              </ToggleButton>
+            ))}
+          </ToggleButtonGroup>
 
-              <Typography variant="caption" sx={{ opacity: 0.7, mb: -1 }}>
-                自訂範圍
-              </Typography>
-              <Box display="flex" alignItems="center" gap={1.25}>
-                <TextField
-                  label="最低"
-                  size="small"
-                  type="number"
-                  value={crDraft[0]}
-                  onChange={(event) => setCrDraft([Number(event.target.value), crDraft[1]])}
-                  onBlur={() => commitCrDraft(crDraft)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') commitCrDraft(crDraft)
-                  }}
-                  slotProps={{ htmlInput: { min: CR_MIN_BOUND, max: CR_MAX_BOUND, step: CR_STEP } }}
-                  sx={{ flex: 1 }}
-                />
-                <Typography sx={{ opacity: 0.5 }}>–</Typography>
-                <TextField
-                  label="最高"
-                  size="small"
-                  type="number"
-                  value={crDraft[1]}
-                  onChange={(event) => setCrDraft([crDraft[0], Number(event.target.value)])}
-                  onBlur={() => commitCrDraft(crDraft)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') commitCrDraft(crDraft)
-                  }}
-                  slotProps={{ htmlInput: { min: CR_MIN_BOUND, max: CR_MAX_BOUND, step: CR_STEP } }}
-                  sx={{ flex: 1 }}
-                />
-              </Box>
-            </Box>
-          </Collapse>
+          <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
+
+          {/* 模式：一個月不見得動一次，所以收成一個下拉。
+              The backend has always understood `'all'`; it simply had no control. */}
+          <ModeSelect
+            value={filters.gameMode}
+            onChange={(gameMode) => patchFilters({ gameMode, followBattle: false })}
+            height={TOOLBAR_CONTROL_HEIGHT}
+          />
+
+          {/* 跟隨開關。手動改職業或模式會把它關掉，所以它同時是「為什麼剛剛
+              自己跳了」和「為什麼現在不跳了」的答案 - 兩種狀態都看得見。 */}
+          <Tooltip
+            title={
+              filters.followBattle
+                ? '跟隨對戰中：職業與模式會跟著你正在打的那場走'
+                : '已停止跟隨：點一下讓職業與模式重新跟著對戰走'
+            }
+          >
+            <ToggleButton
+              size="small"
+              value="follow"
+              selected={filters.followBattle}
+              onChange={() => patchFilters({ followBattle: !filters.followBattle })}
+              aria-label="跟隨對戰"
+              sx={{
+                height: TOOLBAR_CONTROL_HEIGHT,
+                px: 1.25,
+                borderRadius: 2,
+                borderColor: 'divider',
+                gap: 0.75,
+                textTransform: 'none'
+              }}
+            >
+              <SportsEsportsOutlinedIcon fontSize="small" />
+              <Typography variant="body2">跟隨</Typography>
+            </ToggleButton>
+          </Tooltip>
+
+          <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
+          {/* 場數：分析器的主要範圍。看的是「最近 N 場」而不是「最近幾天」，
+            因為一週打三場和一週打三百場的曲線本來就不該放在同一把尺上。 */}
+          <ToggleButtonGroup
+            size="small"
+            value={limitToggleValue}
+            exclusive
+            onChange={(_, v: string | null) =>
+              v && patchFilters({ matchLimit: v === 'all' ? null : Number(v) })
+            }
+            sx={{ '& .MuiToggleButton-root': { height: TOOLBAR_CONTROL_HEIGHT, py: 0 } }}
+          >
+            {MATCH_LIMIT_PRESETS.map((n) => (
+              <ToggleButton sx={{ width: '60px' }} key={n} value={String(n)}>
+                <Typography variant="body2">{n} 場</Typography>
+              </ToggleButton>
+            ))}
+            {strayLimit !== null && (
+              <ToggleButton sx={{ width: '60px' }} value={String(strayLimit)}>
+                <Typography variant="body2">{strayLimit} 場</Typography>
+              </ToggleButton>
+            )}
+            <ToggleButton sx={{ width: '60px' }} value="all">
+              <Typography variant="body2">全部</Typography>
+            </ToggleButton>
+          </ToggleButtonGroup>
+
+          <Box sx={{ flex: 1, minWidth: 8 }} />
+
+          <Badge badgeContent={advancedChips.length} color="primary">
+            <Button
+              size="small"
+              variant={advancedChips.length ? 'contained' : 'outlined'}
+              startIcon={<TuneIcon />}
+              onClick={() => setAdvancedOpen(true)}
+              sx={{ height: TOOLBAR_CONTROL_HEIGHT, whiteSpace: 'nowrap' }}
+            >
+              進階篩選
+            </Button>
+          </Badge>
         </Box>
-      </Box>
+
+        {/* 進階條件列與分析器共用同一個元件，chip、＋ 選單與就地編輯的
+            popover 都在裡面。 */}
+        <AdvancedFilterBar
+          chips={advancedChips}
+          addableKeys={addableKeys}
+          labels={ADVANCED_FILTER_LABELS}
+          icons={ADVANCED_FILTER_ICONS}
+          renderEditor={(key, autoFocus) => renderEditor(key, autoFocus)}
+          onEnable={(key) => patchFilters(enableAdvancedFilter(key))}
+          onRemove={(key) => patchFilters(clearAdvancedFilter(key))}
+          onClearAll={() => patchFilters(clearAllAdvancedFilters())}
+          editorWidth={(key) => (key === 'decks' ? 380 : 340)}
+        />
+      </Paper>
 
       {/* A failed query keeps the previous chart, so say so explicitly. */}
       {error && (
@@ -696,6 +545,146 @@ const Analyzer: React.FC = () => {
         </Alert>
       )}
       <LineChart data={analyzeData} height={chartHeight} />
+
+      {/* 進階篩選抽屜。條件即時生效，沒有「套用」按鈕 - 查詢本來就有 debounce，
+          多一顆按鈕只會多一種「以為改了其實沒按到」的狀態。 */}
+      <Drawer
+        anchor="right"
+        open={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+        sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
+        slotProps={{
+          paper: {
+            sx: {
+              width: 440,
+              maxWidth: 'calc(100vw - 32px)',
+              borderTopLeftRadius: 16,
+              borderBottomLeftRadius: 16
+            }
+          }
+        }}
+      >
+        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+          <Box
+            sx={{
+              px: 3,
+              pt: 3,
+              pb: 2,
+              display: 'flex',
+              alignItems: 'flex-start',
+              justifyContent: 'space-between',
+              gap: 2
+            }}
+          >
+            <Box>
+              <Typography variant="h6" component="h2" fontWeight={700}>
+                進階篩選
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
+                時間區間、牌組、標籤與 CR
+              </Typography>
+            </Box>
+            <IconButton
+              size="small"
+              onClick={() => setAdvancedOpen(false)}
+              aria-label="關閉進階篩選"
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+
+          <Box
+            sx={{
+              flex: 1,
+              overflowY: 'auto',
+              px: 3,
+              py: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2.5
+            }}
+          >
+            {(['range', 'decks', 'tags'] as const).map((key) => {
+              const Icon = ADVANCED_FILTER_ICONS[key]
+              return (
+                <Box key={key}>
+                  <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
+                    <Icon fontSize="small" />
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      {ADVANCED_FILTER_LABELS[key]}
+                    </Typography>
+                  </Box>
+                  {renderEditor(key)}
+                </Box>
+              )
+            })}
+
+            {/* CR keeps its own on/off header: unlike the others it has a range
+                even while switched off, so the switch is what says whether the
+                query carries it. */}
+            <Box
+              sx={{
+                border: '1px solid',
+                borderColor: crActive ? 'primary.main' : 'divider',
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                overflow: 'hidden',
+                transition: 'border-color .2s'
+              }}
+            >
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 2,
+                  py: 1,
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}
+                onClick={() => patchFilters({ crEnabled: !crActive })}
+              >
+                <MilitaryTechOutlinedIcon fontSize="small" />
+                <Typography sx={{ fontWeight: 600 }}>CR 篩選</Typography>
+                {crActive && (
+                  <Chip
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    label={`${filters.crMin} – ${filters.crMax}`}
+                  />
+                )}
+                <Box flex={1} />
+                <Switch
+                  size="small"
+                  checked={crActive}
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(_, checked) => patchFilters({ crEnabled: checked })}
+                />
+              </Box>
+
+              <Collapse in={crActive}>
+                <Box sx={{ px: 2, pb: 2 }}>{renderEditor('cr')}</Box>
+              </Collapse>
+            </Box>
+          </Box>
+
+          <Box sx={{ borderTop: 1, borderColor: 'divider', px: 3, py: 2 }}>
+            <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
+              <Button
+                size="small"
+                disabled={advancedChips.length === 0}
+                onClick={() => patchFilters(clearAllAdvancedFilters())}
+              >
+                清除全部條件
+              </Button>
+              <Button variant="contained" size="small" onClick={() => setAdvancedOpen(false)}>
+                完成
+              </Button>
+            </Box>
+          </Box>
+        </Box>
+      </Drawer>
     </Box>
   )
 }

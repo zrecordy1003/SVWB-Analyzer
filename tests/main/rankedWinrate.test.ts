@@ -118,6 +118,85 @@ describe('getRankedWinrateByOpponent', () => {
     expect(unrecognised.overall.all.total).toBe(2)
   })
 
+  it('counts only the most recent N matches when a limit is given', async () => {
+    // Ten losses, then two wins. A limit of 2 must see the two wins - the cap
+    // is applied to the newest matches, not to whichever rows SQLite hands back.
+    const base = new Date('2026-05-10T12:00:00Z').getTime()
+    for (let i = 0; i < 12; i++) {
+      await insertMatch({
+        result: i >= 10,
+        play_order: 'first',
+        my_class: 'elf',
+        oppo_class: 'royal',
+        mode: 'ranked',
+        playedAt: new Date(base + i * 60_000)
+      })
+    }
+
+    const capped = await getRankedWinrateByOpponent({
+      myClass: 'elf' as ClassName,
+      rangeKey: 'all',
+      limit: 2
+    })
+    const uncapped = await getRankedWinrateByOpponent({
+      myClass: 'elf' as ClassName,
+      rangeKey: 'all'
+    })
+
+    expect(capped.overall.all).toEqual({ wins: 2, total: 2, winRate: 100 })
+    expect(capped.limit).toBe(2)
+    expect(uncapped.overall.all.total).toBe(12)
+    expect(uncapped.limit).toBeNull()
+  })
+
+  it('applies the limit after the other filters, not before them', async () => {
+    // The cap counts the newest matches that already pass the mode filter;
+    // taking the newest 2 matches overall would have found only twoPick rows.
+    const base = new Date('2026-05-10T12:00:00Z').getTime()
+    const rows: Array<{ mode: string; win: boolean }> = [
+      { mode: 'ranked', win: false },
+      { mode: 'ranked', win: true },
+      { mode: 'ranked', win: true },
+      { mode: 'twoPick', win: false },
+      { mode: 'twoPick', win: false }
+    ]
+    for (const [i, r] of rows.entries()) {
+      await insertMatch({
+        result: r.win,
+        play_order: 'first',
+        my_class: 'elf',
+        oppo_class: 'royal',
+        mode: r.mode,
+        playedAt: new Date(base + i * 60_000)
+      })
+    }
+
+    const stats = await getRankedWinrateByOpponent({
+      myClass: 'elf' as ClassName,
+      gameMode: 'ranked',
+      rangeKey: 'all',
+      limit: 2
+    })
+
+    expect(stats.overall.all).toEqual({ wins: 2, total: 2, winRate: 100 })
+  })
+
+  it('treats a limit below one match as no limit at all', async () => {
+    await seed([
+      { oppo: 'royal', first: true, win: true, mode: 'ranked' },
+      { oppo: 'royal', first: true, win: false, mode: 'ranked' }
+    ])
+
+    const stats = await getRankedWinrateByOpponent({
+      myClass: 'elf' as ClassName,
+      rangeKey: 'all',
+      limit: 0
+    })
+
+    expect(stats.overall.all.total).toBe(2)
+    expect(stats.limit).toBeNull()
+  })
+
   it('matches nothing when a CR range is applied to a mode without CR', async () => {
     // Documents why the UI disables the CR switch outside ranked: only ranked
     // matches carry `current_cr`, so the filter would silently empty the chart.

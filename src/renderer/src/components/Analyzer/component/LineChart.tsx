@@ -13,7 +13,6 @@ import {
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 
 import { classes, classesMap } from '@renderer/map/classMap'
-import { LOW_SAMPLE_THRESHOLD, isLowSample } from '../confidence'
 
 import type { RankedWinrateByOpponent } from '@shared/types'
 
@@ -33,8 +32,6 @@ type LineChartProps = {
 const FIRST_COLOR = '#64b5f6' // 先攻
 const SECOND_COLOR = '#ce93d8' // 後攻
 /** Same hue at 45%, for rows whose sample is too small to act on. */
-const FIRST_COLOR_DIM = '#64b5f673'
-const SECOND_COLOR_DIM = '#ce93d873'
 
 // 0% 時給一個很細的可見寬度（僅用於繪圖，文字仍顯示 0.0%）
 const MIN_BAR_PCT_RENDER = 1.0
@@ -107,11 +104,8 @@ const valueLabelPlugin = {
 
         const totals: number[] = ds.totals ?? []
         const t = totals[i] ?? 0
-        const low: boolean[] = ds.lowSample ?? []
-        const isLow = low[i] === true
 
-        // 樣本不足的那一列標記出來：同一個百分比，可信度差了一個量級。
-        const label = `${isLow ? '⚠ ' : ''}${val.toFixed(1)}% (${t})`
+        const label = `${val.toFixed(1)}% (${t})`
         const metrics = ctx.measureText(label)
         const textW = Math.ceil(metrics.width)
         const textH = 14
@@ -123,11 +117,7 @@ const valueLabelPlugin = {
           x = bar.x - margin - (padX * 2 + textW)
         }
 
-        ctx.fillStyle = isLow
-          ? 'rgba(110, 110, 118, 1)'
-          : val >= 50
-            ? 'rgba(66, 133, 66, 1)'
-            : 'rgba(158, 72, 72, 1)'
+        ctx.fillStyle = val >= 50 ? 'rgba(66, 133, 66, 1)' : 'rgba(158, 72, 72, 1)'
 
         roundRect(ctx, x, y - padY, textW + padX * 2, textH + padY * 2, 8)
         ctx.fill()
@@ -285,12 +275,8 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
     )
     const bottomColors = sorted.map((r) => {
       if (r.total === 0) return 'rgba(255,255,255,0.35)'
-      if (isLowSample(r.total)) return 'rgba(255,255,255,0.55)'
       return r.overallWinRate >= 50 ? '#2e7d32' : '#c62828'
     })
-
-    const firstLow = sorted.map((r) => isLowSample(r.firstTotal))
-    const secondLow = sorted.map((r) => isLowSample(r.secondTotal))
 
     return {
       labels,
@@ -302,25 +288,23 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
           label: '先攻',
           data: sorted.map((r) => r.renderFirstVal),
           rawVals: sorted.map((r) => r.rawFirstVal),
-          backgroundColor: firstLow.map((low) => (low ? FIRST_COLOR_DIM : FIRST_COLOR)),
+          backgroundColor: FIRST_COLOR,
           borderColor: FIRST_COLOR,
-          borderWidth: firstLow.map((low) => (low ? 1 : 0)),
+          borderWidth: 0,
           borderRadius: 6,
           wins: sorted.map((r) => r.firstWins),
-          totals: sorted.map((r) => r.firstTotal),
-          lowSample: firstLow
+          totals: sorted.map((r) => r.firstTotal)
         },
         {
           label: '後攻',
           data: sorted.map((r) => r.renderSecondVal),
           rawVals: sorted.map((r) => r.rawSecondVal),
-          backgroundColor: secondLow.map((low) => (low ? SECOND_COLOR_DIM : SECOND_COLOR)),
+          backgroundColor: SECOND_COLOR,
           borderColor: SECOND_COLOR,
-          borderWidth: secondLow.map((low) => (low ? 1 : 0)),
+          borderWidth: 0,
           borderRadius: 6,
           wins: sorted.map((r) => r.secondWins),
-          totals: sorted.map((r) => r.secondTotal),
-          lowSample: secondLow
+          totals: sorted.map((r) => r.secondTotal)
         }
       ] as any
     }
@@ -380,11 +364,6 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
               const t = totals[ctx.dataIndex] ?? 0
               if (raw == null || !t) return `${ctx.dataset.label}: 尚無資料`
               return `${ctx.dataset.label}: ${raw.toFixed(1)}% (${w}/${t})`
-            },
-            afterLabel: (ctx: any) => {
-              const totals: number[] = ctx.dataset?.totals ?? []
-              const t = totals[ctx.dataIndex] ?? 0
-              return t > 0 && t < LOW_SAMPLE_THRESHOLD ? '樣本不足，勝率僅供參考' : ''
             }
           }
         },
@@ -425,16 +404,23 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
         </Typography>
 
         <Typography variant="caption" sx={{ opacity: 0.6, textAlign: 'center' }}>
-          這組篩選條件下沒有任何對戰紀錄，試著放寬時間區間或關閉牌組／CR 篩選
+          這組篩選條件下沒有任何對戰紀錄，試著放寬場數或時間區間，或關閉牌組／CR 篩選
         </Typography>
       </Box>
     )
   }
 
-  const period =
+  // The scope is now "the last N matches" first and a date range second, so say
+  // both - a 100-match window over 30 days is a different claim from either.
+  const dateRange =
     stats.start && stats.end
       ? `${new Date(stats.start).toLocaleDateString()} – ${new Date(stats.end).toLocaleDateString()}`
-      : '全部期間'
+      : stats.limit
+        ? null
+        : '全部期間'
+  const period = [stats.limit ? `最近 ${stats.limit} 場` : null, dateRange]
+    .filter(Boolean)
+    .join(' · ')
 
   const winFirst = Number(stats.overall.first.winRate.toFixed(1))
   const winSecond = Number(stats.overall.second.winRate.toFixed(1))
@@ -558,10 +544,6 @@ const LineChart: React.FC<LineChartProps> = ({ data: stats, height = 440, sortBy
             )}
           </Box>
         </Box>
-
-        <Typography variant="caption" sx={{ opacity: 0.55, display: 'block', mt: 0.5 }}>
-          ⚠ 與半透明柱體代表樣本不足 {LOW_SAMPLE_THRESHOLD} 場，勝率僅供參考。
-        </Typography>
 
         <Divider sx={{ my: 1 }} />
 

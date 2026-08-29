@@ -513,6 +513,7 @@ export function registerMatchesIpc(): void {
         tagIds?: number[]
         crMin?: number
         crMax?: number
+        limit?: number
       }
     ) => {
       return getRankedWinrateByOpponent(args)
@@ -548,10 +549,16 @@ export function registerMatchesIpc(): void {
     return updateAndReload(matchId, { note: clean.length ? clean : null })
   })
 
-  // 設定我的牌組
-  ipcMain.handle('matches:updateMyDeck', async (_e, matchId: number, deckId: number | null) => {
-    return updateAndReload(matchId, { my_deckId: deckId })
-  })
+  // 設定單邊牌組：對局卡片上就地改牌組走這條，不必開編輯視窗
+  ipcMain.handle(
+    'matches:updateDeck',
+    async (_e, matchId: number, side: 'my' | 'oppo', deckId: number | null) => {
+      return updateAndReload(
+        matchId,
+        side === 'my' ? { my_deckId: deckId } : { oppo_deckId: deckId }
+      )
+    }
+  )
 
   // 套用標籤清單（全量覆蓋）：傳入字串陣列，會 upsert Tag 並重建 MatchTag
   ipcMain.handle('matches:setTags', async (_e, matchId: number, tagNames: string[]) => {

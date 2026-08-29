@@ -1,5 +1,7 @@
+import type { Expression, ExpressionBuilder, SqlBool } from 'kysely'
+
 import { ClassName, GameMode, PlayOrder } from '../../shared/domain.js'
-import { getDb } from '../data/db/client.js'
+import { getDb, type Database } from '../data/db/client.js'
 import type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
 
 export type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
@@ -24,6 +26,8 @@ export async function getRankedWinrateByOpponent(params: {
   tagIds?: number[]
   crMin?: number
   crMax?: number
+  /** Keep only the `limit` most recent matches that pass every other filter. */
+  limit?: number
 }): Promise<RankedWinrateByOpponent> {
   const db = getDb()
   const { myClass, rangeKey } = params
@@ -39,33 +43,58 @@ export async function getRankedWinrateByOpponent(params: {
     endDateExclusive = endExclusive
   }
 
-  // 3) 一次 groupBy 取得總場數與勝場數，避免 totals/wins 分成兩次查詢。
+  // 3) 每個條件寫成一顆述詞，因為 limit 分支要把同一組條件再套一次到子查詢上。
+  const conditions = (eb: ExpressionBuilder<Database, 'Match'>): Expression<SqlBool>[] => {
+    const list: Expression<SqlBool>[] = [eb('my_class', '=', myClass)]
+
+    if (params.gameMode !== 'all') {
+      list.push(eb('mode', '=', params.gameMode ?? GameMode.ranked))
+    }
+    if (startDate) list.push(eb('playedAt', '>=', startDate.getTime()))
+    if (endDateExclusive) list.push(eb('playedAt', '<', endDateExclusive.getTime()))
+    if (params.myDeckIds?.length) list.push(eb('my_deckId', 'in', params.myDeckIds))
+    if (params.tagIds?.length) {
+      // 任一符合 (OR within selected tags)
+      const ids = params.tagIds
+      list.push(
+        eb.exists(
+          eb
+            .selectFrom('MatchTag')
+            .select('MatchTag.matchId')
+            .whereRef('MatchTag.matchId', '=', 'Match.id')
+            .where('MatchTag.tagId', 'in', ids)
+        )
+      )
+    }
+    if (typeof params.crMin === 'number') list.push(eb('current_cr', '>=', params.crMin))
+    if (typeof params.crMax === 'number') list.push(eb('current_cr', '<=', params.crMax))
+
+    return list
+  }
+
+  // 4) 一次 groupBy 取得總場數與勝場數，避免 totals/wins 分成兩次查詢。
   let query = db
     .selectFrom('Match')
     .select(({ fn }) => ['oppo_class', 'play_order', 'result', fn.countAll<number>().as('count')])
-    .where('my_class', '=', myClass)
+    .where((eb) => eb.and(conditions(eb)))
     .groupBy(['oppo_class', 'play_order', 'result'])
 
-  if (params.gameMode !== 'all') {
-    query = query.where('mode', '=', params.gameMode ?? GameMode.ranked)
-  }
-  if (startDate) query = query.where('playedAt', '>=', startDate.getTime())
-  if (endDateExclusive) query = query.where('playedAt', '<', endDateExclusive.getTime())
-  if (params.myDeckIds?.length) query = query.where('my_deckId', 'in', params.myDeckIds)
-  if (params.tagIds?.length) {
-    // 任一符合 (OR within selected tags)
-    const ids = params.tagIds
-    query = query.where(({ exists, selectFrom }) =>
-      exists(
-        selectFrom('MatchTag')
-          .select('MatchTag.matchId')
-          .whereRef('MatchTag.matchId', '=', 'Match.id')
-          .where('MatchTag.tagId', 'in', ids)
-      )
+  // 5)「最近 N 場」不是另一組條件，而是把同一組條件的結果由新到舊截斷後再統計。
+  // id 是 playedAt 相同時的決勝鍵，否則同一秒內的幾場會在兩次查詢間換位。
+  const limit = normaliseLimit(params.limit)
+  if (limit !== undefined) {
+    query = query.where(
+      'id',
+      'in',
+      db
+        .selectFrom('Match')
+        .select('id')
+        .where((eb) => eb.and(conditions(eb)))
+        .orderBy('playedAt', 'desc')
+        .orderBy('id', 'desc')
+        .limit(limit)
     )
   }
-  if (typeof params.crMin === 'number') query = query.where('current_cr', '>=', params.crMin)
-  if (typeof params.crMax === 'number') query = query.where('current_cr', '<=', params.crMax)
 
   const grouped = await query.execute()
 
@@ -155,11 +184,20 @@ export async function getRankedWinrateByOpponent(params: {
     myDecks,
     tags,
     crMin: typeof params.crMin === 'number' ? params.crMin : null,
-    crMax: typeof params.crMax === 'number' ? params.crMax : null
+    crMax: typeof params.crMax === 'number' ? params.crMax : null,
+    limit: limit ?? null
   }
 }
 
 /* ---------- helpers ---------- */
+
+/** `undefined` means "no cap". Anything below one match would return nothing at
+ *  all, which reads as an empty database rather than as a bad filter. */
+function normaliseLimit(value?: number | null): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  const n = Math.floor(value)
+  return n >= 1 ? n : undefined
+}
 
 // 將 rangeKey 轉為 Date 區間（endExclusive 為下一天 00:00）
 function resolveRangeDates(

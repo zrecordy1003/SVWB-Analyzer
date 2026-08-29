@@ -13,6 +13,8 @@ export type RankedWinrateByOpponent = {
   tags?: { id: number; name: string }[]
   crMin: number | null
   crMax: number | null
+  /** The "most recent N matches" cap that was applied, or null for no cap. */
+  limit: number | null
 }
 
 export type RangeKey = 'today' | '7d' | '30d' | 'all' | 'custom'
