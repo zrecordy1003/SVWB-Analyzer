@@ -43,6 +43,12 @@ type Props<K extends string> = {
   onClearAll: () => void
   /** 某幾條的編輯器比較寬（例如牌組），用這個蓋掉預設寬度。 */
   editorWidth?: (key: K) => number
+  /**
+   * 貼在這一列最右側的東西（分析器放圖表切換）。這條列本來就橫跨整個工作列
+   * 寬度，右邊那段空白留著也是留著 - 與其為了一顆控制項多開一列，不如讓它
+   * 靠過去。條件本身仍然從左邊長出來，兩者不會互相推擠。
+   */
+  trailing?: React.ReactNode
 }
 
 const DEFAULT_EDITOR_WIDTH = 340
@@ -56,7 +62,8 @@ export function AdvancedFilterBar<K extends string>({
   onEnable,
   onRemove,
   onClearAll,
-  editorWidth
+  editorWidth,
+  trailing
 }: Props<K>): React.JSX.Element {
   // K 是泛型，`Record<K, …>[K]` 在 TSX 裡取不回具體的 props 型別（每個 icon 都
   // 被當成「可能是任何一個 key」），所以在這裡一次收斂成字串索引。
@@ -118,6 +125,13 @@ export function AdvancedFilterBar<K extends string>({
           <Button size="small" onClick={onClearAll}>
             全部清除
           </Button>
+        )}
+
+        {trailing && (
+          <>
+            <Box sx={{ flex: 1, minWidth: 8 }} />
+            {trailing}
+          </>
         )}
       </Box>
 

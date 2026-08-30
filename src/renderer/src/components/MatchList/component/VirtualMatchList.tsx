@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
+import EmptyState from '@renderer/components/Common/EmptyState'
 import MatchCard, { MATCH_CARD_CONTENT_HEIGHT } from './MatchCard'
 import type { InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
@@ -126,10 +127,9 @@ const VirtualMatchList: React.FC<Props> = ({
   }
 
   if (rows.length === 0) {
+    // 和分析器共用同一塊空狀態：兩頁問的是同一個問題，答案不該長得不一樣。
     return (
-      <Box display="flex" justifyContent="center" py={6}>
-        <Typography color="text.secondary">無符合資料</Typography>
-      </Box>
+      <EmptyState description="這段時間沒有符合條件的對局。放寬上方的時間範圍，或清掉幾條進階條件再看看。" />
     )
   }
 

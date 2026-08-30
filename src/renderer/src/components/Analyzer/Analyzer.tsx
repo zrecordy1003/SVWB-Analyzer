@@ -18,6 +18,8 @@ import {
   Typography
 } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
+import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
+import AlignHorizontalLeftIcon from '@mui/icons-material/AlignHorizontalLeft'
 import type { SvgIconComponent } from '@mui/icons-material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
 import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
@@ -26,9 +28,12 @@ import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import TuneIcon from '@mui/icons-material/Tune'
 
-import { classes, classesMap, modes } from '@renderer/map/classMap'
-import LineChart from './component/LineChart'
+import { classes, modes } from '@renderer/map/classMap'
+import MatchupHeatmap from './component/MatchupHeatmap'
+import MatchupBars from './component/MatchupBars'
+import SegmentedControl from '@renderer/components/Common/SegmentedControl'
 import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
+import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
 import {
   CrRangeEditor,
@@ -51,6 +56,7 @@ import {
   enableAdvancedFilter,
   followBattlePatch,
   hydrateFilters,
+  readSetting,
   type AdvancedFilterKey,
   type AnalyzerFilters,
   type FilterVocabulary
@@ -58,6 +64,15 @@ import {
 
 import type { ClassName } from '@shared/domain'
 import type { BattleStatus, RankedWinrateByOpponent } from '@shared/types'
+
+/** 同一份資料的兩種畫法。 */
+type ChartKind = 'heatmap' | 'bars'
+const CHART_KIND_SETTING = 'analyzer.chartKind'
+/** 圖示先於文字被認出來，兩段之間的差別因此不必讀完才知道。 */
+const CHART_OPTIONS: Array<{ id: ChartKind; label: string; icon: React.ReactNode }> = [
+  { id: 'heatmap', label: '對戰表', icon: <TableChartOutlinedIcon sx={{ fontSize: 16 }} /> },
+  { id: 'bars', label: '長條圖', icon: <AlignHorizontalLeftIcon sx={{ fontSize: 16 }} /> }
+]
 
 const CLASS_ORDER = classes.map((c) => String(c.id))
 const classOrderIndex = new Map<string, number>(CLASS_ORDER.map((id, idx) => [id, idx]))
@@ -96,6 +111,13 @@ const Analyzer: React.FC = () => {
   // toolbar keeps class, mode and match count, plus a chip per active condition
   // that edits the same condition in place.
   const [advancedOpen, setAdvancedOpen] = useState(false)
+
+  /**
+   * 同一份資料的兩種看法：表格適合把數字讀出來，長條適合把差距看出來。
+   * 存起來是因為這是個人偏好 - 習慣看長條的人不該每次進來都先切一次。
+   */
+  const [chartKind, setChartKind] = useState<ChartKind>('heatmap')
+  const chartKindLoadedRef = useRef(false)
   const { allDecks, allTags, refreshDecks, refreshTags } = useDecksTags()
 
   /**
@@ -137,6 +159,10 @@ const Analyzer: React.FC = () => {
     ;(async () => {
       const raw = await window.settings.getAll().catch(() => null)
       if (!mounted) return
+      const storedChart = raw ? readSetting(raw, CHART_KIND_SETTING) : undefined
+      if (storedChart === 'heatmap' || storedChart === 'bars') setChartKind(storedChart)
+      chartKindLoadedRef.current = true
+
       const hydrated = hydrateFilters(raw, FILTER_VOCABULARY)
       persistedRef.current = hydrated
       prevClassRef.current = hydrated.myClass
@@ -195,11 +221,17 @@ const Analyzer: React.FC = () => {
     return () => clearTimeout(handle)
   }, [filters])
 
+  useEffect(() => {
+    if (!chartKindLoadedRef.current) return
+    window.settings.set(CHART_KIND_SETTING, chartKind).catch(() => {})
+  }, [chartKind])
+
   /* ---------- 載入資料 ---------- */
   const runQuery = useCallback(async (f: AnalyzerFilters): Promise<void> => {
     const requestId = ++requestIdRef.current
     try {
-      const stats = await window.matches.getRankedWinrate(buildQueryParams(f))
+      const params = buildQueryParams(f)
+      const stats = await window.matches.getRankedWinrate(params)
       // A slower earlier request must not overwrite a newer result.
       if (requestId !== requestIdRef.current) return
       setAnalyzeData(stats)
@@ -281,17 +313,6 @@ const Analyzer: React.FC = () => {
       unsub && unsub()
     }
   }, [applyFollowPatch, runQuery])
-
-  /* ---------- 動態高度 ---------- */
-  // 510 covers the toolbar's two rows - controls plus the always-present
-  // condition row - and the chart's own chrome.
-  const [chartHeight, setChartHeight] = useState<number>(Math.max(350, window.innerHeight - 510))
-  useEffect(() => {
-    const onResize = (): void => setChartHeight(Math.max(350, window.innerHeight - 510))
-    onResize()
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
 
   /* ---------- 牌組 / 標籤選項 ---------- */
   const deckOptionsSortedFiltered = useMemo<DeckLite[]>(() => {
@@ -407,7 +428,18 @@ const Analyzer: React.FC = () => {
   }, [advancedChips])
 
   return (
-    <Box sx={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+    // 和對局列表同一種版面：工作列固定在上，下面那塊吃掉剩下的高度並自己捲動。
+    // 高度來自 Main 這欄 flex，不自己算 vh - 視窗縮到最小也還是剛好放得下。
+    <Box
+      sx={{
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 1.5,
+        flex: 1,
+        minHeight: 0
+      }}
+    >
       {/* 工作列：一眼看得完的三件事 - 打什麼職業、什麼模式、算幾場。
           其餘條件都收進抽屜，但生效中的會以 chip 回到這裡，
           否則抽屜關上以後就沒有任何東西說明資料被縮小過。 */}
@@ -416,31 +448,15 @@ const Analyzer: React.FC = () => {
         sx={{ borderRadius: 2, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}
       >
         <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
-          {/* 職業：整張圖的主體，所以留在最外層、一次點擊就到 -
-              查詢沒有職業畫不出東西，模式只是限定詞。 */}
-          <ToggleButtonGroup
-            size="small"
+          {/* 職業：整張圖的主體，查詢沒有職業就畫不出東西，模式只是限定詞。
+              擺成和模式一樣的下拉 - 七顆並排的按鈕會把整條工作列吃掉，而它和
+              旁邊那顆做的是同一件事（挑一個），長得不一樣只會讀成兩種功能。 */}
+          <ClassSelect
             value={filters.myClass}
-            exclusive
             // Picking by hand is a decision the next battle must not overwrite.
-            onChange={(_, val) =>
-              val && patchFilters({ myClass: val as ClassName, followBattle: false })
-            }
-            sx={{
-              flexWrap: 'wrap',
-              '& .MuiToggleButton-root': { height: TOOLBAR_CONTROL_HEIGHT, py: 0 },
-              '& .Mui-selected': { bgcolor: classesMap[filters.myClass ?? 'elf'].bgColor },
-              '& .Mui-selected:hover': { bgcolor: classesMap[filters.myClass ?? 'elf'].bgColor }
-            }}
-          >
-            {classes.map((c) => (
-              <ToggleButton sx={{ width: '76px', minWidth: '76px' }} key={c.id} value={c.id}>
-                <Typography variant="body2" sx={{ color: c.color }}>
-                  {c.label}
-                </Typography>
-              </ToggleButton>
-            ))}
-          </ToggleButtonGroup>
+            onChange={(myClass) => patchFilters({ myClass, followBattle: false })}
+            height={TOOLBAR_CONTROL_HEIGHT}
+          />
 
           <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
 
@@ -535,6 +551,18 @@ const Analyzer: React.FC = () => {
           onRemove={(key) => patchFilters(clearAdvancedFilter(key))}
           onClearAll={() => patchFilters(clearAllAdvancedFilters())}
           editorWidth={(key) => (key === 'decks' ? 380 : 340)}
+          // 圖表切換貼在這一列右端：那段空白本來就是空的，而它和條件同屬
+          // 「現在正在看什麼」，不值得為它多開一列。
+          trailing={
+            <SegmentedControl
+              aria-label="切換圖表"
+              options={CHART_OPTIONS}
+              value={chartKind}
+              onChange={setChartKind}
+              height={28}
+              minSegmentWidth={92}
+            />
+          }
         />
       </Paper>
 
@@ -544,7 +572,23 @@ const Analyzer: React.FC = () => {
           {error}
         </Alert>
       )}
-      <LineChart data={analyzeData} height={chartHeight} />
+      {/* 內容比這塊高的時候仍然捲得動，但不畫原生捲軸 - 它會蓋在最右邊那欄
+          數字上。對局列表的清單也是這樣處理的。 */}
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': { display: 'none' }
+        }}
+      >
+        {chartKind === 'heatmap' ? (
+          <MatchupHeatmap data={analyzeData} />
+        ) : (
+          <MatchupBars data={analyzeData} />
+        )}
+      </Box>
 
       {/* 進階篩選抽屜。條件即時生效，沒有「套用」按鈕 - 查詢本來就有 debounce，
           多一顆按鈕只會多一種「以為改了其實沒按到」的狀態。 */}

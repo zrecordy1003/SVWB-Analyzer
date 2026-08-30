@@ -4,8 +4,9 @@ import type { RangeKey } from '@shared/types'
 // CR 的邊界與夾取和對局列表共用一份，這裡只是把它們接回本模組原本的出口，
 // 讓既有的 import 位置不用跟著搬家。
 import { CR_MAX_BOUND, CR_MIN_BOUND, clampCr } from '../Common/filters/crBounds'
+import { RANGE_LABELS, rangeChipLabel } from '../Common/filters/rangeLabels'
 
-export { CR_MAX_BOUND, CR_MIN_BOUND, clampCr }
+export { CR_MAX_BOUND, CR_MIN_BOUND, clampCr, RANGE_LABELS }
 
 /**
  * The analyzer's filter state, and the pure transforms around it.
@@ -87,6 +88,43 @@ export type FilterVocabulary = {
   modeIds: readonly string[]
 }
 
+/**
+ * Read one settings key out of whatever `settings:getAll` handed back.
+ *
+ * The store treats a dot as a PATH, not as part of the name: writing
+ * `analyzer.matchLimit` produces `{ analyzer: { matchLimit: … } }`. Reading the
+ * flat string back off that object therefore found nothing, and every filter
+ * silently fell back to its default on every launch - the settings were being
+ * written correctly and never restored.
+ *
+ * Both shapes are accepted: a flat key wins if it exists (older stores, and
+ * anything written without going through the store's path handling), otherwise
+ * the dotted name is walked as a path.
+ */
+export function readSetting(raw: Record<string, unknown>, key: string): unknown {
+  if (key in raw) return raw[key]
+
+  let cursor: unknown = raw
+  for (const segment of key.split('.')) {
+    if (typeof cursor !== 'object' || cursor === null) return undefined
+    cursor = (cursor as Record<string, unknown>)[segment]
+  }
+  return cursor
+}
+
+/** Whether the key is present at all - `null` is a stored value, not a gap. */
+export function hasSetting(raw: Record<string, unknown>, key: string): boolean {
+  if (key in raw) return true
+
+  const segments = key.split('.')
+  let cursor: unknown = raw
+  for (const segment of segments.slice(0, -1)) {
+    if (typeof cursor !== 'object' || cursor === null) return false
+    cursor = (cursor as Record<string, unknown>)[segment]
+  }
+  return typeof cursor === 'object' && cursor !== null && segments[segments.length - 1] in cursor
+}
+
 function asDate(value: unknown): Date | null {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const d = new Date(value)
@@ -112,20 +150,20 @@ export function hydrateFilters(
   const base = defaultFilters()
   if (!raw) return base
 
-  const myClass = raw[SETTINGS_KEYS.myClass]
+  const myClass = readSetting(raw, SETTINGS_KEYS.myClass)
   if (typeof myClass === 'string' && vocab.classIds.includes(myClass)) {
     base.myClass = myClass as ClassName
   }
 
-  const gameMode = raw[SETTINGS_KEYS.gameMode]
+  const gameMode = readSetting(raw, SETTINGS_KEYS.gameMode)
   if (typeof gameMode === 'string' && (gameMode === 'all' || vocab.modeIds.includes(gameMode))) {
     base.gameMode = gameMode as ModeFilter
   }
 
   // `null` is a value here - "no cap" - so a stored null must survive, while a
   // missing key falls back to the default.
-  if (SETTINGS_KEYS.matchLimit in raw) {
-    const matchLimit = raw[SETTINGS_KEYS.matchLimit]
+  if (hasSetting(raw, SETTINGS_KEYS.matchLimit)) {
+    const matchLimit = readSetting(raw, SETTINGS_KEYS.matchLimit)
     if (matchLimit === null) {
       base.matchLimit = null
     } else if (typeof matchLimit === 'number' && Number.isFinite(matchLimit)) {
@@ -133,29 +171,29 @@ export function hydrateFilters(
     }
   }
 
-  const rangeKey = raw[SETTINGS_KEYS.rangeKey]
+  const rangeKey = readSetting(raw, SETTINGS_KEYS.rangeKey)
   if (typeof rangeKey === 'string' && (RANGE_KEYS as readonly string[]).includes(rangeKey)) {
     base.rangeKey = rangeKey as RangeKey
   }
 
-  const start = asDate(raw[SETTINGS_KEYS.startDate])
+  const start = asDate(readSetting(raw, SETTINGS_KEYS.startDate))
   if (start) base.startDate = start
-  const end = asDate(raw[SETTINGS_KEYS.endDate])
+  const end = asDate(readSetting(raw, SETTINGS_KEYS.endDate))
   if (end) base.endDate = end
 
-  const deckIds = asNumberArray(raw[SETTINGS_KEYS.deckIds])
+  const deckIds = asNumberArray(readSetting(raw, SETTINGS_KEYS.deckIds))
   if (deckIds) base.deckIds = deckIds
-  const tagIds = asNumberArray(raw[SETTINGS_KEYS.tagIds])
+  const tagIds = asNumberArray(readSetting(raw, SETTINGS_KEYS.tagIds))
   if (tagIds) base.tagIds = tagIds
 
-  const crEnabled = raw[SETTINGS_KEYS.crEnabled]
+  const crEnabled = readSetting(raw, SETTINGS_KEYS.crEnabled)
   if (typeof crEnabled === 'boolean') base.crEnabled = crEnabled
 
-  const followBattle = raw[SETTINGS_KEYS.followBattle]
+  const followBattle = readSetting(raw, SETTINGS_KEYS.followBattle)
   if (typeof followBattle === 'boolean') base.followBattle = followBattle
 
-  const crMin = raw[SETTINGS_KEYS.crMin]
-  const crMax = raw[SETTINGS_KEYS.crMax]
+  const crMin = readSetting(raw, SETTINGS_KEYS.crMin)
+  const crMax = readSetting(raw, SETTINGS_KEYS.crMax)
   if (typeof crMin === 'number' && Number.isFinite(crMin)) {
     base.crMin = clampCr(crMin)
   }
@@ -221,15 +259,6 @@ export function diffPersistPatch(
   return Object.keys(patch).length ? patch : null
 }
 
-/** Labels for the quick ranges, shared by the range buttons and the summary. */
-export const RANGE_LABELS: Record<RangeKey, string> = {
-  today: '今天',
-  '7d': '7 天內',
-  '30d': '30 天內',
-  all: '生涯',
-  custom: '自訂'
-}
-
 /** The advanced panel's conditions, one clearable unit each. */
 export type AdvancedFilterKey = 'range' | 'decks' | 'tags' | 'cr'
 
@@ -247,12 +276,8 @@ export type AdvancedFilterChip = { key: AdvancedFilterKey; label: string }
 export function advancedFilterChips(filters: AnalyzerFilters): AdvancedFilterChip[] {
   const chips: AdvancedFilterChip[] = []
 
-  if (filters.rangeKey === 'custom') {
-    const fmt = (d: Date | null): string => (d ? d.toLocaleDateString() : '—')
-    chips.push({ key: 'range', label: `${fmt(filters.startDate)} – ${fmt(filters.endDate)}` })
-  } else if (filters.rangeKey !== 'all') {
-    chips.push({ key: 'range', label: RANGE_LABELS[filters.rangeKey] })
-  }
+  const rangeLabel = rangeChipLabel(filters.rangeKey, filters.startDate, filters.endDate)
+  if (rangeLabel) chips.push({ key: 'range', label: rangeLabel })
 
   if (filters.deckIds.length)
     chips.push({ key: 'decks', label: `${filters.deckIds.length} 個牌組` })

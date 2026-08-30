@@ -72,6 +72,58 @@ describe('hydrateFilters', () => {
     expect(restored.startDate?.toISOString()).toBe('2026-05-01T00:00:00.000Z')
   })
 
+  it('restores settings the store nested under a dotted path', () => {
+    // The regression this guards, and it cost a whole session to find: the
+    // store treats `analyzer.matchLimit` as a PATH, so every write produced
+    // { analyzer: { matchLimit } } while the read looked for the flat string.
+    // Nothing ever restored - every filter fell back to its default on launch,
+    // and the toolbar looked like it was ignoring the user.
+    const restored = hydrateFilters(
+      {
+        analyzer: {
+          myClass: 'witch',
+          gameMode: 'twoPick',
+          rangeKey: 'all',
+          matchLimit: 20,
+          deckIds: [4],
+          tagIds: [9],
+          crEnabled: true,
+          crMin: 1700,
+          crMax: 1800,
+          followBattle: false
+        }
+      },
+      VOCAB
+    )
+
+    expect(restored.myClass).toBe('witch')
+    expect(restored.gameMode).toBe('twoPick')
+    expect(restored.rangeKey).toBe('all')
+    expect(restored.matchLimit).toBe(20)
+    expect(restored.deckIds).toEqual([4])
+    expect(restored.tagIds).toEqual([9])
+    expect(restored.crEnabled).toBe(true)
+    expect(restored.crMin).toBe(1700)
+    expect(restored.crMax).toBe(1800)
+    expect(restored.followBattle).toBe(false)
+  })
+
+  it('keeps a nested "no cap" distinct from a missing one', () => {
+    expect(hydrateFilters({ analyzer: { matchLimit: null } }, VOCAB).matchLimit).toBeNull()
+    expect(hydrateFilters({ analyzer: {} }, VOCAB).matchLimit).toBe(defaultFilters().matchLimit)
+    expect(hydrateFilters({ analyzer: 'not-an-object' }, VOCAB).matchLimit).toBe(
+      defaultFilters().matchLimit
+    )
+  })
+
+  it('prefers a flat key when both shapes are present', () => {
+    const restored = hydrateFilters(
+      { 'analyzer.matchLimit': 50, analyzer: { matchLimit: 20 } },
+      VOCAB
+    )
+    expect(restored.matchLimit).toBe(50)
+  })
+
   it('accepts the all-modes filter', () => {
     expect(hydrateFilters({ 'analyzer.gameMode': 'all' }, VOCAB).gameMode).toBe('all')
   })

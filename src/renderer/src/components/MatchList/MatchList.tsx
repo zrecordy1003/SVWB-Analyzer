@@ -137,7 +137,9 @@ const MatchList = (): React.JSX.Element => {
   )
 
   return (
-    <Box p={2} display="flex" flexDirection="column" height="calc(100vh - 140px)">
+    // 外距由 Main 統一給，頁面不再自己加一圈 - 分析器和這裡的邊界才會落在同一
+    // 條線上。高度同理：吃掉工具列以外剩下的空間，不自己算 vh。
+    <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
       <SearchBar
         filters={filters}
         onFiltersChange={onFiltersChange}

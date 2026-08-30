@@ -37,8 +37,17 @@ const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerf
 
 const DRAWER_COLLAPSED_WIDTH = 92
 
+/**
+ * 主內容區是一欄 flex：工具列佔掉固定的一段，剩下的高度整個交給頁面。
+ *
+ * 頁面因此不必自己算 `100vh - 某個數字` - 那個數字得把這裡的 padding 和工具列
+ * 一起猜對，猜差了就是視窗最小時多出幾像素的捲動。頁面只要說 `flex: 1` 就會
+ * 拿到剩下的高度，視窗多小都成立；內容真的塞不下時這裡仍然會捲，不會被裁掉。
+ */
 const Main = styled('main')(({ theme }) => ({
   flexGrow: 1,
+  display: 'flex',
+  flexDirection: 'column',
   padding: theme.spacing(3),
   marginLeft: DRAWER_COLLAPSED_WIDTH,
   height: '100vh',
