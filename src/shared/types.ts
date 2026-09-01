@@ -64,3 +64,40 @@ export type QueryPayload = {
   pageIndex?: number
   pageSize?: number
 }
+
+/**
+ * What the provenance columns add up to, as the settings page reads them.
+ *
+ * The counting lives in `main/data/provenanceStats.ts`; the shape lives here
+ * because both processes speak it - same reason `RankedWinrateByOpponent` does.
+ */
+export type FlagBreakdown = {
+  /** Distinct matches carrying this flag. */
+  matches: number
+  /** Of those, how many had an observed column corrected by hand. */
+  corrected: number
+}
+
+export type ProvenanceTransition = {
+  field: string
+  from: string
+  to: string
+  count: number
+}
+
+export type ProvenanceStats = {
+  total: number
+  /** `unknown` is pre-provenance: rows whose origin nobody can establish. */
+  bySource: { engine: number; manual: number; unknown: number }
+  /** Matches with any edit at all, including ones no statistic reads. */
+  editedMatches: number
+  /** Matches where an observed column was overwritten by hand. */
+  correctedMatches: number
+  /** Edit count per field name, including `note` / `tags` / deck columns. */
+  editedByField: Record<string, number>
+  flagged: Record<string, FlagBreakdown>
+  /** The comparison group: engine-written matches carrying no flag. */
+  unflagged: FlagBreakdown
+  /** Engine value -> corrected value, for categorical columns only. */
+  transitions: ProvenanceTransition[]
+}

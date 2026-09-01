@@ -1,54 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import {
-  Alert,
-  Box,
-  Chip,
-  LinearProgress,
-  Paper,
-  Skeleton,
-  Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography
-} from '@mui/material'
-import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import { Alert, Box, Paper, Skeleton, Typography } from '@mui/material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 import type { GameMode } from '@shared/domain'
 import type { RangeKey } from '@shared/types'
-import { classesMap, modes } from '@renderer/map/classMap'
+import { modes } from '@renderer/map/classMap'
 import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
 import { ClassSelect, type ClassChoiceId } from '@renderer/components/Common/filters/ClassSelect'
 import { RangeEditor, type RangePatch } from '@renderer/components/Common/filters/FilterEditors'
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
 import { rangeChipLabel } from '@renderer/components/Common/filters/rangeLabels'
 import { SegmentedControl } from '@renderer/components/Common/SegmentedControl'
-import EmptyState from '@renderer/components/Common/EmptyState'
+import DeckTile from './DeckTile'
+import AddDeckTile from './AddDeckTile'
+import DeckContentsDialog from '@renderer/components/DeckCards/DeckContentsDialog'
+import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
+import NewDeckDialog from '@renderer/components/DeckBuilder/NewDeckDialog'
 import { useDecksTags } from '../../hooks/useDecksTags'
 
 type DeckStat = { deckId: number; total: number; wins: number; winRate: number }
 type SortKey = 'winRate' | 'total' | 'name'
 type ModeFilter = GameMode | 'all'
-
-type DeckArchetype = { label: string; color: string; background: string }
-
-function getDeckArchetype(categoryName: string | null): DeckArchetype | null {
-  if (!categoryName) return null
-  const name = categoryName.toLocaleLowerCase()
-  if (name.includes('快攻') || name.includes('aggro') || name.includes('fast')) {
-    return { label: '快攻', color: '#ff9b9b', background: 'rgba(210, 69, 69, 0.18)' }
-  }
-  if (name.includes('中速') || name.includes('midrange') || name.includes('mid')) {
-    return { label: '中速', color: '#f2c879', background: 'rgba(204, 147, 38, 0.18)' }
-  }
-  if (name.includes('控制') || name.includes('control')) {
-    return { label: '控制', color: '#8dc7ff', background: 'rgba(66, 134, 214, 0.18)' }
-  }
-  return null
-}
 
 /** 工作列上的控制項一律同高；32 配 40 看起來像沒對齊的 bug。 */
 const TOOLBAR_CONTROL_HEIGHT = 36
@@ -94,56 +66,34 @@ const DeckPerformanceSkeleton = (): React.JSX.Element => (
       <Skeleton variant="text" width={76} />
       <Skeleton variant="text" width={190} />
     </Box>
-    <Box sx={{ overflowX: 'auto' }}>
-      <Table size="small" sx={{ minWidth: 680 }} aria-label="牌組戰績載入中">
-        <TableHead>
-          <TableRow
-            sx={{
-              '& .MuiTableCell-root': {
-                py: 1.25,
-                color: 'text.secondary',
-                fontSize: 12,
-                fontWeight: 700
-              }
-            }}
-          >
-            <TableCell>牌組</TableCell>
-            <TableCell>戰績</TableCell>
-            <TableCell sx={{ minWidth: 210 }}>勝率</TableCell>
-            <TableCell align="right">場次</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {Array.from({ length: 6 }, (_, index) => (
-            <TableRow key={index} sx={{ '& .MuiTableCell-root': { py: 1.5 } }}>
-              <TableCell>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <Skeleton variant="circular" width={9} height={9} />
-                  <Box>
-                    <Skeleton variant="text" width={130} />
-                    <Skeleton variant="text" width={92} height={16} />
-                  </Box>
-                </Stack>
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="text" width={72} />
-              </TableCell>
-              <TableCell>
-                <Skeleton variant="rounded" height={6} width="90%" />
-              </TableCell>
-              <TableCell align="right">
-                <Skeleton variant="text" width={28} sx={{ ml: 'auto' }} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+    <Box
+      sx={{
+        p: 2,
+        display: 'grid',
+        gap: 1.25,
+        gridTemplateColumns: {
+          xs: '1fr',
+          sm: 'repeat(2, minmax(0, 1fr))',
+          xl: 'repeat(3, minmax(0, 1fr))'
+        }
+      }}
+      aria-label="牌組戰績載入中"
+    >
+      {Array.from({ length: 6 }, (_, index) => (
+        <Skeleton key={index} variant="rounded" height={150} />
+      ))}
     </Box>
   </>
 )
 
 const DeckPerformance = (): React.JSX.Element => {
-  const { allDecks, loading: decksLoading, error: decksError } = useDecksTags()
+  const {
+    allDecks,
+    allCategories,
+    loading: decksLoading,
+    error: decksError,
+    refreshDecks
+  } = useDecksTags()
   const [rangeKey, setRangeKey] = useState<RangeKey>('30d')
   // 只有 rangeKey === 'custom' 時才會送出，其餘區間由主行程自己算。
   const [startDate, setStartDate] = useState<Date | null>(null)
@@ -207,6 +157,21 @@ const DeckPerformance = (): React.JSX.Element => {
     if (!loading && !decksLoading) setHasLoadedOnce(true)
   }, [decksLoading, loading])
 
+  // The card list is fetched by the dialog itself, so a deck nobody opens costs
+  // nothing here.
+  const [inspecting, setInspecting] = useState<{ id: number; name: string } | null>(null)
+  /**
+   * The builder, and which deck it is showing.
+   *
+   * `{ deckId: null }` is an empty builder and `null` is a closed one, so the
+   * two cases that both look like "nothing" stay distinguishable. Importing
+   * lands here too: the dialog creates the deck and hands the id over, because
+   * the thing a user wants right after bringing a deck in is to look at it.
+   */
+  const [building, setBuilding] = useState<{ deckId: number | null } | null>(null)
+  // 先問「匯入還是自己建」，再決定要不要開整頁的建構器。
+  const [adding, setAdding] = useState(false)
+
   useEffect(() => {
     const unsubscribe = window.electron?.ipcRenderer.on('matches:needRefetch', () => {
       void window.electron.ipcRenderer.invoke('decks:stats', statsParams).then((response) => {
@@ -227,7 +192,20 @@ const DeckPerformance = (): React.JSX.Element => {
         return { ...deck, total, wins, losses: total - wins, winRate: stat?.winRate ?? 0 }
       })
       .sort((a, b) => {
+        // Sorting by name means by name. Floating a group to the top there
+        // would break the one ordering whose whole promise is that it has no
+        // opinion about anything except the name.
         if (sortBy === 'name') return a.name.localeCompare(b.name, 'zh-Hant')
+
+        // A deck with no matches has neither a win rate nor a match count, so
+        // both remaining sorts rank it last - which is precisely where a deck
+        // the user just built must not land. Unplayed decks lead instead,
+        // newest first, and the ranked ones follow.
+        const aUnplayed = a.total === 0
+        const bUnplayed = b.total === 0
+        if (aUnplayed !== bUnplayed) return aUnplayed ? -1 : 1
+        if (aUnplayed) return b.createdAt - a.createdAt
+
         if (sortBy === 'total') return b.total - a.total || b.winRate - a.winRate
         return b.winRate - a.winRate || b.total - a.total
       })
@@ -385,157 +363,93 @@ const DeckPerformance = (): React.JSX.Element => {
               )}
             </Box>
 
-            {rows.length === 0 && !loading ? (
-              // 三個頁面同一塊空狀態，只有「該怎麼放寬」那句話不一樣。
-              <Box sx={{ p: 2 }}>
-                <EmptyState
-                  icon={<StyleOutlinedIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
-                  title="還沒有可顯示的牌組"
-                  description={
-                    classFilter === 'all'
-                      ? '先在牌組管理建立牌組，或把時間區間放寬一點。'
-                      : '這個職業底下還沒有牌組，換一個職業或選「全部職業」。'
-                  }
-                />
-              </Box>
-            ) : (
-              <Box sx={{ overflowX: 'auto' }}>
-                <Table size="small" sx={{ minWidth: 680 }}>
-                  <TableHead>
-                    <TableRow
-                      sx={{
-                        '& .MuiTableCell-root': {
-                          py: 1.25,
-                          color: 'text.secondary',
-                          fontSize: 12,
-                          fontWeight: 700
-                        }
-                      }}
-                    >
-                      <TableCell>牌組</TableCell>
-                      <TableCell>戰績</TableCell>
-                      <TableCell sx={{ minWidth: 210 }}>勝率</TableCell>
-                      <TableCell align="right">場次</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {rows.map((row) => {
-                      const classInfo = classesMap[String(row.classId)]
-                      const archetype = getDeckArchetype(row.categoryName)
-                      const performanceColor =
-                        row.total === 0
-                          ? 'text.secondary'
-                          : row.winRate >= 50
-                            ? 'success.main'
-                            : 'error.main'
-                      return (
-                        <TableRow key={row.id} hover sx={{ '& .MuiTableCell-root': { py: 1.5 } }}>
-                          <TableCell>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Box>
-                                <Stack direction="row" spacing={0.75} alignItems="center">
-                                  {archetype ? (
-                                    <Chip
-                                      label={archetype.label}
-                                      size="small"
-                                      sx={{
-                                        height: 20,
-                                        minWidth: 42,
-                                        fontSize: 11,
-                                        fontWeight: 800,
-                                        color: archetype.color,
-                                        bgcolor: archetype.background
-                                      }}
-                                    />
-                                  ) : row.categoryName ? (
-                                    <Chip
-                                      label={row.categoryName}
-                                      size="small"
-                                      variant="outlined"
-                                      sx={{ height: 20, fontSize: 11, fontWeight: 700 }}
-                                    />
-                                  ) : null}
-                                  <Typography fontWeight={700}>{row.name}</Typography>
-                                </Stack>
-                                <Stack
-                                  direction="row"
-                                  spacing={0.75}
-                                  alignItems="center"
-                                  sx={{ mt: 0.25 }}
-                                >
-                                  <Typography
-                                    variant="caption"
-                                    sx={{
-                                      color: classInfo?.color ?? 'text.secondary',
-                                      fontWeight: 700
-                                    }}
-                                  >
-                                    {classInfo?.label ?? '未分類'}
-                                  </Typography>
-                                </Stack>
-                              </Box>
-                            </Stack>
-                          </TableCell>
-                          <TableCell sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {row.total ? (
-                              <Stack direction="row" spacing={0.75}>
-                                <Box
-                                  component="span"
-                                  sx={{ color: 'success.main', fontWeight: 700 }}
-                                >
-                                  {row.wins} 勝
-                                </Box>
-                                <Box component="span" sx={{ color: 'error.main', fontWeight: 700 }}>
-                                  {row.losses} 敗
-                                </Box>
-                              </Stack>
-                            ) : (
-                              <Typography variant="body2" color="text.secondary">
-                                尚無對局
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Stack direction="row" alignItems="center" spacing={1.25}>
-                              <LinearProgress
-                                variant="determinate"
-                                value={row.winRate}
-                                sx={{
-                                  flex: 1,
-                                  height: 6,
-                                  borderRadius: 10,
-                                  bgcolor: 'action.selected',
-                                  '& .MuiLinearProgress-bar': {
-                                    borderRadius: 10,
-                                    bgcolor: row.winRate >= 50 ? 'success.main' : 'error.main'
-                                  }
-                                }}
-                              />
-                              <Typography
-                                sx={{
-                                  width: 52,
-                                  fontWeight: 700,
-                                  fontVariantNumeric: 'tabular-nums',
-                                  color: performanceColor
-                                }}
-                              >
-                                {row.winRate.toFixed(1)}%
-                              </Typography>
-                            </Stack>
-                          </TableCell>
-                          <TableCell align="right" sx={{ fontVariantNumeric: 'tabular-nums' }}>
-                            {row.total}
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </Box>
+            {/* The grid always renders, even with nothing in it: the dashed
+                tile IS the empty state, and hiding it behind a separate
+                "nothing here" panel would put the only way to add a deck
+                somewhere the user cannot reach. */}
+            {rows.length === 0 && !loading && (
+              <Typography
+                variant="body2"
+                color="text.secondary"
+                sx={{ px: { xs: 1.5, sm: 2 }, pt: 2 }}
+              >
+                {classFilter === 'all'
+                  ? '還沒有牌組。貼上遊戲裡的牌組代碼，或自己組一副。'
+                  : '這個職業底下還沒有牌組，換一個職業或選「全部職業」。'}
+              </Typography>
             )}
+            {
+              <Box
+                sx={{
+                  p: { xs: 1.5, sm: 2 },
+                  display: 'grid',
+                  gap: 1.25,
+                  // Two up on a narrow window, four on a wide one. A tile has to
+                  // stay wide enough for a deck name plus its record on one line.
+                  // Fewer, larger tiles than before: at four across, the art
+                  // was a sliver and the whole point of putting it there was
+                  // lost.
+                  gridTemplateColumns: {
+                    xs: '1fr',
+                    sm: 'repeat(2, minmax(0, 1fr))',
+                    xl: 'repeat(3, minmax(0, 1fr))'
+                  }
+                }}
+              >
+                {/* First, not last: an empty slot at the head of the grid reads
+                    as "add one", while the same tile at the end reads as the
+                    tail of the list. */}
+                <AddDeckTile onClick={() => setAdding(true)} />
+
+                {rows.map((row) => (
+                  <DeckTile
+                    key={row.id}
+                    deck={{
+                      id: row.id,
+                      name: row.name,
+                      classId: row.classId == null ? null : String(row.classId),
+                      categoryName: row.categoryName,
+                      heroBannerHash: row.heroBannerHash,
+                      composition: row.composition,
+                      total: row.total,
+                      wins: row.wins,
+                      winRate: row.winRate
+                    }}
+                    onClick={() => setInspecting({ id: row.id, name: row.name })}
+                  />
+                ))}
+              </Box>
+            }
           </>
         )}
       </Paper>
+
+      <NewDeckDialog
+        open={adding}
+        onClose={() => setAdding(false)}
+        onOpenDeck={(deckId) => {
+          refreshDecks()
+          setBuilding({ deckId })
+        }}
+        onBuildManually={() => setBuilding({ deckId: null })}
+      />
+
+      <DeckBuilder
+        open={building !== null}
+        deckId={building?.deckId ?? null}
+        categories={allCategories}
+        onClose={() => setBuilding(null)}
+        onSaved={() => refreshDecks()}
+      />
+
+      <DeckContentsDialog
+        open={inspecting !== null}
+        deckId={inspecting?.id ?? null}
+        deckName={inspecting?.name ?? ''}
+        categories={allCategories}
+        onClose={() => setInspecting(null)}
+        onSaved={() => refreshDecks()}
+      />
     </Box>
   )
 }

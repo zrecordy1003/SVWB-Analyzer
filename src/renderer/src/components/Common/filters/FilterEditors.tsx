@@ -26,6 +26,7 @@ import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
 import { zhTW as dfZhTW } from 'date-fns/locale'
 
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classes, classesMap } from '@renderer/map/classMap'
 import { CR_BANDS, CR_MAX_BOUND, CR_MIN_BOUND, CR_STEP, clampCr } from './crBounds'
 
@@ -257,13 +258,17 @@ export function DeckEditor({
           <Checkbox checked={selected} size="small" />
           <Chip
             size="small"
+            // 這份清單跨職業，所以徽章在這裡是真的在幫忙掃描；沒有職業的牌組
+            // 不掛徽章，`ClassIcon` 收到 null 只會畫回原本的色塊。
+            icon={opt.classId ? <ClassIcon id={String(opt.classId)} size={16} /> : undefined}
             label={opt.classId ? (classesMap[String(opt.classId)]?.label ?? '—') : '—'}
             sx={{
               bgcolor:
                 opt.classId && classesMap[String(opt.classId)]?.color
                   ? `${classesMap[String(opt.classId)].color}50`
                   : undefined,
-              mr: 1
+              mr: 1,
+              '& .MuiChip-icon': { ml: 0.5 }
             }}
           />
           <Typography>{opt.name}</Typography>
@@ -476,7 +481,12 @@ export function ClassEditor({
             size="small"
             sx={{ color: option.color, '&.Mui-checked': { color: option.color } }}
           />
-          <Typography color={option.color}>{option.label}</Typography>
+          {/* 這份清單的七列除了顏色以外長得一模一樣，徽章是唯一能讓它們一眼分開
+              的東西 - 比起牌組清單，這裡的收益更大。 */}
+          <ClassIcon id={option.id} size={20} />
+          <Typography color={option.color} sx={{ ml: 1 }}>
+            {option.label}
+          </Typography>
         </li>
       )}
       renderTags={(tagValue, getTagProps) => {
@@ -488,9 +498,11 @@ export function ClassEditor({
             return (
               <Chip
                 key={option.id}
+                icon={<ClassIcon id={option.id} size={16} />}
                 label={option.label}
                 {...tagProps}
                 sx={{
+                  '& .MuiChip-icon': { ml: 0.5 },
                   // 職業自己的顏色比通用的 chip 灰更好認 - 這是唯一帶顏色的條件
                   background: `${option.color}22`,
                   color: option.color,

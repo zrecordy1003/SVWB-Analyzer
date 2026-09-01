@@ -1,5 +1,6 @@
 import { Box, Skeleton, Typography } from '@mui/material'
 import { Match } from '@shared/domain'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap } from '@renderer/map/classMap'
 import { playOrderOf } from '@renderer/map/playOrder'
 import ModeLabel from '@renderer/components/Common/ModeLabel'
@@ -246,6 +247,7 @@ const Recent: React.FC<RecentProps> = ({
                   mb: 0.3
                 }}
               >
+                <ClassIcon id={m.my_class} size={14} />
                 <Typography
                   variant="body2"
                   sx={{
@@ -262,6 +264,7 @@ const Recent: React.FC<RecentProps> = ({
                 <Typography variant="caption" sx={{ color: 'rgba(214,226,244,0.45)' }}>
                   vs
                 </Typography>
+                <ClassIcon id={m.oppo_class} size={14} />
                 <Typography
                   variant="body2"
                   sx={{

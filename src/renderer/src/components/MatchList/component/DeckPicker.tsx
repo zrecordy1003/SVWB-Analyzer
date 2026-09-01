@@ -6,10 +6,6 @@ import {
   Chip,
   CircularProgress,
   Divider,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   IconButton,
   ListSubheader,
   Stack,
@@ -21,8 +17,11 @@ import {
 import { createFilterOptions } from '@mui/material/Autocomplete'
 import type { ClassName } from '@shared/domain'
 import DeckFormDrawer from './deck-picker/DeckFormDrawer'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap } from '@renderer/map/classMap'
 import AddIcon from '@mui/icons-material/Add'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import AppDialog, { DANGER_ACCENT } from '@renderer/components/Common/AppDialog'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
 import EditIcon from '@mui/icons-material/Edit'
 
@@ -326,8 +325,11 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
               <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                 <Chip
                   size="small"
+                  // 徽章掛進 chip 而不是另外擺一顆：這一列已經有色底 chip 在講
+                  // 職業了，再加一個獨立的標記就是同一件事說兩次。
+                  icon={<ClassIcon id={option.class} size={16} />}
                   label={classesMap[option.class].label}
-                  sx={{ bgcolor: color ? `${color}50` : undefined }}
+                  sx={{ bgcolor: color ? `${color}50` : undefined, '& .MuiChip-icon': { ml: 0.5 } }}
                 />
                 <Typography noWrap>{option.name}</Typography>
               </Stack>
@@ -390,26 +392,40 @@ export default function DeckPicker({ label, klass, value, onChange }: Props) {
       )}
 
       {/* 刪除確認 */}
-      <Dialog
+      <AppDialog
         open={!!deckPendingDeletion}
-        onClose={() => (isDeletingDeck ? undefined : setDeckPendingDeletion(null))}
+        onClose={() => setDeckPendingDeletion(null)}
+        busy={isDeletingDeck}
+        maxWidth="xs"
+        title="刪除確認"
+        icon={<DeleteOutlineRoundedIcon fontSize="small" />}
+        accent={DANGER_ACCENT}
+        actions={
+          <>
+            <Button
+              onClick={() => setDeckPendingDeletion(null)}
+              disabled={isDeletingDeck}
+              sx={{ textTransform: 'none' }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              disableElevation
+              onClick={() => deckPendingDeletion && doDelete(deckPendingDeletion)}
+              disabled={isDeletingDeck}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+            >
+              {isDeletingDeck ? '刪除中…' : '刪除'}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle>刪除確認</DialogTitle>
-        <DialogContent>確定要刪除「{deckPendingDeletion?.name}」嗎？此動作無法復原。</DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeckPendingDeletion(null)} disabled={isDeletingDeck}>
-            取消
-          </Button>
-          <Button
-            variant="contained"
-            color="error"
-            onClick={() => deckPendingDeletion && doDelete(deckPendingDeletion)}
-            disabled={isDeletingDeck}
-          >
-            {isDeletingDeck ? '刪除中…' : '刪除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        <Typography variant="body2" color="text.secondary">
+          確定要刪除「{deckPendingDeletion?.name}」嗎？此動作無法復原。
+        </Typography>
+      </AppDialog>
     </>
   )
 }

@@ -4,10 +4,6 @@ import {
   Box,
   Button,
   Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
   Divider,
   FormControl,
   InputLabel,
@@ -21,6 +17,8 @@ import {
   Paper
 } from '@mui/material'
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever'
+import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
+import AppDialog, { DANGER_ACCENT } from '@renderer/components/Common/AppDialog'
 import DeleteIcon from '@mui/icons-material/Delete'
 import EditIcon from '@mui/icons-material/Edit'
 import { format as formatDate } from 'date-fns'
@@ -28,7 +26,6 @@ import type { Match, GameMode, PlayOrder, Tag, Deck, ClassName } from '@shared/d
 import { isDecklessMode, modesMap } from '@renderer/map/classMap'
 import DeckPicker, { type DeckLite } from './DeckPicker'
 import SummaryHeader from './SummaryHeader'
-import { Close } from '@mui/icons-material'
 
 type MatchWithRelations = Match & {
   tags?: { tagId: number; tag: Tag }[]
@@ -251,72 +248,89 @@ const TagEditor: React.FC<{
       />
 
       {/* 編輯 Dialog */}
-      <Dialog
+      <AppDialog
         open={!!editing}
-        onClose={() => (saveBusy ? undefined : setEditing(null))}
+        onClose={() => setEditing(null)}
+        busy={saveBusy}
         maxWidth="xs"
-        fullWidth
+        title="編輯標籤"
+        icon={<LocalOfferOutlinedIcon fontSize="small" />}
+        actions={
+          <>
+            <Button
+              onClick={() => setEditing(null)}
+              disabled={saveBusy}
+              sx={{ textTransform: 'none' }}
+            >
+              取消
+            </Button>
+            <Button
+              onClick={() => void saveRename()}
+              disabled={saveBusy || draftName.trim() === ''}
+              variant="contained"
+              disableElevation
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+            >
+              {saveBusy ? '儲存中…' : '儲存'}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle>編輯標籤</DialogTitle>
-        <DialogContent sx={{ pt: 2 }}>
-          <TextField
-            fullWidth
-            autoFocus
-            label="名稱"
-            value={draftName}
-            onChange={(e) => {
-              setDraftName(e.target.value)
-              setRenameError(null)
-            }}
-            error={!!renameError}
-            helperText={renameError ?? ' '}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                void saveRename()
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditing(null)} disabled={saveBusy}>
-            取消
-          </Button>
-          <Button
-            onClick={() => void saveRename()}
-            disabled={saveBusy || draftName.trim() === ''}
-            variant="contained"
-          >
-            {saveBusy ? '儲存中…' : '儲存'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        <TextField
+          fullWidth
+          autoFocus
+          label="名稱"
+          value={draftName}
+          onChange={(e) => {
+            setDraftName(e.target.value)
+            setRenameError(null)
+          }}
+          error={!!renameError}
+          helperText={renameError ?? ' '}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              void saveRename()
+            }
+          }}
+        />
+      </AppDialog>
 
       {/* 刪除 Dialog */}
-      <Dialog
+      <AppDialog
         open={!!deleting}
-        onClose={() => (deleteBusy ? undefined : setDeleting(null))}
+        onClose={() => setDeleting(null)}
+        busy={deleteBusy}
         maxWidth="xs"
-        fullWidth
+        title="刪除標籤"
+        icon={<DeleteIcon fontSize="small" />}
+        accent={DANGER_ACCENT}
+        actions={
+          <>
+            <Button
+              onClick={() => setDeleting(null)}
+              disabled={deleteBusy}
+              sx={{ textTransform: 'none' }}
+            >
+              取消
+            </Button>
+            <Button
+              color="error"
+              variant="contained"
+              disableElevation
+              onClick={() => void confirmDelete()}
+              disabled={deleteBusy}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+            >
+              {deleteBusy ? '刪除中…' : '刪除'}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle>刪除標籤</DialogTitle>
-        <DialogContent>
+        <Typography variant="body2" color="text.secondary">
           確定要刪除「{deleting?.name}」嗎？此動作將同時從所有使用到該標籤的紀錄移除。
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleting(null)} disabled={deleteBusy}>
-            取消
-          </Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => void confirmDelete()}
-            disabled={deleteBusy}
-          >
-            {deleteBusy ? '刪除中…' : '刪除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </Typography>
+      </AppDialog>
     </>
   )
 }
@@ -401,187 +415,195 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
     : '尚未記錄'
 
   return (
-    <Dialog
+    <AppDialog
       open={open}
-      // onClose={onClose}
+      onClose={onClose}
       maxWidth="md"
-      fullWidth
-      onClose={(_event, reason) => {
-        if (reason === 'backdropClick' || reason === 'escapeKeyDown') return
-        onClose()
-      }}
+      title="編輯對戰紀錄"
+      icon={<EditIcon fontSize="small" />}
+      // A form holding unsaved edits: a stray click on the backdrop must not
+      // throw them away.
+      disableBackdropClose
+      contentSx={{ p: 0 }}
+      actions={
+        <>
+          <Button onClick={onClose} disabled={loading} sx={{ textTransform: 'none' }}>
+            取消
+          </Button>
+          <Button
+            variant="contained"
+            disableElevation
+            onClick={handleSave}
+            disabled={loading}
+            sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+          >
+            儲存
+          </Button>
+        </>
+      }
     >
-      <DialogTitle bgcolor={'#1e1e1eff'}>
-        <Box display={'flex'} alignItems={'center'} justifyContent={'space-between'}>
-          編輯對戰紀錄
-          <IconButton onClick={onClose}>
-            <Close />
-          </IconButton>
+      {data && (
+        <SummaryHeader
+          result={data.result ?? null}
+          play_order={data.play_order}
+          mode={data.mode ?? null}
+          my_class={data.my_class}
+          oppo_class={data.oppo_class}
+          my_deckName={data.my_deck?.name ?? null}
+          oppo_deckName={data.oppo_deck?.name ?? null}
+          bp={data.bp ?? null}
+          current_cr={data.current_cr ?? null}
+          delta_cr={data.delta_cr ?? null}
+          durationTime={data.durationTime ?? null}
+          playedAt={data.playedAt ?? null}
+        />
+      )}
+
+      {!data ? (
+        <Box p={2}>
+          <Typography variant="body2" color="text.secondary">
+            載入中…
+          </Typography>
         </Box>
-      </DialogTitle>
-      <DialogContent dividers sx={{ p: 0 }}>
-        {data && (
-          <SummaryHeader
-            result={data.result ?? null}
-            play_order={data.play_order}
-            mode={data.mode ?? null}
-            my_class={data.my_class}
-            oppo_class={data.oppo_class}
-            my_deckName={data.my_deck?.name ?? null}
-            oppo_deckName={data.oppo_deck?.name ?? null}
-            bp={data.bp ?? null}
-            current_cr={data.current_cr ?? null}
-            delta_cr={data.delta_cr ?? null}
-            durationTime={data.durationTime ?? null}
-            playedAt={data.playedAt ?? null}
-          />
-        )}
+      ) : (
+        <>
+          {/* 上半區：基本欄位 */}
+          <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                gap: 2
+              }}
+            >
+              <Box sx={{ minWidth: '100px' }}>
+                <ResultSelect
+                  value={data.result ?? null}
+                  onChange={(v) => setData({ ...data, result: v })}
+                />
+              </Box>
 
-        {!data ? (
-          <Box p={2}>
-            <Typography variant="body2" color="text.secondary">
-              載入中…
-            </Typography>
-          </Box>
-        ) : (
-          <>
-            {/* 上半區：基本欄位 */}
-            <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  gap: 2
-                }}
-              >
-                <Box sx={{ minWidth: '100px' }}>
-                  <ResultSelect
-                    value={data.result ?? null}
-                    onChange={(v) => setData({ ...data, result: v })}
-                  />
-                </Box>
+              <Box sx={{ minWidth: '120px' }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel shrink>先 / 後攻</InputLabel>
+                  <Select
+                    label="先/後攻"
+                    displayEmpty
+                    value={data.play_order ?? ''}
+                    renderValue={(selected) => {
+                      if (!selected) return <span style={{ color: '#aaa' }}>未選擇</span>
+                      return <span>{selected === 'first' ? '先攻' : '後攻'}</span>
+                    }}
+                    onChange={(e) =>
+                      setData({
+                        ...data,
+                        play_order: (e.target.value || data.play_order) as PlayOrder
+                      })
+                    }
+                  >
+                    <MenuItem value="">
+                      <span style={{ color: '#aaa' }}>（未選擇）</span>
+                    </MenuItem>
+                    <MenuItem value="first">先攻</MenuItem>
+                    <MenuItem value="second">後攻</MenuItem>
+                  </Select>
+                </FormControl>
+              </Box>
 
-                <Box sx={{ minWidth: '120px' }}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel shrink>先 / 後攻</InputLabel>
-                    <Select
-                      label="先/後攻"
-                      displayEmpty
-                      value={data.play_order ?? ''}
-                      renderValue={(selected) => {
-                        if (!selected) return <span style={{ color: '#aaa' }}>未選擇</span>
-                        return <span>{selected === 'first' ? '先攻' : '後攻'}</span>
-                      }}
-                      onChange={(e) =>
-                        setData({
-                          ...data,
-                          play_order: (e.target.value || data.play_order) as PlayOrder
-                        })
+              <Box sx={{ minWidth: '120px' }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel shrink>模式</InputLabel>
+                  <Select
+                    label="模式"
+                    displayEmpty
+                    renderValue={(selected) => {
+                      if (!selected) {
+                        return <span style={{ color: '#aaa' }}>未選擇</span>
                       }
-                    >
-                      <MenuItem value="">
-                        <span style={{ color: '#aaa' }}>（未選擇）</span>
+                      const modeKey = selected as GameMode
+                      const { label, color } = modesMap[modeKey]
+                      return (
+                        <Box component="span" sx={{ color }}>
+                          {label}
+                        </Box>
+                      )
+                    }}
+                    value={data.mode ?? ''}
+                    onChange={(e) =>
+                      setData({ ...data, mode: (e.target.value || null) as GameMode | null })
+                    }
+                  >
+                    <MenuItem value="">
+                      <span style={{ color: '#aaa' }}>（未選擇）</span>
+                    </MenuItem>
+                    {Object.entries(modesMap).map(([k, v]) => (
+                      <MenuItem
+                        key={k}
+                        value={k}
+                        sx={{
+                          color: v.color,
+                          '&.Mui-selected': { color: v.color },
+                          '&.Mui-selected:hover': { color: v.color }
+                        }}
+                      >
+                        {v.label}
                       </MenuItem>
-                      <MenuItem value="first">先攻</MenuItem>
-                      <MenuItem value="second">後攻</MenuItem>
-                    </Select>
-                  </FormControl>
-                </Box>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Box>
 
-                <Box sx={{ minWidth: '120px' }}>
-                  <FormControl fullWidth size="small">
-                    <InputLabel shrink>模式</InputLabel>
-                    <Select
-                      label="模式"
-                      displayEmpty
-                      renderValue={(selected) => {
-                        if (!selected) {
-                          return <span style={{ color: '#aaa' }}>未選擇</span>
-                        }
-                        const modeKey = selected as GameMode
-                        const { label, color } = modesMap[modeKey]
-                        return (
-                          <Box component="span" sx={{ color }}>
-                            {label}
-                          </Box>
-                        )
-                      }}
-                      value={data.mode ?? ''}
-                      onChange={(e) =>
-                        setData({ ...data, mode: (e.target.value || null) as GameMode | null })
-                      }
-                    >
-                      <MenuItem value="">
-                        <span style={{ color: '#aaa' }}>（未選擇）</span>
-                      </MenuItem>
-                      {Object.entries(modesMap).map(([k, v]) => (
-                        <MenuItem
-                          key={k}
-                          value={k}
-                          sx={{
-                            color: v.color,
-                            '&.Mui-selected': { color: v.color },
-                            '&.Mui-selected:hover': { color: v.color }
-                          }}
-                        >
-                          {v.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Box>
+              <Box sx={{ minWidth: '80px' }}>
+                <TextField
+                  size="small"
+                  label="CR"
+                  type="number"
+                  value={data.current_cr ?? ''}
+                  onChange={(e) =>
+                    setData({
+                      ...data,
+                      current_cr: e.target.value === '' ? null : Number(e.target.value)
+                    })
+                  }
+                  placeholder="–"
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              </Box>
 
-                <Box sx={{ minWidth: '80px' }}>
-                  <TextField
-                    size="small"
-                    label="CR"
-                    type="number"
-                    value={data.current_cr ?? ''}
-                    onChange={(e) =>
-                      setData({
-                        ...data,
-                        current_cr: e.target.value === '' ? null : Number(e.target.value)
-                      })
-                    }
-                    placeholder="–"
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                </Box>
+              <Box sx={{ minWidth: '80px' }}>
+                <TextField
+                  size="small"
+                  label="ΔCR"
+                  type="number"
+                  value={data.delta_cr ?? ''}
+                  onChange={(e) =>
+                    setData({
+                      ...data,
+                      delta_cr: e.target.value === '' ? null : Number(e.target.value)
+                    })
+                  }
+                  placeholder="–"
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              </Box>
 
-                <Box sx={{ minWidth: '80px' }}>
-                  <TextField
-                    size="small"
-                    label="ΔCR"
-                    type="number"
-                    value={data.delta_cr ?? ''}
-                    onChange={(e) =>
-                      setData({
-                        ...data,
-                        delta_cr: e.target.value === '' ? null : Number(e.target.value)
-                      })
-                    }
-                    placeholder="–"
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                </Box>
+              <Box sx={{ minWidth: '80px' }}>
+                <TextField
+                  size="small"
+                  label="BP"
+                  type="number"
+                  value={data.bp ?? ''}
+                  onChange={(e) =>
+                    setData({
+                      ...data,
+                      bp: e.target.value === '' ? null : Number(e.target.value)
+                    })
+                  }
+                  placeholder="–"
+                  slotProps={{ inputLabel: { shrink: true } }}
+                />
+              </Box>
 
-                <Box sx={{ minWidth: '80px' }}>
-                  <TextField
-                    size="small"
-                    label="BP"
-                    type="number"
-                    value={data.bp ?? ''}
-                    onChange={(e) =>
-                      setData({
-                        ...data,
-                        bp: e.target.value === '' ? null : Number(e.target.value)
-                      })
-                    }
-                    placeholder="–"
-                    slotProps={{ inputLabel: { shrink: true } }}
-                  />
-                </Box>
-
-                {/* <Box sx={{}}>
+              {/* <Box sx={{}}>
                   <TextField
                     fullWidth
                     size="small"
@@ -597,114 +619,114 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
                     inputProps={{ inputMode: 'numeric', min: 0 }}
                   />
                 </Box> */}
-              </Box>
             </Box>
+          </Box>
 
-            <Divider />
+          <Divider />
 
-            {/* 牌組選擇 */}
-            <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                牌組
+          {/* 牌組選擇 */}
+          <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              牌組
+            </Typography>
+
+            {deckless ? (
+              <Typography variant="body2" color="text.secondary">
+                {modesMap[data.mode as string]?.label ?? '此模式'}的牌是抽出來的，不記錄牌組。
               </Typography>
-
-              {deckless ? (
-                <Typography variant="body2" color="text.secondary">
-                  {modesMap[data.mode as string]?.label ?? '此模式'}的牌是抽出來的，不記錄牌組。
-                </Typography>
-              ) : (
-                <Box
-                  sx={{
-                    display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
-                    gap: 2,
-                    alignItems: 'start'
-                  }}
-                >
-                  <DeckPicker
-                    label="我方牌組"
-                    klass={data.my_class}
-                    value={data.my_deckId ?? null}
-                    onChange={(deck: DeckLite | null) =>
-                      setData({
-                        ...data,
-                        my_deckId: deck?.id ?? null,
-                        my_deck: deck
-                          ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
-                          : null
-                      })
-                    }
-                  />
-
-                  <DeckPicker
-                    label="對手牌組"
-                    klass={data.oppo_class}
-                    value={data.oppo_deckId ?? null}
-                    onChange={(deck: DeckLite | null) =>
-                      setData({
-                        ...data,
-                        oppo_deckId: deck?.id ?? null,
-                        oppo_deck: deck
-                          ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
-                          : null
-                      })
-                    }
-                  />
-                </Box>
-              )}
-            </Box>
-
-            <Divider />
-
-            {/* 標籤與備註 */}
-            <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
-              <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                標籤與備註
-              </Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
-                <TagEditor
-                  value={tagList}
-                  onChange={(tags) =>
-                    setData((d) =>
-                      d ? { ...d, tags: tags.map((t) => ({ tagId: t.id, tag: t })) } : d
-                    )
-                  }
-                  onGlobalTagsDeleted={(deletedIds) => {
-                    setData((d) => {
-                      if (!d) return d
-                      const next = {
-                        ...d,
-                        tags: (d.tags ?? []).filter((x) => !deletedIds.includes(x.tagId))
-                      }
-                      // 樂觀更新外層列表（即使沒按儲存，也先讓列表同步畫面）
-                      onSaved?.(next)
-                      return next
-                    })
-                  }}
-                />
-                <TextField
-                  label="備註"
-                  value={data.note ?? ''}
-                  onChange={(e) => setData({ ...data, note: e.target.value || null })}
-                  multiline
-                  minRows={3}
-                  fullWidth
-                />
-              </Box>
-            </Box>
-
-            <Divider />
-
-            {/* 時間區塊 */}
-            <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
+            ) : (
               <Box
                 sx={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
+                  display: 'grid',
+                  gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                  gap: 2,
+                  alignItems: 'start'
                 }}
               >
-                {/* <TextField
+                <DeckPicker
+                  label="我方牌組"
+                  klass={data.my_class}
+                  value={data.my_deckId ?? null}
+                  onChange={(deck: DeckLite | null) =>
+                    setData({
+                      ...data,
+                      my_deckId: deck?.id ?? null,
+                      my_deck: deck
+                        ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
+                        : null
+                    })
+                  }
+                />
+
+                <DeckPicker
+                  label="對手牌組"
+                  klass={data.oppo_class}
+                  value={data.oppo_deckId ?? null}
+                  onChange={(deck: DeckLite | null) =>
+                    setData({
+                      ...data,
+                      oppo_deckId: deck?.id ?? null,
+                      oppo_deck: deck
+                        ? ({ id: deck.id, name: deck.name, class: deck.class } as Deck)
+                        : null
+                    })
+                  }
+                />
+              </Box>
+            )}
+          </Box>
+
+          <Divider />
+
+          {/* 標籤與備註 */}
+          <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
+            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+              標籤與備註
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 2 }}>
+              <TagEditor
+                value={tagList}
+                onChange={(tags) =>
+                  setData((d) =>
+                    d ? { ...d, tags: tags.map((t) => ({ tagId: t.id, tag: t })) } : d
+                  )
+                }
+                onGlobalTagsDeleted={(deletedIds) => {
+                  setData((d) => {
+                    if (!d) return d
+                    const next = {
+                      ...d,
+                      tags: (d.tags ?? []).filter((x) => !deletedIds.includes(x.tagId))
+                    }
+                    // 樂觀更新外層列表（即使沒按儲存，也先讓列表同步畫面）
+                    onSaved?.(next)
+                    return next
+                  })
+                }}
+              />
+              <TextField
+                label="備註"
+                value={data.note ?? ''}
+                onChange={(e) => setData({ ...data, note: e.target.value || null })}
+                multiline
+                minRows={3}
+                fullWidth
+              />
+            </Box>
+          </Box>
+
+          <Divider />
+
+          {/* 時間區塊 */}
+          <Box component={Paper} elevation={0} sx={{ p: 2, borderRadius: 0 }}>
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              {/* <TextField
                   size="small"
                   label="開始時間"
                   type="datetime-local"
@@ -717,45 +739,56 @@ const MatchEditDialog: React.FC<Props> = ({ open, matchId, onClose, onSaved, onD
                   }
                   sx={{ width: 260 }}
                 /> */}
-                <Typography variant="caption" color="text.secondary">
-                  更新時間：{updatedLabel}
-                </Typography>
-                <Box sx={{ justifySelf: 'end' }}>
-                  <Tooltip title="刪除此紀錄">
-                    <IconButton color="error" onClick={openDeleteConfirm} aria-label="delete-match">
-                      <DeleteForeverIcon />
-                    </IconButton>
-                  </Tooltip>
-                </Box>
+              <Typography variant="caption" color="text.secondary">
+                更新時間：{updatedLabel}
+              </Typography>
+              <Box sx={{ justifySelf: 'end' }}>
+                <Tooltip title="刪除此紀錄">
+                  <IconButton color="error" onClick={openDeleteConfirm} aria-label="delete-match">
+                    <DeleteForeverIcon />
+                  </IconButton>
+                </Tooltip>
               </Box>
             </Box>
-          </>
-        )}
-      </DialogContent>
-
-      <DialogActions sx={{ p: 2, bgcolor: '#1e1e1eff' }}>
-        <Button onClick={onClose} disabled={loading}>
-          取消
-        </Button>
-        <Button variant="contained" onClick={handleSave} disabled={loading}>
-          儲存
-        </Button>
-      </DialogActions>
-
+          </Box>
+        </>
+      )}
       {/* 刪除確認 Dialog */}
-      <Dialog open={confirmOpen} onClose={() => (deleting ? undefined : setConfirmOpen(false))}>
-        <DialogTitle>刪除確認</DialogTitle>
-        <DialogContent>確定要刪除此對戰紀錄嗎？此動作無法復原。</DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmOpen(false)} disabled={deleting}>
-            取消
-          </Button>
-          <Button variant="contained" color="error" onClick={confirmDelete} disabled={deleting}>
-            {deleting ? '刪除中…' : '刪除'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Dialog>
+      <AppDialog
+        open={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        busy={deleting}
+        maxWidth="xs"
+        title="刪除確認"
+        icon={<DeleteForeverIcon fontSize="small" />}
+        accent={DANGER_ACCENT}
+        actions={
+          <>
+            <Button
+              onClick={() => setConfirmOpen(false)}
+              disabled={deleting}
+              sx={{ textTransform: 'none' }}
+            >
+              取消
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              disableElevation
+              onClick={confirmDelete}
+              disabled={deleting}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+            >
+              {deleting ? '刪除中…' : '刪除'}
+            </Button>
+          </>
+        }
+      >
+        <Typography variant="body2" color="text.secondary">
+          確定要刪除此對戰紀錄嗎？此動作無法復原。
+        </Typography>
+      </AppDialog>
+    </AppDialog>
   )
 }
 

@@ -1,11 +1,18 @@
 import { IpcRenderer } from '@electron-toolkit/preload'
 import type { ClassName, GameMode } from '@shared/domain'
-import type { RangeKey, RankedWinrateByOpponent } from '@shared/types'
+import type { ProvenanceStats, RangeKey, RankedWinrateByOpponent } from '@shared/types'
 import type { SupportPromptPayload } from '@shared/support'
 
 export {}
 
 declare global {
+  /**
+   * Payload common to every `update:*` broadcast. `source` names the surface
+   * that owns the flow - see `UpdateSource` in `@shared/updates`. Both update
+   * surfaces are mounted at once, so each one filters on it.
+   */
+  type UpdateEvent<T = unknown> = { source: import('@shared/updates').UpdateSource } & T
+
   interface SettingsAPI {
     get: <T = any>(key: string) => Promise<T>
     set: (key: string, value: any) => Promise<void>
@@ -54,23 +61,29 @@ declare global {
       onRecorded(cb: (payload: unknown) => void): () => void
     }
     updates: {
-      setAutoDownload(v: boolean): Promise<void>
-      check(): Promise<{ ok: boolean; info?: any; error?: string }>
-      download(): Promise<{ ok: boolean; error?: string }>
+      /** `from` names the calling surface; its events come back tagged with it. */
+      check(
+        from: import('@shared/updates').UpdateSource
+      ): Promise<{ ok: boolean; info?: any; error?: string }>
+      download(
+        from: import('@shared/updates').UpdateSource
+      ): Promise<{ ok: boolean; error?: string }>
       install(): Promise<{ ok: boolean; error?: string }>
-      onChecking(cb: () => void): () => void
-      onAvailable(cb: (info: any) => void): () => void
-      onNone(cb: (info: any) => void): () => void
-      onError(cb: (err: string) => void): () => void
-      onProgress(
-        cb: (p: {
-          percent: number
-          transferred: number
-          total: number
-          bytesPerSecond: number
-        }) => void
+      onChecking(cb: (p: UpdateEvent) => void): () => void
+      onAvailable(
+        cb: (
+          p: UpdateEvent<{
+            info: import('@shared/updates').UpdateSummary
+            autoDownload: boolean
+          }>
+        ) => void
       ): () => void
-      onDownloaded(cb: (info: any) => void): () => void
+      onNone(cb: (p: UpdateEvent<{ version: string }>) => void): () => void
+      onError(cb: (p: UpdateEvent<{ error: string }>) => void): () => void
+      onProgress(cb: (p: UpdateEvent<import('@shared/updates').UpdateProgress>) => void): () => void
+      onDownloaded(
+        cb: (p: UpdateEvent<{ info: import('@shared/updates').UpdateSummary }>) => void
+      ): () => void
     }
     hud: {
       show(): Promise<void>
@@ -91,9 +104,7 @@ declare global {
       dragEnd(): Promise<void>
       /** Raise the main window and take it to the match list. */
       openMatchHistory(): Promise<boolean>
-      onState(
-        cb: (state: { opacity: number; compact: boolean }) => void
-      ): () => void
+      onState(cb: (state: { opacity: number; compact: boolean }) => void): () => void
     }
     matches: {
       fetchRecent(n: number, mode?: GameMode | 'all'): Promise<any[]>
@@ -113,6 +124,8 @@ declare global {
         /** Keep only the N most recent matches that pass every other filter. */
         limit?: number
       }): Promise<RankedWinrateByOpponent>
+      /** Aggregate of the provenance columns. See main/data/provenanceStats.ts. */
+      provenanceStats(): Promise<ProvenanceStats>
     }
   }
 }

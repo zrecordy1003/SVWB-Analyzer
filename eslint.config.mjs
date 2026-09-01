@@ -37,11 +37,21 @@ export default tseslint.config(
     }
   },
   {
+    // Playwright names a fixture's teardown boundary `use`, so every fixture
+    // reads as a call to a React hook from a non-component function. There are
+    // no React components in the e2e harness at all - it drives the built app
+    // from the outside - so the hooks rules have nothing to say here.
+    files: ['tests/e2e/**/*.ts'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off'
+    }
+  },
+  {
     // Standalone diagnostic scripts under tools/ are plain CommonJS: they load
     // the native .node addon directly, which require() is the only way to do
     // while the app itself is ESM. They are not part of the shipped bundle, so
     // the TypeScript-oriented app rules do not apply.
-    files: ['tools/**/*.cjs'],
+    files: ['tools/**/*.cjs', 'tools/**/*.mjs'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
       '@typescript-eslint/explicit-function-return-type': 'off'

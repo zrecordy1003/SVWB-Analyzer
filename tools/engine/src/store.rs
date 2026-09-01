@@ -29,7 +29,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-use crate::protocol::{GameMode, MatchPatch};
+use crate::protocol::{Confidence, GameMode, MatchPatch};
 use crate::machine::VersusScreen;
 
 pub struct MatchStore {
@@ -68,6 +68,15 @@ fn mode_text(mode: GameMode) -> &'static str {
         GameMode::Custom => "custom",
         GameMode::TwoPick => "twoPick",
         GameMode::Unknown => "unknown",
+    }
+}
+
+/// The serialised form of a confidence - the exact string the column holds.
+fn confidence_text(confidence: Confidence) -> &'static str {
+    match confidence {
+        Confidence::Weak => "weak",
+        Confidence::Strong => "strong",
+        Confidence::Authoritative => "authoritative",
     }
 }
 
@@ -163,10 +172,14 @@ impl MatchStore {
             )
             .ok();
 
+        // `source` is written explicitly rather than left to a column default:
+        // the default has to stay NULL so that rows predating the provenance
+        // migration keep saying "unknown" instead of claiming to be ours.
         self.conn.execute(
             "INSERT INTO Match (result, play_order, my_class, oppo_class, my_deckId,
-                                mode, year, month, day, playedAt, updatedAt)
-             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+                                mode, year, month, day, playedAt, updatedAt,
+                                source, engine_version)
+             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 'engine', ?10)",
             rusqlite::params![
                 format!("{:?}", versus.play_order).to_lowercase(),
                 format!("{:?}", versus.my_class).to_lowercase(),
@@ -177,14 +190,25 @@ impl MatchStore {
                 month,
                 day,
                 now,
+                env!("CARGO_PKG_VERSION"),
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
     /// Fold a patch into the row. Absent fields are untouched, never cleared.
+    ///
+    /// One transaction, because one patch is one fact about the match. A result
+    /// arrives with its BP, and up to eight statements below write them; a crash
+    /// between two of them used to leave a half-applied patch on disk - a
+    /// recorded match whose result says one thing and whose numbers were never
+    /// written. `unchecked_transaction` rather than `transaction` so the method
+    /// keeps taking `&self`: the alternative is `&mut` all the way up through
+    /// `live::persist` and `LiveOptions`, which buys nothing here - one process
+    /// owns this connection.
     pub fn update_match(&self, id: i64, patch: &MatchPatch) -> Result<(), StoreError> {
         let now = epoch_ms();
+        let tx = self.conn.unchecked_transaction()?;
 
         if patch.clear_my_deck == Some(true) {
             self.conn.execute(
@@ -193,10 +217,22 @@ impl MatchStore {
             )?;
         }
         if let Some(mode) = patch.mode {
+            // The confidence rides with the mode in one statement, so a crash
+            // between two writes cannot leave the row claiming one signal's
+            // mode with another signal's confidence.
             self.conn.execute(
-                "UPDATE Match SET mode = ?2, updatedAt = ?3 WHERE id = ?1",
-                rusqlite::params![id, mode_text(mode), now],
+                "UPDATE Match SET mode = ?2, mode_confidence = ?3, updatedAt = ?4
+                 WHERE id = ?1",
+                rusqlite::params![
+                    id,
+                    mode_text(mode),
+                    patch.mode_confidence.map(confidence_text),
+                    now
+                ],
             )?;
+        }
+        if let Some(flags) = &patch.recog_flags {
+            self.append_recog_flags(id, flags, now)?;
         }
         if let Some(result) = patch.result {
             // The result carries the end of the battle with it, as the JS
@@ -224,6 +260,38 @@ impl MatchStore {
                 )?;
             }
         }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Union the flags into whatever the row already holds.
+    ///
+    /// Read-modify-write rather than an overwrite: a mid-match patch carries
+    /// only the flags raised so far, and the row may already hold one from an
+    /// earlier patch. A union is also idempotent, which matters because the
+    /// machine re-sends its accumulated set when the match closes.
+    fn append_recog_flags(&self, id: i64, flags: &[String], now: i64) -> Result<(), StoreError> {
+        if flags.is_empty() {
+            return Ok(());
+        }
+        let held: Option<String> = self
+            .conn
+            .query_row("SELECT recog_flags FROM Match WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap_or(None);
+        let mut merged: Vec<String> = held
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+            .unwrap_or_default();
+        for flag in flags {
+            if !merged.iter().any(|held| held == flag) {
+                merged.push(flag.clone());
+            }
+        }
+        let encoded = serde_json::to_string(&merged).map_err(|e| StoreError(e.to_string()))?;
+        self.conn.execute(
+            "UPDATE Match SET recog_flags = ?2, updatedAt = ?3 WHERE id = ?1",
+            rusqlite::params![id, encoded, now],
+        )?;
         Ok(())
     }
 
@@ -366,6 +434,170 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM Match WHERE id = ?1", [id], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    /// A row the engine wrote says so, and says which build wrote it. `source`
+    /// has to be written explicitly - the column default stays NULL so that
+    /// pre-provenance rows keep admitting their provenance is unknown.
+    #[test]
+    fn an_inserted_row_carries_its_provenance() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), Some(GameMode::Cpu)).unwrap();
+
+        let (source, version): (Option<String>, Option<String>) = store
+            .conn
+            .query_row("SELECT source, engine_version FROM Match WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(source.as_deref(), Some("engine"));
+        assert_eq!(version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+    }
+
+    /// The engine never writes the columns the UI owns. `edited_fields` is the
+    /// UI's record of what a person changed; an engine write to it would make
+    /// every statistic that reads it meaningless.
+    #[test]
+    fn the_engine_never_writes_the_ui_owned_columns() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    mode: Some(GameMode::Ranked),
+                    mode_confidence: Some(Confidence::Strong),
+                    result: Some(true),
+                    bp: Some(8),
+                    recog_flags: Some(vec!["mode-corrected".into()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (observed, edited): (Option<String>, Option<String>) = store
+            .conn
+            .query_row("SELECT observed, edited_fields FROM Match WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(observed, None, "`observed` belongs to the UI's overlay");
+        assert_eq!(edited, None, "`edited_fields` belongs to the UI's overlay");
+    }
+
+    /// The confidence is written by the same statement as the mode it justifies,
+    /// and a correction replaces both.
+    #[test]
+    fn a_mode_correction_replaces_its_confidence_too() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    mode: Some(GameMode::WeekendPlaza),
+                    mode_confidence: Some(Confidence::Weak),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    mode: Some(GameMode::Ranked),
+                    mode_confidence: Some(Confidence::Strong),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let (mode, confidence): (String, String) = store
+            .conn
+            .query_row("SELECT mode, mode_confidence FROM Match WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(mode, "ranked");
+        assert_eq!(confidence, "strong", "a stale confidence would outrank its own mode");
+    }
+
+    /// Flags accumulate across patches and never duplicate - the machine re-sends
+    /// its whole accumulated set when the match closes.
+    #[test]
+    fn recognition_flags_union_rather_than_overwrite() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    recog_flags: Some(vec!["weak-mode-accepted".into()]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    recog_flags: Some(vec![
+                        "weak-mode-accepted".into(),
+                        "ranked-no-numbers".into(),
+                    ]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let raw: String = store
+            .conn
+            .query_row("SELECT recog_flags FROM Match WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        let flags: Vec<String> = serde_json::from_str(&raw).unwrap();
+        assert_eq!(flags, vec!["weak-mode-accepted", "ranked-no-numbers"]);
+    }
+
+    /// One patch is one fact, so a patch that fails part-way must leave no part
+    /// of itself behind. Provoked with a mode the column's own CHECK cannot
+    /// reject - instead the row is removed under the write, so the later
+    /// statements in the same patch have nothing to hit and the earlier ones
+    /// must roll back with them.
+    #[test]
+    fn a_patch_that_fails_part_way_leaves_nothing_behind() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None).unwrap();
+        store.update_match(id, &MatchPatch { bp: Some(3), ..Default::default() }).unwrap();
+
+        // A trigger that refuses the second statement of the patch below.
+        store
+            .conn
+            .execute_batch(
+                "CREATE TRIGGER refuse_result BEFORE UPDATE OF result ON Match
+                 BEGIN SELECT RAISE(ABORT, 'no'); END;",
+            )
+            .unwrap();
+
+        let outcome = store.update_match(
+            id,
+            &MatchPatch {
+                mode: Some(GameMode::Ranked),
+                mode_confidence: Some(Confidence::Strong),
+                result: Some(true),
+                bp: Some(9),
+                ..Default::default()
+            },
+        );
+        assert!(outcome.is_err(), "the refused statement must surface as an error");
+
+        let (mode, bp): (Option<String>, Option<i64>) = store
+            .conn
+            .query_row("SELECT mode, bp FROM Match WHERE id = ?1", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(mode, None, "the mode written before the failure must roll back");
+        assert_eq!(bp, Some(3), "and the row must still hold what it held before the patch");
     }
 
     /// Migrations are idempotent: a second pass applies nothing.

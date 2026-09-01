@@ -45,6 +45,19 @@ export interface MatchRow {
   day: number | null
   note: string | null
   updatedAt: number | null
+  /**
+   * Provenance. See `resources/migrations/008_add_provenance.sql`.
+   *
+   * `source` / `mode_confidence` / `engine_version` / `recog_flags` are written
+   * by the engine; `observed` / `edited_fields` by this side. `source` is null
+   * on rows that predate the migration - unknown, not assumed.
+   */
+  source: string | null
+  observed: string | null
+  edited_fields: string | null
+  mode_confidence: string | null
+  engine_version: string | null
+  recog_flags: string | null
 }
 
 export interface DeckRow {
@@ -55,6 +68,48 @@ export interface DeckRow {
   updatedAt: number | null
   isDefault: number
   categoryId: string | null
+  /**
+   * Import provenance and contents. See `resources/migrations/009_add_deck_import.sql`.
+   *
+   * All nullable: a deck created by hand has none of them, and NULL means "not
+   * imported" the same way migration 008's NULL means "provenance unknown".
+   * `sourceRef` holds the long hash only - a 4-character deck code expires
+   * three minutes after issue and is then reused, so storing one as an
+   * identifier would be storing someone else's deck.
+   */
+  sourceKind: string | null
+  sourceRef: string | null
+  fingerprint: string | null
+  battleFormat: number | null
+  keyCardId: number | null
+  importedAt: number | null
+  rawJson: string | null
+}
+
+export interface DeckCardRow {
+  deckId: number
+  cardId: number
+  count: number
+}
+
+export interface CardRow {
+  cardId: number
+  name: string
+  cost: number | null
+  type: number | null
+  class: number | null
+  rarity: number | null
+  atk: number | null
+  life: number | null
+  skillText: string | null
+  /** JSON array as stored. */
+  tribes: string | null
+  deckEnabledNum: number | null
+  imageHash: string | null
+  bannerHash: string | null
+  isToken: number
+  lang: string
+  updatedAt: number
 }
 
 export interface DeckCategoryRow {
@@ -77,12 +132,43 @@ export interface MatchTagRow {
   tagId: number
 }
 
+/**
+ * Card pool membership. See `resources/migrations/010_add_card_pool.sql`.
+ *
+ * Keyed by format because legality belongs to the (card, format) pair - the
+ * same card is in Unlimited and out of Rotation.
+ */
+export interface CardPoolRow {
+  battleFormat: number
+  cardId: number
+  sortIndex: number
+}
+
+/**
+ * Which (class, format, language) slices of the pool have been fetched.
+ *
+ * Distinguishes "nothing to fetch" from "nothing fetched yet", which Card rows
+ * alone cannot: a user who imported one witch deck has witch cards on disk but
+ * not the witch pool.
+ */
+export interface CardPoolSyncRow {
+  classId: number
+  battleFormat: number
+  lang: string
+  cardCount: number
+  syncedAt: number
+}
+
 export interface Database {
   Match: MatchRow
   Deck: DeckRow
   DeckCategory: DeckCategoryRow
   Tag: TagRow
   MatchTag: MatchTagRow
+  DeckCard: DeckCardRow
+  Card: CardRow
+  CardPool: CardPoolRow
+  CardPoolSync: CardPoolSyncRow
 }
 
 // -------------------------------------------------------------------- the client
@@ -139,18 +225,32 @@ export function matchFromRow(row: Selectable<MatchRow>): Match {
     my_class: row.my_class as Match['my_class'],
     oppo_class: row.oppo_class as Match['oppo_class'],
     mode: row.mode as GameMode | null,
+    source: row.source as Match['source'],
+    mode_confidence: row.mode_confidence as Match['mode_confidence'],
     playedAt: toDate(row.playedAt),
     endedAt: toDateOrNull(row.endedAt),
     updatedAt: toDateOrNull(row.updatedAt)
   }
 }
 
+/**
+ * `rawJson` is dropped here rather than passed through.
+ *
+ * It is the whole portal response - tens of kilobytes per imported deck - kept
+ * so a later feature can read a field this schema did not model. Nothing above
+ * the data layer wants it, and `decks:all` sends its result to the renderer on
+ * every reference-data refresh, so letting it ride along would put megabytes
+ * through IPC to be thrown away.
+ */
 export function deckFromRow(row: Selectable<DeckRow>): Deck {
+  const { rawJson: _rawJson, ...rest } = row
   return {
-    ...row,
+    ...rest,
     isDefault: row.isDefault === 1,
+    sourceKind: row.sourceKind as Deck['sourceKind'],
     createdAt: toDate(row.createdAt),
-    updatedAt: toDateOrNull(row.updatedAt)
+    updatedAt: toDateOrNull(row.updatedAt),
+    importedAt: toDateOrNull(row.importedAt)
   }
 }
 

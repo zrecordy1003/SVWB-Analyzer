@@ -76,6 +76,9 @@ export async function insertMatch(values: {
   current_cr?: number | null
   playedAt: Date
   endedAt?: Date | null
+  /** Provenance, as the engine would have written it. See migration 008. */
+  source?: string | null
+  recog_flags?: string[] | null
 }): Promise<number> {
   const row = await getDb()
     .insertInto('Match')
@@ -92,7 +95,9 @@ export async function insertMatch(values: {
       day: values.playedAt.getUTCDate(),
       playedAt: values.playedAt.getTime(),
       endedAt: values.endedAt ? values.endedAt.getTime() : null,
-      updatedAt: Date.now()
+      updatedAt: Date.now(),
+      source: values.source === undefined ? 'engine' : values.source,
+      recog_flags: values.recog_flags ? JSON.stringify(values.recog_flags) : null
     })
     .returning('id')
     .executeTakeFirstOrThrow()

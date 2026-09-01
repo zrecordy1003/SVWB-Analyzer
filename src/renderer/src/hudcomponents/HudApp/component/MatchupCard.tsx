@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { Box, Skeleton, Typography } from '@mui/material'
 import type { ClassName, GameMode, PlayOrder } from '@shared/domain'
 import type { SideStats, Stat } from '@shared/types'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap } from '@renderer/map/classMap'
 import { playOrderOf } from '@renderer/map/playOrder'
 
@@ -155,12 +156,17 @@ const MatchupCard: React.FC<Props> = ({ myClass, enemyClass, playOrder, gameMode
         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
           對此職業
         </Typography>
-        <Typography
-          variant="caption"
-          sx={{ color: classesMap[enemyClass]?.color, fontWeight: 800, fontSize: 11 }}
-        >
-          {classesMap[enemyClass]?.label ?? enemyClass}
-        </Typography>
+        {/* 14px：HUD 的字級只有 11，徽章再大就會把這一行撐開，而這個疊加視窗
+            的高度是使用者自己拖出來的，不該由我們偷走幾個 px。 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+          <ClassIcon id={enemyClass} size={14} />
+          <Typography
+            variant="caption"
+            sx={{ color: classesMap[enemyClass]?.color, fontWeight: 800, fontSize: 11 }}
+          >
+            {classesMap[enemyClass]?.label ?? enemyClass}
+          </Typography>
+        </Box>
       </Box>
 
       {isLoading ? (

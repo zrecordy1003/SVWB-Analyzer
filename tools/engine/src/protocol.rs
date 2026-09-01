@@ -117,6 +117,23 @@ pub struct MatchPatch {
     /// 2Pick brings its own deck, so the pre-filled default deck must be cleared.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clear_my_deck: Option<bool>,
+    /// How much the `mode` in this patch can be trusted.
+    ///
+    /// Always carried WITH a mode, never on its own, so a correction replaces
+    /// the confidence along with the value it justified. Recorded for later
+    /// analysis, not used as a trust gate - see the note on [`Confidence`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode_confidence: Option<Confidence>,
+    /// Diagnostics this match raised about itself, by kind.
+    ///
+    /// The same facts already reach the host as [`Change::Noted`], but a note
+    /// carries no match reference - it says "the plaza probe fired", never "it
+    /// fired on this match". Riding along the patch is what ties the two
+    /// together, and it reuses a path that already ends in the row.
+    ///
+    /// [`Change::Noted`]: crate::machine::Change::Noted
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recog_flags: Option<Vec<String>>,
 }
 
 impl MatchPatch {

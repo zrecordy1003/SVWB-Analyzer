@@ -23,10 +23,11 @@ import { Box, Tooltip, Typography } from '@mui/material'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp'
 
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import EmptyState from '@renderer/components/Common/EmptyState'
 import { useFlipRows } from '@renderer/components/Common/useFlipRows'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
-import { classesMap } from '@renderer/map/classMap'
+import { classesMap, classTextSx } from '@renderer/map/classMap'
 import {
   LOSS_RGB,
   RATE_DEAD_BAND as DEAD_BAND,
@@ -57,11 +58,11 @@ const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
 /** grid template shared by the header and every row, so the columns cannot drift. */
 const COLUMNS = {
-  gridTemplateColumns: 'minmax(96px, 1.6fr) 76px 76px 68px 76px minmax(92px, 108px)'
+  gridTemplateColumns: 'minmax(108px, 1.6fr) 76px 76px 68px 76px minmax(92px, 108px)'
 }
 /** Mobile / narrow: games folds away, the three rates stay. */
 const COLUMNS_NARROW = {
-  gridTemplateColumns: 'minmax(84px, 1.4fr) 1fr 1fr 0 1fr 0'
+  gridTemplateColumns: 'minmax(96px, 1.4fr) 1fr 1fr 0 1fr 0'
 }
 
 const fmtRate = (value: number | null): string => (value === null ? '—' : `${value.toFixed(1)}%`)
@@ -305,9 +306,12 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
       {/* ---------- 標題與 compact summary ---------- */}
       <Box display="flex" justifyContent="space-between" alignItems="baseline" gap={2} mb={1.5}>
         <Box display="flex" alignItems="baseline" gap={1} flexWrap="wrap">
-          <Typography variant="h6" sx={{ color: classesMap[stats.myClass]?.color }}>
-            {classesMap[stats.myClass]?.label ?? stats.myClass}
-          </Typography>
+          <Box display="flex" alignItems="center" gap={0.75}>
+            <ClassIcon id={stats.myClass} size={26} />
+            <Typography variant="h6" sx={classTextSx(stats.myClass)}>
+              {classesMap[stats.myClass]?.label ?? stats.myClass}
+            </Typography>
+          </Box>
           <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.9)' }}>
             對各職業勝率
           </Typography>
@@ -417,16 +421,10 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
               }}
             >
               <Box display="flex" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '2px',
-                    bgcolor: row.color,
-                    opacity: row.games === 0 ? 0.3 : 1,
-                    flexShrink: 0
-                  }}
-                />
+                {/* 這一列就是一個職業，所以列首擺徽章而不是色塊 - 這張表是拿來
+                    往下掃的，圖形比一行字先被認出來。原本的 8px 色塊變成
+                    `ClassIcon` 的退路，取不到徽章時長相與從前相同。 */}
+                <ClassIcon id={row.key} tone={row.color} dim={row.games === 0} />
                 <Typography
                   variant="body2"
                   noWrap

@@ -33,13 +33,17 @@ function fail(message) {
 }
 
 if (!fs.existsSync(ENGINE)) {
-  fail(`${path.relative(ROOT, ENGINE)} not built - run:\n  cargo build --manifest-path tools/Cargo.toml -p svwb-engine --release`)
+  fail(
+    `${path.relative(ROOT, ENGINE)} not built - run:\n  cargo build --manifest-path tools/Cargo.toml -p svwb-engine --release`
+  )
 }
 
 /** Every fixture PNG, in a stable order so the two dumps line up. */
 function fixtureImages(dir) {
   const found = []
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+  for (const entry of fs
+    .readdirSync(dir, { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))) {
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) found.push(...fixtureImages(full))
     else if (entry.name.endsWith('.png')) found.push(full)
@@ -57,17 +61,18 @@ try {
   fs.writeFileSync(registry, execFileSync(ENGINE, ['probes'], { encoding: 'utf8' }))
   const probeCount = fs.readFileSync(registry, 'utf8').trim().split('\n').length
 
-  const fromEngine = execFileSync(
-    ENGINE,
-    ['probe-dump', '--templates', TEMPLATES, ...images],
-    { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
-  )
+  const fromEngine = execFileSync(ENGINE, ['probe-dump', '--templates', TEMPLATES, ...images], {
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024
+  })
   const fromAddon = execFileSync(
     process.execPath,
     [
       path.join(__dirname, 'dump-probes.cjs'),
-      '--probes', registry,
-      '--templates', TEMPLATES,
+      '--probes',
+      registry,
+      '--templates',
+      TEMPLATES,
       ...images
     ],
     { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
@@ -79,7 +84,9 @@ try {
 
   // Guard against a vacuous pass: two empty outputs also "agree".
   if (engineLines.length !== expected) {
-    fail(`engine emitted ${engineLines.length} rows, expected ${images.length} images x ${probeCount} probes = ${expected}`)
+    fail(
+      `engine emitted ${engineLines.length} rows, expected ${images.length} images x ${probeCount} probes = ${expected}`
+    )
   }
   if (addonLines.length !== expected) {
     fail(`addon emitted ${addonLines.length} rows, expected ${expected}`)
@@ -97,7 +104,9 @@ try {
     }
   }
 
-  console.log(`engine vs addon parity: ${images.length} fixtures x ${probeCount} probes = ${expected} comparisons`)
+  console.log(
+    `engine vs addon parity: ${images.length} fixtures x ${probeCount} probes = ${expected} comparisons`
+  )
   console.log(`  probes that found nothing: ${misses}`)
 
   if (differences.length > 0) {

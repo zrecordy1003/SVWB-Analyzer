@@ -286,8 +286,14 @@ export function createHudWindow(): BrowserWindow {
 
   // A transparent frameless window otherwise hides renderer failures completely.
   // Mirror its diagnostics to the dev terminal so a blank HUD is actionable.
-  hudWin.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    console.log(`[HUD console:${level}] ${sourceId}:${line} ${message}`)
+  // The positional-argument form of this listener is deprecated in Electron 35
+  // and warns on every run; the details object replaces it. Its `level` is a
+  // name rather than the old 0-3 number, so these lines now read
+  // `[HUD console:warning]` instead of `[HUD console:2]`.
+  hudWin.webContents.on('console-message', (details) => {
+    console.log(
+      `[HUD console:${details.level}] ${details.sourceId}:${details.lineNumber} ${details.message}`
+    )
   })
   hudWin.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`[HUD load failed] ${errorCode} ${errorDescription} (${validatedURL})`)
@@ -296,12 +302,25 @@ export function createHudWindow(): BrowserWindow {
     console.error(`[HUD renderer gone] ${details.reason}`)
   })
 
-  const url = app.isPackaged
-    ? `file://${path.join(__dirname, '../renderer/hud.html')}`
-    : process.env.ELECTRON_RENDERER_URL! + '/hud.html'
-
   hudWin.hide()
-  hudWin.loadURL(url)
+
+  // Branch on "is there a dev server", not on "are we packaged" - those are not
+  // the same question, and the gap between them is a third mode that does
+  // exist: an unpackaged build with no dev server, which is what `pnpm start`
+  // and the e2e harness both run. The old `app.isPackaged` form sent that mode
+  // down the dev branch and loaded `"undefined/hud.html"`, so the HUD never
+  // came up and said so only as `[HUD load failed] -300 ERR_INVALID_URL`. The
+  // `!` on the env var is what kept the typechecker quiet about it.
+  //
+  // This mirrors how the main window picks its URL in `main/index.ts`.
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    hudWin.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/hud.html`)
+  } else {
+    // `loadFile` over a hand-built `file://` string: it resolves the path
+    // itself, so a Windows drive letter or a space in the install directory
+    // cannot turn into a malformed URL.
+    hudWin.loadFile(path.join(__dirname, '../renderer/hud.html'))
+  }
 
   hudWin.setVisibleOnAllWorkspaces(true)
   hudWin.setOpacity(store.get('hudOpacity') ?? 0.85)

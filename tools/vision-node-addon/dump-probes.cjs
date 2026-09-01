@@ -34,9 +34,7 @@ function parseArgs(argv) {
 
 const args = parseArgs(process.argv.slice(2))
 if (!args.probes || !args.templates || args.images.length === 0) {
-  console.error(
-    'usage: dump-probes.cjs --probes <registry.jsonl> --templates <dir> <png>...'
-  )
+  console.error('usage: dump-probes.cjs --probes <registry.jsonl> --templates <dir> <png>...')
   process.exit(1)
 }
 

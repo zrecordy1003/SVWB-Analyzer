@@ -6,11 +6,13 @@
  * 項講同一件事（挑一個）卻長得完全不同，讀起來像兩個不同的功能。
  */
 import React from 'react'
-import { Box, MenuItem, Select, Typography } from '@mui/material'
+import { Box, MenuItem, Select } from '@mui/material'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded'
 
-import { classes, classesMap } from '@renderer/map/classMap'
+import { classes } from '@renderer/map/classMap'
+import ClassTag from '@renderer/components/Common/ClassTag'
+import { NEUTRAL_TONE } from '@renderer/components/Common/classTone'
 import { DROPDOWN_ITEM_SX, DROPDOWN_PAPER_SX } from './dropdownSurface'
 
 import type { ClassName } from '@shared/domain'
@@ -20,34 +22,14 @@ export type ClassChoiceId = ClassName | 'all'
 
 const ALL_CLASSES_ID = 'all'
 const ALL_CLASSES_LABEL = '全部職業'
-/** 和模式那顆的「全部模式」同一個灰，兩個下拉的 all 才讀成同一件事。 */
-const NEUTRAL_TONE = '#9AA0A6'
 
-function toneOf(id: string): string {
-  return id === ALL_CLASSES_ID ? NEUTRAL_TONE : (classesMap[id]?.color ?? NEUTRAL_TONE)
-}
-
+// 色塊＋名字這個組合抽到 Common/ClassTag，牌組清單也用同一個 - 同一件事在兩個
+// 地方要長一樣，這正是它當初從這裡長出來的理由。
 function ClassRow({ id }: { id: string }): React.JSX.Element {
-  const tone = toneOf(id)
-  return (
-    <Box display="flex" alignItems="center" gap={1.25} minWidth={0}>
-      {/* 方形色塊，和下面圖表的職業標記同一顆 - 同一個東西在兩個地方要長一樣。
-          模式那顆是圓的圓點，因為模式在圖表裡沒有對應的標記。 */}
-      <Box
-        sx={{
-          width: 8,
-          height: 8,
-          borderRadius: '2px',
-          flexShrink: 0,
-          bgcolor: tone
-        }}
-      />
-      {/* 名字用一般文字色：顏色的意思由左邊那塊色標負責，字再上一次色只是把
-          可讀性換掉。 */}
-      <Typography variant="body2" noWrap>
-        {id === ALL_CLASSES_ID ? ALL_CLASSES_LABEL : (classesMap[id]?.label ?? id)}
-      </Typography>
-    </Box>
+  return id === ALL_CLASSES_ID ? (
+    <ClassTag id={null} label={ALL_CLASSES_LABEL} tone={NEUTRAL_TONE} />
+  ) : (
+    <ClassTag id={id} />
   )
 }
 

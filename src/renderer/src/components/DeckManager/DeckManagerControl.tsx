@@ -8,10 +8,6 @@ import {
   CardContent,
   CardActionArea,
   Chip,
-  Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
   Drawer,
   IconButton,
   InputAdornment,
@@ -29,6 +25,7 @@ import {
   Paper
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import AppDialog, { DANGER_ACCENT } from '@renderer/components/Common/AppDialog'
 import CloseIcon from '@mui/icons-material/Close'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
@@ -36,6 +33,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classes, classesMap } from '@renderer/map/classMap'
 import type { ClassName } from '@shared/domain'
 
@@ -432,7 +430,9 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
               overflow: 'hidden'
             }}
           >
-            <Stack direction="row" alignItems="center" sx={{ flex: 1, minWidth: 0 }}>
+            <Stack direction="row" alignItems="center" spacing={1.25} sx={{ flex: 1, minWidth: 0 }}>
+              {/* 這一塊講的是「目前是哪個職業」，徽章擺在最前面正是它要回答的問題。 */}
+              <ClassIcon id={activeClass} size={30} />
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="overline" sx={{ opacity: 0.8 }} noWrap>
                   {label}
@@ -826,14 +826,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                   {editing ? '編輯牌組' : '新增牌組'}
                 </Typography>
                 <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.75 }}>
-                  <Box
-                    sx={{
-                      width: 8,
-                      height: 8,
-                      borderRadius: '50%',
-                      bgcolor: classesMap[panelClass].color
-                    }}
-                  />
+                  <ClassIcon id={panelClass} size={18} />
                   <Typography variant="body2" color="text.secondary">
                     {classesMap[panelClass].label}牌組
                   </Typography>
@@ -1007,47 +1000,48 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
       </Drawer>
 
       {/* 刪除對話框 */}
-      <Dialog
+      <AppDialog
         open={!!deleting}
-        onClose={() => !deletingBusy && setDeleting(null)}
+        onClose={() => setDeleting(null)}
+        busy={deletingBusy}
         maxWidth="xs"
-        fullWidth
-        style={{ zIndex: 1520 }}
-        PaperProps={{ sx: { borderRadius: 3 } }}
+        title="刪除牌組？"
+        icon={<DeleteIcon fontSize="small" />}
+        accent={DANGER_ACCENT}
+        // Opened from the manager drawer, which would otherwise paint over it.
+        zIndex={1520}
+        actions={
+          <>
+            <Button
+              onClick={() => setDeleting(null)}
+              disabled={deletingBusy}
+              sx={{ textTransform: 'none' }}
+            >
+              取消
+            </Button>
+            <Button
+              color="error"
+              variant="contained"
+              disableElevation
+              onClick={() => void handleDelete()}
+              disabled={deletingBusy}
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
+            >
+              {deletingBusy ? '刪除中…' : '刪除牌組'}
+            </Button>
+          </>
+        }
       >
-        <DialogTitle sx={{ px: 3, pt: 2.5, pb: 1 }}>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <DeleteIcon color="error" />
-            <Typography variant="h6" component="div" fontWeight={700}>
-              刪除牌組？
-            </Typography>
-          </Stack>
-        </DialogTitle>
-        <DialogContent sx={{ px: 3, py: 1 }}>
-          <Typography variant="body2" color="text.secondary">
-            即將刪除「{deleting?.name}」。這不會移除既有對局紀錄，但此操作無法復原。
+        <Typography variant="body2" color="text.secondary">
+          即將刪除「{deleting?.name}」。這不會移除既有對局紀錄，但此操作無法復原。
+        </Typography>
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 2 }}>
+          <InfoOutlinedIcon fontSize="small" color="action" />
+          <Typography variant="caption" color="text.secondary">
+            若它是預設牌組，刪除後請為該職業重新指定一副牌組。
           </Typography>
-          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 2 }}>
-            <InfoOutlinedIcon fontSize="small" color="action" />
-            <Typography variant="caption" color="text.secondary">
-              若它是預設牌組，刪除後請為該職業重新指定一副牌組。
-            </Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2.5 }}>
-          <Button onClick={() => setDeleting(null)} disabled={deletingBusy}>
-            取消
-          </Button>
-          <Button
-            color="error"
-            variant="contained"
-            onClick={() => void handleDelete()}
-            disabled={deletingBusy}
-          >
-            {deletingBusy ? '刪除中…' : '刪除牌組'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+        </Stack>
+      </AppDialog>
     </>
   )
 }

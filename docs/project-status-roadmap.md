@@ -10,6 +10,7 @@ future changes that should still be considered. More focused notes live in:
 - `docs/performance-improvement-notes.md`
 - `docs/recognition-optimization-status.md`
 - `docs/telemetry-dau-plan.md`
+- `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Undecided; 8 open questions.
 
 > Rewritten 2026-08-29. The previous revision described the pre-engine architecture (a forked JS
 > analyzer, Prisma, `src/main/forkedImageAnalyzer.ts`). None of those exist any more; the sections
@@ -381,6 +382,7 @@ Keep these synchronized:
 - `docs/recognition-optimization-plan.md`
 - `docs/recognition-optimization-status.md`
 - `docs/telemetry-dau-plan.md`
+- `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Undecided; 8 open questions.
 
 ### Code quality gates
 

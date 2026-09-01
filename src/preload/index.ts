@@ -57,22 +57,26 @@ contextBridge.exposeInMainWorld('diagnostics', {
   onRecorded: wrapOn('diagnostics:new')
 })
 
+// A check or download is started by naming the surface it belongs to, and every
+// event it produces comes back carrying that name. Both update surfaces are
+// mounted at once on the same broadcast, so this is what stops each one from
+// reacting to the other's traffic.
 contextBridge.exposeInMainWorld('updates', {
-  setAutoDownload: (v: boolean) => ipcRenderer.invoke('update:setAutoDownload', v),
-  check: () => ipcRenderer.invoke('update:check'),
-  download: () => ipcRenderer.invoke('update:download'),
+  check: (from: string) => ipcRenderer.invoke('update:check', from),
+  download: (from: string) => ipcRenderer.invoke('update:download', from),
   install: () => ipcRenderer.invoke('update:install'),
-  onChecking: wrapOn('update:checking'),
-  onAvailable: wrapOn('update:available'),
-  onNone: wrapOn('update:none'),
-  onError: wrapOn<string>('update:error'),
+  onChecking: wrapOn<{ source: string }>('update:checking'),
+  onAvailable: wrapOn<{ source: string; info: any; autoDownload: boolean }>('update:available'),
+  onNone: wrapOn<{ source: string; version: string }>('update:none'),
+  onError: wrapOn<{ source: string; error: string }>('update:error'),
   onProgress: wrapOn<{
+    source: string
     percent: number
     transferred: number
     total: number
     bytesPerSecond: number
   }>('update:progress'),
-  onDownloaded: wrapOn('update:downloaded')
+  onDownloaded: wrapOn<{ source: string; info: any }>('update:downloaded')
 })
 
 contextBridge.exposeInMainWorld('support', {
@@ -112,5 +116,6 @@ contextBridge.exposeInMainWorld('matches', {
     start?: Date | number | string
     end?: Date | number | string
   }): Promise<RankedWinrateByOpponent> =>
-    ipcRenderer.invoke('stats:getRankedWinrateByOpponent', params)
+    ipcRenderer.invoke('stats:getRankedWinrateByOpponent', params),
+  provenanceStats: () => ipcRenderer.invoke('matches:provenanceStats')
 })

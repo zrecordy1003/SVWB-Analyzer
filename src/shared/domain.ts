@@ -74,7 +74,30 @@ export interface Match {
   day: number | null
   note: string | null
   updatedAt: Date | null
+  /**
+   * Where this row's values came from.
+   *
+   * `null` source means the row predates the provenance migration, so nothing
+   * is known about it - deliberately distinct from `'engine'`, in the same way
+   * `GameMode.unknown` is distinct from `unranked`. `recog_flags` and
+   * `edited_fields` are JSON arrays as stored; `observed` is a JSON snapshot of
+   * the engine's values from before the first user edit.
+   */
+  source: 'engine' | 'manual' | null
+  observed: string | null
+  edited_fields: string | null
+  mode_confidence: 'weak' | 'strong' | 'authoritative' | null
+  engine_version: string | null
+  recog_flags: string | null
 }
+
+/**
+ * `'local'` is reserved for decks built or edited inside this app; nothing
+ * writes it yet. `null` means the deck was created by hand, the only way that
+ * existed before imports - deliberately distinct from an import whose source we
+ * do know, in the same way `Match.source` uses null for "unknown".
+ */
+export type DeckSourceKind = 'code' | 'hash' | 'local'
 
 export interface Deck {
   id: number
@@ -84,6 +107,23 @@ export interface Deck {
   updatedAt: Date | null
   isDefault: boolean
   categoryId: string | null
+  /**
+   * Import provenance and contents. See `resources/migrations/009_add_deck_import.sql`.
+   *
+   * `sourceRef` is the long deck hash and never a 4-character code: codes
+   * expire three minutes after they are issued and are then handed to somebody
+   * else's deck, so one is not an identifier. Duplicate detection compares
+   * `fingerprint`, which is derived from the card list itself.
+   *
+   * The raw portal response is stored too, but stays in the data layer - see
+   * `deckFromRow`.
+   */
+  sourceKind: DeckSourceKind | null
+  sourceRef: string | null
+  fingerprint: string | null
+  battleFormat: number | null
+  keyCardId: number | null
+  importedAt: Date | null
 }
 
 export interface DeckCategory {

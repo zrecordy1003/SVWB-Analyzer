@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { classesMap } from '@renderer/map/classMap'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
+import { classesMap, classTextSx } from '@renderer/map/classMap'
 import { Box, Typography, Stack, Chip } from '@mui/material'
 
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
@@ -197,13 +198,15 @@ const BattleStatus = (): React.JSX.Element => {
                   borderRadius: '5px'
                 }}
               >
-                <Typography
-                  marginRight={'20px'}
-                  variant="h6"
-                  color={battleState.ownClass ? classesMap[battleState.ownClass]?.color : 'null'}
-                >
-                  {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
-                </Typography>
+                {/* 這兩塊是整個畫面上職業最該被一眼認出來的地方，也是唯一一次
+                    只會出現一兩個徽章的地方，所以尺寸放到 34 - 深色底上不靠底板
+                    就夠亮。斜切的 clipPath 會吃掉右緣，所以徽章和字一起靠左推。 */}
+                <Box display="flex" alignItems="center" gap={1} marginRight={'20px'}>
+                  <ClassIcon id={battleState.ownClass} size={34} />
+                  <Typography variant="h6" sx={classTextSx(battleState.ownClass)}>
+                    {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
+                  </Typography>
+                </Box>
               </Box>
 
               <TurnOrder order={battleState.playOrder === 'first' ? 'first' : 'second'} />
@@ -223,17 +226,14 @@ const BattleStatus = (): React.JSX.Element => {
                   borderRadius: '5px'
                 }}
               >
-                <Typography
-                  marginLeft={'20px'}
-                  variant="h6"
-                  color={
-                    battleState.enemyClass ? classesMap[battleState.enemyClass]?.color : 'null'
-                  }
-                >
-                  {battleState.enemyClass
-                    ? (classesMap[battleState.enemyClass]?.label ?? '')
-                    : null}
-                </Typography>
+                <Box display="flex" alignItems="center" gap={1} marginLeft={'20px'}>
+                  <ClassIcon id={battleState.enemyClass} size={34} />
+                  <Typography variant="h6" sx={classTextSx(battleState.enemyClass)}>
+                    {battleState.enemyClass
+                      ? (classesMap[battleState.enemyClass]?.label ?? '')
+                      : null}
+                  </Typography>
+                </Box>
               </Box>
             </Box>
           </Box>

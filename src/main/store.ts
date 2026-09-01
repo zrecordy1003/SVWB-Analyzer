@@ -27,8 +27,38 @@ export type AppSettings = {
   onCloseBehavior: ClosePref
   enableNotifications: boolean
   autoCheckUpdates: boolean
+  /**
+   * Download a found update without asking. Opt-in, because it spends the
+   * user's bandwidth on their behalf - differential download keeps that to the
+   * changed blocks, but it is still their connection.
+   */
+  autoDownloadUpdates: boolean
   /** Opt-out: local-only recording of recognition anomalies. Never uploaded. */
   diagnostics: boolean
+  /**
+   * Show card art in deck views. **Default ON.**
+   *
+   * This was opt-in at first, on the reasoning that art is not needed for
+   * win-rate analysis. A deck you cannot recognise at a glance turned out to be
+   * the wrong trade, so the default flipped.
+   *
+   * What has NOT changed is why the switch exists at all. Card art is the one
+   * thing this app displays that Cygames has granted no licence for - it is
+   * fetched by the user's own machine and cached there, never bundled - and
+   * their guidelines let them withdraw permission at any time. Turning this off
+   * still makes the whole feature a no-op without touching a component, because
+   * the `svwb-card://` handler answers with a transparent pixel. Keep it that
+   * way. See docs/deck-import-plan.md, decision D-6.
+   */
+  cardImages: boolean
+  /**
+   * Language for card names, skill text and card art.
+   *
+   * The portal takes this as a custom `Lang` request header - not a query
+   * parameter, not `Accept-Language` - and serves a different image file per
+   * language, so it is part of the image cache path too.
+   */
+  cardLang: 'ja' | 'en' | 'cht' | 'chs' | 'ko'
 }
 
 /**
@@ -70,7 +100,10 @@ export const store = new Store<AppStoreSchema>({
       onCloseBehavior: 'minimize',
       enableNotifications: true,
       autoCheckUpdates: true,
-      diagnostics: true
+      autoDownloadUpdates: false,
+      diagnostics: true,
+      cardImages: true,
+      cardLang: 'cht'
     },
     hudOpacity: 0.85,
     hudCompact: true,

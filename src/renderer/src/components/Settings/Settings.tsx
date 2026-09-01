@@ -1,19 +1,14 @@
-import {
-  Box,
-  Switch,
-  FormControlLabel,
-  Divider,
-  Typography,
-  RadioGroup,
-  Radio
-} from '@mui/material'
+import { Box, FormControlLabel, Divider, Typography, RadioGroup, Radio } from '@mui/material'
 import React, { useEffect, useState } from 'react'
 import Disclaimer from '../Disclaimer'
 import UpdateSettings from '../Update/UpdateSettings'
 import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
+import IOSSwitch from '../Common/IOSSwitch'
+import CardImageSettings from './CardImageSettings'
 
 type OnCloseBehavior = 'minimize' | 'exit'
 type ThemeType = 'system' | 'light' | 'dark'
+type PortalLang = 'ja' | 'en' | 'cht' | 'chs' | 'ko'
 
 interface AppSettingsInner {
   hudShow: boolean
@@ -24,10 +19,14 @@ interface AppSettingsInner {
   startOnBoot: boolean
   reduceAnimations: boolean
   autoCheckUpdates: boolean
+  autoDownloadUpdates: boolean
   autoInstallUpdates: boolean
   theme: ThemeType
   /** Opt-out: local-only recording of recognition anomalies. */
   diagnostics: boolean
+  /** Default on; turning it off makes the whole card-art path a no-op. */
+  cardImages: boolean
+  cardLang: PortalLang
 }
 
 interface AppSettings {
@@ -45,9 +44,12 @@ const DEFAULT_SETTINGS: AppSettings = {
     startOnBoot: false,
     reduceAnimations: false,
     autoCheckUpdates: false,
+    autoDownloadUpdates: false,
     autoInstallUpdates: false,
     theme: 'system',
-    diagnostics: true
+    diagnostics: true,
+    cardImages: true,
+    cardLang: 'cht'
   }
 }
 
@@ -88,7 +90,7 @@ const Settings: React.FC = () => {
 
       {/* <FormControlLabel
         control={
-          <Switch
+          <IOSSwitch
             checked={s.reduceAnimations}
             onChange={(_, checked) => handleChange('reduceAnimations', checked)}
           />
@@ -113,7 +115,7 @@ const Settings: React.FC = () => {
         <Typography variant="h5">一般</Typography>
         <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.hudFollowGame}
               onChange={(_, checked) => handleChange('hudFollowGame', checked)}
             />
@@ -122,7 +124,7 @@ const Settings: React.FC = () => {
         />
         <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.hudShow}
               disabled={s.hudFollowGame}
               onChange={(_, checked) => handleChange('hudShow', checked)}
@@ -138,7 +140,7 @@ const Settings: React.FC = () => {
         <Typography variant="h5">辨識診斷</Typography>
         <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.diagnostics}
               onChange={(_, checked) => handleChange('diagnostics', checked)}
             />
@@ -150,11 +152,25 @@ const Settings: React.FC = () => {
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />
 
+      {/* There used to be a 「資料來源」 section here, reporting how many matches
+          carried provenance and how many the user had edited. It was accurate
+          and nobody wanted it: it explained an internal measurement rather than
+          answering a question a player has. Recording still happens - see
+          `main/data/provenance.ts` - it just has no settings surface. */}
+
+      <CardImageSettings
+        cardImages={s.cardImages}
+        cardLang={s.cardLang}
+        onChange={(key, value) => handleChange(key, value as never)}
+      />
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
       <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
         <Typography variant="h5">通知</Typography>
         <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.enableNotifications}
               onChange={(_, checked) => handleChange('enableNotifications', checked)}
             />
@@ -168,7 +184,7 @@ const Settings: React.FC = () => {
         <Typography variant="h5">啟動與關閉</Typography>
         {/* <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.startOnBoot}
               onChange={(_, checked) => {
                 handleChange('startOnBoot', checked)
@@ -182,7 +198,7 @@ const Settings: React.FC = () => {
         <Box display="flex" alignItems="center" gap={2} sx={{ minHeight: 40 }}>
           <FormControlLabel
             control={
-              <Switch
+              <IOSSwitch
                 checked={s.askBeforeExit}
                 onChange={(_, checked) => handleChange('askBeforeExit', checked)}
               />
@@ -231,16 +247,26 @@ const Settings: React.FC = () => {
         <UpdateSettings />
         <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.autoCheckUpdates}
               onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
             />
           }
           label="自動檢查更新"
         />
+        <FormControlLabel
+          disabled={!s.autoCheckUpdates}
+          control={
+            <IOSSwitch
+              checked={s.autoDownloadUpdates}
+              onChange={(_, checked) => handleChange('autoDownloadUpdates', checked)}
+            />
+          }
+          label="自動下載更新"
+        />
         {/* <FormControlLabel
           control={
-            <Switch
+            <IOSSwitch
               checked={s.autoInstallUpdates}
               onChange={(_, checked) => handleChange('autoInstallUpdates', checked)}
             />

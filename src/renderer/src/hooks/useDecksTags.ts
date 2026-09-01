@@ -7,6 +7,12 @@ type DeckLite = {
   deckCategoryId: string | null
   categoryName: string | null
   categorySort: number | null
+  /** Banner of the card that represents the deck - see `pickHeroCard` in main. */
+  heroBannerHash: string | null
+  /** Null when the deck has no card list, which is not the same as three zeroes. */
+  composition: { follower: number; spell: number; amulet: number } | null
+  /** Epoch ms, so consumers can order by "newest" without re-parsing a Date. */
+  createdAt: number
 }
 
 type TagLite = { id: number; name: string }
@@ -40,7 +46,10 @@ function enrichDecks(deckRows: any[], categories: CategoryLite[]): DeckLite[] {
       classId: d.class ?? null,
       deckCategoryId: d.categoryId ?? null,
       categoryName: cat?.name ?? null,
-      categorySort: cat?.sort ?? null
+      categorySort: cat?.sort ?? null,
+      heroBannerHash: d.heroBannerHash ?? null,
+      composition: d.composition ?? null,
+      createdAt: d.createdAt ? new Date(d.createdAt).getTime() : 0
     }
   })
 

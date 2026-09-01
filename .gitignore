@@ -27,3 +27,7 @@ AGENTS.MD
 # each and stay local. `pnpm vision:replay-*` needs one, so keep yours in place
 # - it just is not shared through git.
 tests/fixtures/captures/**/*.mp4
+
+# Playwright（e2e）產出
+test-results
+playwright-report

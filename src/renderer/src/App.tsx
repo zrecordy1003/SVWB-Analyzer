@@ -26,7 +26,8 @@ import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import GameStatus from './components/GameStatus'
 import Settings from './components/Settings/Settings'
 import BattleStatus from './components/BattleStatus/BattleStatus'
-import UpdateBackground from './components/Update/UpdateBackground'
+import UpdateProvider from './components/Update/UpdateProvider'
+import SidebarVersion from './components/Update/SidebarVersion'
 import DeckManagerControl from './components/DeckManager/DeckManagerControl'
 import About from './components/About/About'
 import SupportPrompt from './components/Common/SupportPrompt'
@@ -73,11 +74,20 @@ function App(): React.JSX.Element {
 
   // 2. memoize theme so it only rebuilds when mode changes
   const theme = useMemo(() => {
-    // determine scrollbar colors based on mode
-    // const trackColor = mode === 'light' ? '#f0f0f0' : '#303030'
-    // const thumbColor = mode === 'light' ? '#c1c1c1' : '#555'
-    const trackColor = '#303030'
-    const thumbColor = '#555'
+    /**
+     * Scrollbars.
+     *
+     * The track used to be an opaque `#303030`. On a near-black page that is not
+     * a scrollbar, it is a light grey stripe down the side of every scrollable
+     * panel - the "white lines" in the deck builder were this, not a border.
+     *
+     * Transparent track, translucent thumb: the bar is now only visible where
+     * there is actually something to drag, and it tints whatever is behind it
+     * instead of covering it with a colour of its own.
+     */
+    const trackColor = 'transparent'
+    const thumbColor = 'rgba(255,255,255,0.16)'
+    const thumbHoverColor = 'rgba(255,255,255,0.28)'
 
     return createTheme({
       palette: {
@@ -95,17 +105,28 @@ function App(): React.JSX.Element {
             },
             // Custom scrollbar styling with transition
             '*::-webkit-scrollbar': {
-              width: '8px',
-              height: '8px'
+              width: '10px',
+              height: '10px'
             },
             '*::-webkit-scrollbar-track': {
-              backgroundColor: trackColor,
-              transition: 'background-color 0.3s'
+              backgroundColor: trackColor
             },
             '*::-webkit-scrollbar-thumb': {
               backgroundColor: thumbColor,
-              borderRadius: '4px',
-              transition: 'background-color 0.3s'
+              borderRadius: '999px',
+              // Inset by a transparent border rather than by width, so the
+              // groove keeps its hit area while the visible thumb stays slim.
+              border: '3px solid transparent',
+              backgroundClip: 'content-box',
+              transition: 'background-color 0.2s'
+            },
+            '*::-webkit-scrollbar-thumb:hover': {
+              backgroundColor: thumbHoverColor
+            },
+            // Nothing to draw where the two bars meet; the default is a small
+            // opaque square that reads as a speck of dirt in the corner.
+            '*::-webkit-scrollbar-corner': {
+              backgroundColor: 'transparent'
             }
           }
         }
@@ -164,117 +185,125 @@ function App(): React.JSX.Element {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <UpdateBackground />
-      <SupportPrompt />
-      <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
-        <Toolbar sx={{ position: 'relative' }}>
-          <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
-            {titles[currentPage]}
-          </Typography>
-          <Box
-            sx={{
-              position: 'absolute',
-              left: '35%',
-              height: '100%',
-              transform: 'translateY(3px)'
-            }}
-          >
-            <DeckManagerControl />
-          </Box>
-          <Box
-            sx={{
-              position: 'absolute',
-              right: '25px',
-              transform: 'translateY(7px)'
-            }}
-          >
-            {battleStatusEl}
-          </Box>
-        </Toolbar>
-      </AppBar>
+      <UpdateProvider>
+        <SupportPrompt />
+        <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
+          <Toolbar sx={{ position: 'relative' }}>
+            <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
+              {titles[currentPage]}
+            </Typography>
+            <Box
+              sx={{
+                position: 'absolute',
+                left: '35%',
+                height: '100%',
+                transform: 'translateY(3px)'
+              }}
+            >
+              <DeckManagerControl />
+            </Box>
+            <Box
+              sx={{
+                position: 'absolute',
+                right: '25px',
+                transform: 'translateY(7px)'
+              }}
+            >
+              {battleStatusEl}
+            </Box>
+          </Toolbar>
+        </AppBar>
 
-      {/* Drawer */}
-      <Drawer
-        variant="permanent"
-        sx={{
-          width: DRAWER_COLLAPSED_WIDTH,
-          flexShrink: 0,
-          whiteSpace: 'nowrap',
-          '& .MuiDrawer-paper': {
+        {/* Drawer */}
+        <Drawer
+          variant="permanent"
+          sx={{
             width: DRAWER_COLLAPSED_WIDTH,
-            overflowX: 'hidden',
-            boxSizing: 'border-box'
-          }
-        }}
-      >
-        <Toolbar />
+            flexShrink: 0,
+            whiteSpace: 'nowrap',
+            '& .MuiDrawer-paper': {
+              width: DRAWER_COLLAPSED_WIDTH,
+              overflowX: 'hidden',
+              boxSizing: 'border-box'
+            }
+          }}
+        >
+          <Toolbar />
 
-        <Box display={'flex'} flexDirection={'column'} height={'100%'}>
-          <List sx={{ px: 0.75, pt: 1 }}>
-            {menuItems.map(({ key, text, icon }) => (
-              <ListItemButton
-                key={key}
-                selected={currentPage === key}
-                onClick={() => setCurrentPage(key)}
-                sx={{
-                  minHeight: 64,
-                  mb: 0.5,
-                  px: 0.5,
-                  borderRadius: 1.5,
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  gap: 0.25,
-                  '&.Mui-selected': { bgcolor: 'action.selected' },
-                  '&.Mui-selected:hover': { bgcolor: 'action.selected' }
-                }}
-              >
-                <ListItemIcon
+          <Box display={'flex'} flexDirection={'column'} height={'100%'}>
+            <List sx={{ px: 0.75, pt: 1 }}>
+              {menuItems.map(({ key, text, icon }) => (
+                <ListItemButton
+                  key={key}
+                  selected={currentPage === key}
+                  onClick={() => setCurrentPage(key)}
                   sx={{
-                    minWidth: 0,
-                    color: currentPage === key ? 'primary.main' : 'text.secondary'
+                    minHeight: 64,
+                    mb: 0.5,
+                    px: 0.5,
+                    borderRadius: 1.5,
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    gap: 0.25,
+                    '&.Mui-selected': { bgcolor: 'action.selected' },
+                    '&.Mui-selected:hover': { bgcolor: 'action.selected' }
                   }}
                 >
-                  {icon}
-                </ListItemIcon>
-                <ListItemText
-                  primary={text}
-                  slotProps={{
-                    primary: { fontSize: 11, textAlign: 'center' }
-                  }}
-                  sx={{ m: 0, whiteSpace: 'normal', lineHeight: 1.15 }}
-                />
-              </ListItemButton>
-            ))}
-          </List>
-          <Box
-            sx={{
-              mt: 'auto',
-              pb: 3
-            }}
-          >
-            <Box display={'flex'} justifyContent={'center'}>
-              <GameStatus open={false} />
+                  <ListItemIcon
+                    sx={{
+                      minWidth: 0,
+                      color: currentPage === key ? 'primary.main' : 'text.secondary'
+                    }}
+                  >
+                    {icon}
+                  </ListItemIcon>
+                  <ListItemText
+                    primary={text}
+                    slotProps={{
+                      primary: { fontSize: 11, textAlign: 'center' }
+                    }}
+                    sx={{ m: 0, whiteSpace: 'normal', lineHeight: 1.15 }}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+            <Box
+              sx={{
+                mt: 'auto',
+                // Small, because `SidebarVersion` already reserves a line below
+                // the version for its status. That reserved slot reads as bottom
+                // padding whenever it is empty, so anything generous here leaves
+                // the version stranded well above the edge.
+                pb: 1
+              }}
+            >
+              <Box display={'flex'} justifyContent={'center'}>
+                <GameStatus open={false} />
+              </Box>
+              <Box sx={{ px: 1, mt: 1.5 }}>
+                <SidebarVersion />
+              </Box>
             </Box>
           </Box>
-        </Box>
-      </Drawer>
+        </Drawer>
 
-      {/* 主內容 */}
-      <Main>
-        <Toolbar />
-        <Suspense fallback={<div>載入中...</div>}>
-          {currentPage === 'MatchList' && <MatchList />}
-          {currentPage === 'DeckPerformance' && <DeckPerformance />}
-          {currentPage === 'Analyzer' && <Analyzer />}
-          {currentPage === 'Settings' && <Settings />}
-          {currentPage === 'About' && <About />}
-        </Suspense>
+        {/* 主內容 */}
+        <Main>
+          <Toolbar />
+          <Suspense fallback={<div>載入中...</div>}>
+            {currentPage === 'MatchList' && <MatchList />}
+            {currentPage === 'DeckPerformance' && <DeckPerformance />}
+            {currentPage === 'Analyzer' && <Analyzer />}
+            {currentPage === 'Settings' && <Settings />}
+            {currentPage === 'About' && <About />}
+          </Suspense>
 
-        {/* Footer */}
-        {/* <Box component="footer" sx={{ textAlign: 'center', mt: 2 }}> */}
-        {/* <Disclaimer /> */}
-        {/* </Box> */}
-      </Main>
+          {/* Footer */}
+          {/* <Box component="footer" sx={{ textAlign: 'center', mt: 2 }}> */}
+          {/* <Disclaimer /> */}
+          {/* </Box> */}
+        </Main>
+      </UpdateProvider>
     </ThemeProvider>
   )
 }

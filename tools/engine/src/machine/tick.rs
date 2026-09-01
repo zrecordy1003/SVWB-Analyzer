@@ -154,6 +154,12 @@ impl Machine {
         };
         let on_result_screen = matches!(self.phase, Phase::Resolving { .. });
 
+        // Set by the plaza branch below. Kept separate from the `Noted` it
+        // pushes because the note reports that the probe fired, while the flag
+        // has to record that its answer was KEPT - `offer_mode` may still
+        // reject it.
+        let mut accepted_a_weak_probe = false;
+
         // Fed every tick rather than inside the chain below, so a run of frames
         // is not broken by whichever branch happened to short-circuit first.
         let versus_says_2pick =
@@ -192,6 +198,7 @@ impl Machine {
                     label: "weekendPlaza".into(),
                     detail: Some(serde_json::json!({ "score": score, "at": [at.x, at.y] })),
                 });
+                accepted_a_weak_probe = true;
             }
             Some(ModeSignal { mode: GameMode::WeekendPlaza, confidence: Confidence::Authoritative })
         } else if on_result_screen && reading.cpu_anywhere && self.mode.is_none() {
@@ -211,14 +218,27 @@ impl Machine {
         if !self.offer_mode(signal) {
             return;
         }
+        let mut flags = Vec::new();
+        if accepted_a_weak_probe {
+            flags.push("weak-mode-accepted".to_string());
+        }
         if let Some(was) = previous {
             changes.push(Change::Noted {
                 kind: "mode-corrected",
                 label: format!("{:?}->{:?}", was.mode, signal.mode),
                 detail: None,
             });
+            flags.push("mode-corrected".to_string());
         }
-        let patch = MatchPatch { mode: Some(signal.mode), ..Default::default() };
+        // The confidence travels WITH the mode it justifies, so a correction
+        // replaces both at once and the row can never hold one signal's mode
+        // beside another signal's confidence.
+        let patch = MatchPatch {
+            mode: Some(signal.mode),
+            mode_confidence: Some(signal.confidence),
+            recog_flags: (!flags.is_empty()).then_some(flags),
+            ..Default::default()
+        };
         self.merge(&patch);
         changes.push(Change::MatchUpdated { r#ref, patch });
     }
@@ -385,6 +405,9 @@ impl Machine {
                 label: "closed-by-timeout".into(),
                 detail: None,
             });
+            // Flagged, not only noted: a match closed by timeout may be missing
+            // the result itself, which is the one field every statistic needs.
+            self.flag("final-screen-never-seen");
             self.finish(match_id, changes);
         }
     }
@@ -429,6 +452,7 @@ impl Machine {
                 label: "unknown".into(),
                 detail: None,
             });
+            self.flag("mode-guessed");
         }
 
         // A ranked match should always carry at least one number. None at all
@@ -446,6 +470,7 @@ impl Machine {
                 label: format!("{:?}", self.owed),
                 detail: Some(serde_json::json!({ "mode": self.collected.mode })),
             });
+            self.flag("ranked-no-numbers");
         }
 
         changes.push(Change::MatchFinished { r#ref, patch: self.collected.clone() });
@@ -465,5 +490,28 @@ impl Machine {
         into.current_cr = patch.current_cr.or(into.current_cr);
         into.delta_cr = patch.delta_cr.or(into.delta_cr);
         into.clear_my_deck = patch.clear_my_deck.or(into.clear_my_deck);
+        // A patch that carries a mode always carries its confidence, so `or`
+        // replaces on a correction and holds otherwise.
+        into.mode_confidence = patch.mode_confidence.or(into.mode_confidence);
+        if let Some(incoming) = &patch.recog_flags {
+            for flag in incoming {
+                Self::push_flag(&mut into.recog_flags, flag);
+            }
+        }
+    }
+
+    /// Record a diagnostic against the open match.
+    ///
+    /// Deduplicated: a probe that fires on forty consecutive frames is one fact
+    /// about the match, not forty.
+    fn flag(&mut self, kind: &str) {
+        Self::push_flag(&mut self.collected.recog_flags, kind);
+    }
+
+    fn push_flag(into: &mut Option<Vec<String>>, kind: &str) {
+        let flags = into.get_or_insert_with(Vec::new);
+        if !flags.iter().any(|held| held == kind) {
+            flags.push(kind.to_string());
+        }
     }
 }

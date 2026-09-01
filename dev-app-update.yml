@@ -1,3 +1,13 @@
-provider: generic
-url: https://example.com/auto-updates
-updaterCacheDirName: svwb-tool-updater
+# Used only by `SVWB_UPDATE_SIM=real pnpm dev`, where electron-updater reads
+# this instead of the resources/app-update.yml that exists only in an installed
+# build. It has to match package.json's build.publish, or a dev run checks a
+# different repo than the shipped app does.
+#
+# A dev run reports the version in package.json, so against the real releases
+# this normally resolves to "already up to date". To see the other phases, use
+# the simulator instead - see `wireSimulator` in src/main/updates.ts.
+owner: zrecordy1003
+repo: SVWB-Analyzer
+provider: github
+releaseType: release
+updaterCacheDirName: svwb-analyzer-updater

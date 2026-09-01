@@ -22,7 +22,7 @@ describe('database migrations (owned by svwb-engine)', () => {
     const versions = await sql<{ version: number }>`
       SELECT version FROM schema_migrations ORDER BY version
     `.execute(testDb())
-    expect(versions.rows.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(versions.rows.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
     // Second run must be a no-op, not a re-application.
     migrateWithEngine(db.dbPath, db.migrationsDir)
@@ -30,12 +30,25 @@ describe('database migrations (owned by svwb-engine)', () => {
     const after = await sql<{ version: number }>`
       SELECT version FROM schema_migrations ORDER BY version
     `.execute(testDb())
-    expect(after.rows.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(after.rows.map((row) => Number(row.version))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
 
     const columns = await sql<{ name: string }>`
       SELECT name FROM pragma_table_info('Match') ORDER BY name
     `.execute(testDb())
-    expect(columns.rows.map((row) => row.name)).toEqual(expect.arrayContaining(['mp', 'delta_mp']))
+    expect(columns.rows.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        'mp',
+        'delta_mp',
+        // Provenance (008). Split by owner: the engine writes the first four,
+        // the UI writes `observed` and `edited_fields`.
+        'source',
+        'mode_confidence',
+        'engine_version',
+        'recog_flags',
+        'observed',
+        'edited_fields'
+      ])
+    )
   })
 
   it('creates the runtime indexes used by match list and deck statistics queries', async () => {

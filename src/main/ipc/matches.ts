@@ -11,6 +11,8 @@ import {
   type Database,
   type MatchRow
 } from '../data/db/client.js'
+import { provenancePatch, type ProvenanceSource } from '../data/provenance.js'
+import { summariseProvenance, type ProvenanceStats } from '../data/provenanceStats.js'
 import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
 import { broadcast } from '../utils/broadcast.js'
 
@@ -520,16 +522,51 @@ export function registerMatchesIpc(): void {
     }
   )
 
+  /**
+   * Read the columns `provenancePatch` compares against.
+   *
+   * Selected explicitly rather than `selectAll()` so that adding a column to
+   * the table cannot quietly widen what an edit snapshots.
+   */
+  async function provenanceSourceOf(matchId: number): Promise<ProvenanceSource | undefined> {
+    return db
+      .selectFrom('Match')
+      .select([
+        'result',
+        'play_order',
+        'my_class',
+        'oppo_class',
+        'mode',
+        'bp',
+        'durationTime',
+        'playedAt',
+        'note',
+        'my_deckId',
+        'oppo_deckId',
+        'observed',
+        'edited_fields'
+      ])
+      .where('id', '=', matchId)
+      .executeTakeFirst()
+  }
+
   /** One scalar-column update plus the relation-shaped reload every editor expects. */
   async function updateAndReload(
     matchId: number,
     values: Partial<Omit<MatchRow, 'id'>>
   ): Promise<ReturnType<typeof toPivotShape>> {
+    // The inline editors (BP, note, deck) come through here, and they edit real
+    // columns just as the dialog does. Recording provenance in one place keeps
+    // "changed by hand" from depending on which control the user happened to
+    // reach for.
+    const current = await provenanceSourceOf(matchId)
+    const provenance = current ? provenancePatch(current, values) : null
+
     await db
       .updateTable('Match')
       // Prisma's @updatedAt bumped this implicitly on every update; the
       // optimistic lock in updateWithExtras depends on that, so it stays.
-      .set({ ...values, updatedAt: nowMs() })
+      .set({ ...values, ...provenance, updatedAt: nowMs() })
       .where('id', '=', matchId)
       .execute()
     const [reloaded] = await loadWithRelations([matchId])
@@ -628,8 +665,8 @@ export function registerMatchesIpc(): void {
       playedAt
     } = payload
 
-    const exists = await db.selectFrom('Match').select('id').where('id', '=', id).executeTakeFirst()
-    if (!exists) throw new Error('Match not found')
+    const current = await provenanceSourceOf(id)
+    if (!current) throw new Error('Match not found')
 
     const values: Partial<Omit<MatchRow, 'id'>> = {}
     if (typeof result !== 'undefined') values.result = result === null ? null : result ? 1 : 0
@@ -651,13 +688,32 @@ export function registerMatchesIpc(): void {
       values.day = dt.getDate()
     }
 
+    // Tags are diffed inside the transaction below, but whether they changed
+    // has to be known before the row is written - the provenance travels with
+    // that same UPDATE. Read here, beside the row itself, rather than deriving
+    // it from the diff that happens after.
+    const tagsChanged = Array.isArray(tagIds)
+      ? await (async () => {
+          const held = await db
+            .selectFrom('MatchTag')
+            .select('tagId')
+            .where('matchId', '=', id)
+            .execute()
+          const before = new Set(held.map((row) => row.tagId))
+          const after = new Set(tagIds as number[])
+          return before.size !== after.size || [...after].some((tid) => !before.has(tid))
+        })()
+      : false
+
+    const provenance = provenancePatch(current, values, tagsChanged ? ['tags'] : [])
+
     // 樂觀鎖：以 updatedAt 為條件的原子更新；epoch 毫秒比對，等價於舊版的 Date 比對
     const prevTs = prevUpdatedAt ? toMs(prevUpdatedAt as string | Date) : null
 
     await db.transaction().execute(async (tx) => {
       let update = tx
         .updateTable('Match')
-        .set({ ...values, updatedAt: nowMs() })
+        .set({ ...values, ...provenance, updatedAt: nowMs() })
         .where('id', '=', id)
       update =
         prevTs === null
@@ -703,6 +759,55 @@ export function registerMatchesIpc(): void {
     const [reloaded] = await loadWithRelations([id])
     notifyMatchesChanged()
     return reloaded ? toPivotShape(reloaded) : null
+  })
+
+  /**
+   * What the provenance columns add up to. See `data/provenanceStats.ts`.
+   *
+   * Two reads rather than one: the totals come from a grouped COUNT, and only
+   * the rows carrying provenance JSON are actually fetched. A clean match has
+   * none of those columns set, so the fetch stays proportional to how much has
+   * been flagged or edited rather than to the size of the history.
+   *
+   * Deliberately unindexed - this runs when a settings page is opened, never on
+   * a path the user waits on, and an index over three mostly-NULL columns would
+   * cost the engine's writes far more than it saves here.
+   */
+  ipcMain.handle('matches:provenanceStats', async (): Promise<ProvenanceStats> => {
+    const sources = await db
+      .selectFrom('Match')
+      .select(['source', (eb) => eb.fn.countAll<number>().as('count')])
+      .groupBy('source')
+      .execute()
+
+    const rows = await db
+      .selectFrom('Match')
+      .select([
+        'source',
+        'result',
+        'play_order',
+        'my_class',
+        'oppo_class',
+        'mode',
+        'bp',
+        'playedAt',
+        'observed',
+        'edited_fields',
+        'recog_flags'
+      ])
+      .where((eb) =>
+        eb.or([
+          eb('recog_flags', 'is not', null),
+          eb('edited_fields', 'is not', null),
+          eb('observed', 'is not', null)
+        ])
+      )
+      .execute()
+
+    return summariseProvenance(
+      sources.map((row) => ({ source: row.source, count: Number(row.count) })),
+      rows
+    )
   })
 
   // 刪除（連動刪樞紐由外鍵級聯）

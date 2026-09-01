@@ -1,0 +1,381 @@
+{
+  "data_headers": {
+    "result_code": 1,
+    "csrf_token": ""
+  },
+  "data": {
+    "class_id": 7,
+    "battle_format": 1,
+    "sort_card_id_list": [
+      10573310,
+      10771310,
+      10071120,
+      10574120,
+      10674120,
+      10874120,
+      10072210,
+      10773110,
+      10571110,
+      10404110,
+      10671110,
+      10972120,
+      10674110,
+      10974120,
+      10673110,
+      10474120
+    ],
+    "deck_card_num": {
+      "10071120": 2,
+      "10072210": 2,
+      "10404110": 1,
+      "10474120": 2,
+      "10571110": 2,
+      "10573310": 3,
+      "10574120": 3,
+      "10671110": 2,
+      "10673110": 3,
+      "10674110": 3,
+      "10674120": 3,
+      "10771310": 3,
+      "10773110": 3,
+      "10874120": 3,
+      "10972120": 3,
+      "10974120": 2
+    },
+    "mana_curve": {
+      "1": 6,
+      "2": 13,
+      "3": 3,
+      "4": 2,
+      "6": 6,
+      "7": 5,
+      "8": 5
+    },
+    "num_follower": 32,
+    "num_spell": 6,
+    "num_amulet": 2,
+    "total_red_ether": 66870,
+    "card_details": {
+      "10071120": {
+        "common": {
+          "card_id": 10071120,
+          "name": "傀儡長槍手",
+          "cost": 2,
+          "atk": 2,
+          "life": 1,
+          "type": 1,
+          "class": 7,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】增加1張『<color=Keyword>改良型‧懸絲人偶</color>』到自己的手牌中。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "93d648d0145044b2be31210c43a678f7",
+          "card_banner_image_hash": "5b5dc8f83c344f77ac92a28acaf32ce7",
+          "is_token": false
+        }
+      },
+      "10072210": {
+        "common": {
+          "card_id": 10072210,
+          "name": "人偶劇院",
+          "cost": 2,
+          "atk": 0,
+          "life": 0,
+          "type": 3,
+          "class": 7,
+          "rarity": 2,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】增加1張『<color=Keyword>懸絲人偶</color>』到自己的手牌中。\n<hr>【<color=Keyword>倒數</color>_2】\n自己的回合結束時，增加1張『<color=Keyword>懸絲人偶</color>』到自己的手牌中。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "8da3325df5564aea93322510b1c016a4",
+          "card_banner_image_hash": "681833570cea4bedb38719368685ce89",
+          "is_token": false
+        }
+      },
+      "10404110": {
+        "common": {
+          "card_id": 10404110,
+          "name": "天司長的後繼者‧聖德芬",
+          "cost": 6,
+          "atk": 7,
+          "life": 6,
+          "type": 1,
+          "class": 0,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "於牌堆中發動。自己的回合開始時，如果本次對戰中自己的從者卡進化的次數為6以上，則會【<color=Keyword>瞬念召喚</color>】這張卡片。\n<hr>當這張卡片被【<color=Keyword>瞬念召喚</color>】時，使自己獲得『紋章：天司長的後繼者‧聖德芬』。使這張卡片返回手牌中。\n【<color=Keyword>入場曲</color>】【<color=Keyword>解放奧義</color>】發動5次「隨機給予1張敵方戰場上的從者卡或敵方的主戰者2點傷害」。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "7996591e00b4482f9ae3607fdff61ef3",
+          "card_banner_image_hash": "72c4c186c4b44d83a003652d5ffe4fe2",
+          "is_token": false
+        }
+      },
+      "10474120": {
+        "common": {
+          "card_id": 10474120,
+          "name": "統世之王‧巴力巴布",
+          "cost": 9,
+          "atk": 9,
+          "life": 9,
+          "type": 1,
+          "class": 7,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】指定2張敵方戰場上的從者卡。使其失去全部能力。給予其9點傷害。使敵方的主戰者獲得「使受到的傷害+1」。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "beb25db707064164991bc14c11cdec56",
+          "card_banner_image_hash": "5dfc508e62a345d38ce91a56e08f55df",
+          "is_token": false
+        }
+      },
+      "10571110": {
+        "common": {
+          "card_id": 10571110,
+          "name": "創戲者",
+          "cost": 4,
+          "atk": 3,
+          "life": 3,
+          "type": 1,
+          "class": 7,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】召喚1張『<color=Keyword>改良型‧懸絲人偶</color>』與1張『<color=Keyword>懸絲人偶</color>』到自己的戰場上。\n【<color=Keyword>爆能強化</color>_7】使其獲得【<color=Keyword>疾馳</color>】。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "1f7d42e28a654eca84ab6d75379970e7",
+          "card_banner_image_hash": "777be82fc60c435fae74c4b99af6a672",
+          "is_token": false
+        }
+      },
+      "10573310": {
+        "common": {
+          "card_id": 10573310,
+          "name": "誠心的盡小花",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 7,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "指定1張戰場上的卡片。使其變身為『<color=Keyword>伊萬里的小鬼</color>』。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "7cafc508bd234c5482baac700b91a4ab",
+          "card_banner_image_hash": "183289cd4ede4e8b8f67681209e9f362",
+          "is_token": false
+        }
+      },
+      "10574120": {
+        "common": {
+          "card_id": 10574120,
+          "name": "盡小花‧伊萬里",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 7,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】指定1張自己手牌中的卡片。將其捨棄。由自己的牌堆中抽取1張法術卡。\n<hr>當自己使用法術卡時，如果這張卡片已進化，則會召喚1張『<color=Keyword>伊萬里的小鬼</color>』到自己的戰場上。\n<hr><sev>【<color=Keyword>超進化時</color>】由自己的牌堆中抽取2種消費為1的法術卡。</sev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "0003f89d3f334f9a9be161e8fbcd8d68",
+          "card_banner_image_hash": "e038343ea2174af1b02afc937ff61bde",
+          "is_token": false
+        }
+      },
+      "10671110": {
+        "common": {
+          "card_id": 10671110,
+          "name": "粗劣的玩具",
+          "cost": 6,
+          "atk": 1,
+          "life": 3,
+          "type": 1,
+          "class": 7,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】由自己的牌堆中抽取3張卡片。\n<hr>【<color=Keyword>守護</color>】",
+          "deck_enabled_num": 3,
+          "card_image_hash": "c1ea9d13261a44549a174de4ff7e97dc",
+          "card_banner_image_hash": "318ca2d522b94fc8a89908ac53d18b24",
+          "is_token": false
+        }
+      },
+      "10673110": {
+        "common": {
+          "card_id": 10673110,
+          "name": "愚劣的兵器",
+          "cost": 8,
+          "atk": 3,
+          "life": 4,
+          "type": 1,
+          "class": 7,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】召喚2張『<color=Keyword>愚劣的兵器</color>』到自己的戰場上。\n<hr>自己的回合結束時，對敵方戰場上全部的從者卡分配3點傷害。\n<hr><ev>【<color=Keyword>進化時</color>】對敵方戰場上全部的從者卡分配3點傷害。</ev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "8097754628f942acbd6484163ef330a8",
+          "card_banner_image_hash": "6bbeaf8606164604abfb1c86bc9f0f36",
+          "is_token": false
+        }
+      },
+      "10674110": {
+        "common": {
+          "card_id": 10674110,
+          "name": "惡劣的純心‧卡宓辛菈",
+          "cost": 7,
+          "atk": 6,
+          "life": 6,
+          "type": 1,
+          "class": 7,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】召喚1張『<color=Keyword>粗劣的玩具</color>』與1張『<color=Keyword>拙劣的人偶</color>』到自己的戰場上。\n<hr>當自己的其他原始消費為5以上的從者卡進入戰場時，使其進化。\n<hr><sev>【<color=Keyword>超進化時</color>】給予敵方的主戰者X點傷害。X為「自己戰場上原始消費為5以上的從者卡張數」。</sev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "49455d6860f14c928853b0a5f1f9359b",
+          "card_banner_image_hash": "5a5816709bf64797806d3d2c8919c4e6",
+          "is_token": false
+        }
+      },
+      "10674120": {
+        "common": {
+          "card_id": 10674120,
+          "name": "古老天斧‧尤格傑特",
+          "cost": 2,
+          "atk": 2,
+          "life": 1,
+          "type": 1,
+          "class": 7,
+          "rarity": 4,
+          "tribes": [
+            19
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】如果自己戰場上有原始消費為5以上的從者卡，則會增加1張『<color=Keyword>天斧的深淵</color>』到自己的手牌中。\n<hr>【<color=Keyword>突進</color>】",
+          "deck_enabled_num": 3,
+          "card_image_hash": "e03cae7c47af4a04bff84b88468817a5",
+          "card_banner_image_hash": "1b1752ac5f394a56932ef83b228527bf",
+          "is_token": false
+        }
+      },
+      "10771310": {
+        "common": {
+          "card_id": 10771310,
+          "name": "街頭疾走",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 7,
+          "rarity": 1,
+          "tribes": [
+            20
+          ],
+          "skill_text": "指定1個【<color=Keyword>模式</color>】並發動該能力。如果本次對戰中自己已進入戰場的創造物‧從者卡種類為3以上，則會由原本的指定1個轉變為全部。\n<ridx=0>（1）增加1張『<color=Keyword>解析的創造物</color>』到自己的手牌中。</ridx>\n<ridx=1>（2）增加1張『<color=Keyword>古老的創造物</color>』到自己的手牌中。</ridx>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "9671b82f3b6f4c3186cde8885fe9f0a0",
+          "card_banner_image_hash": "0620504793844898a86395495dd3c587",
+          "is_token": false
+        }
+      },
+      "10773110": {
+        "common": {
+          "card_id": 10773110,
+          "name": "野性的播報員",
+          "cost": 3,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 7,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】召喚1張『<color=Keyword>解析的創造物</color>』到自己的戰場上。\n【<color=Keyword>爆能強化</color>_5】召喚1張『<color=Keyword>神祕的創造物</color>』到自己的戰場上。\n<hr>當自己的創造物‧從者卡進入戰場時，使其獲得【<color=Keyword>突進</color>】。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "87f50e9282064ad6826a5b832dfbf9eb",
+          "card_banner_image_hash": "f33fbd113a1a464084868c7f19c189cb",
+          "is_token": false
+        }
+      },
+      "10874120": {
+        "common": {
+          "card_id": 10874120,
+          "name": "你的前輩‧歐絲",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 7,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】增加1張『<color=Keyword>解析的創造物</color>』到自己的手牌中。\n<hr><ev>【<color=Keyword>進化時</color>】指定1張自己戰場上其他進化前的從者卡。使其進化。</ev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "6bf5d21079a0424facba34636f8d8132",
+          "card_banner_image_hash": "6fad929247074216993c1b9c51b9ddb8",
+          "is_token": false
+        }
+      },
+      "10972120": {
+        "common": {
+          "card_id": 10972120,
+          "name": "飛刀細線手",
+          "cost": 6,
+          "atk": 4,
+          "life": 4,
+          "type": 1,
+          "class": 7,
+          "rarity": 2,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】召喚1張『<color=Keyword>改良型‧懸絲人偶</color>』與1張『<color=Keyword>懸絲人偶</color>』到自己的戰場上。\n<hr>當自己的人偶‧從者卡進入戰場時，給予敵方的主戰者1點傷害。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "b5f87c75e3ec43b6a58e816b35415f5a",
+          "card_banner_image_hash": "ad51a78fa2a04cb0958060d62e8ad0ca",
+          "is_token": false
+        }
+      },
+      "10974120": {
+        "common": {
+          "card_id": 10974120,
+          "name": "彈哭的轉變‧艾斯伊登",
+          "cost": 7,
+          "atk": 5,
+          "life": 5,
+          "type": 1,
+          "class": 7,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】召喚1張『<color=Keyword>擊針看守</color>』到自己的戰場上。\n<hr>當自己的創造物‧從者卡進入戰場時，隨機破壞1張敵方戰場上的從者卡。\n<hr><sev>【<color=Keyword>超進化時</color>】發動與【<color=Keyword>入場曲</color>】相同的能力。</sev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "b6ac4c25c1554782a056ac35aea847c2",
+          "card_banner_image_hash": "e4e7f00b2ea44cebba6581b323cf7a77",
+          "is_token": false
+        }
+      }
+    }
+  }
+}

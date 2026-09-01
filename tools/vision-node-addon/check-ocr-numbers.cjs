@@ -39,11 +39,41 @@ const MP_WIN = 'tests/fixtures/captures/ranked-gm-mp-windowed/02-result-win-mp-c
  * is what shipped before the shift existed - it must never equal the true gain.
  */
 const CASES = [
-  { label: 'ranked BP / TOTAL gained (win)', file: BP_WIN, window: 'bpRanked', dy: 0, expect: '+124' },
-  { label: 'ranked BP / TOTAL gained (lose, shifted)', file: BP_LOSE, window: 'bpRanked', dy: -99, expect: '+8' },
-  { label: 'ranked BP unshifted on the lose layout', file: BP_LOSE, window: 'bpRanked', dy: 0, expectNot: '+8' },
-  { label: 'MP layout / gained MP (lose)', file: MP_LOSE, window: 'gainedMp', dy: 0, expect: '+15' },
-  { label: 'MP layout / total MP (lose)', file: MP_LOSE, window: 'totalMp', dy: 0, expect: '41743' },
+  {
+    label: 'ranked BP / TOTAL gained (win)',
+    file: BP_WIN,
+    window: 'bpRanked',
+    dy: 0,
+    expect: '+124'
+  },
+  {
+    label: 'ranked BP / TOTAL gained (lose, shifted)',
+    file: BP_LOSE,
+    window: 'bpRanked',
+    dy: -99,
+    expect: '+8'
+  },
+  {
+    label: 'ranked BP unshifted on the lose layout',
+    file: BP_LOSE,
+    window: 'bpRanked',
+    dy: 0,
+    expectNot: '+8'
+  },
+  {
+    label: 'MP layout / gained MP (lose)',
+    file: MP_LOSE,
+    window: 'gainedMp',
+    dy: 0,
+    expect: '+15'
+  },
+  {
+    label: 'MP layout / total MP (lose)',
+    file: MP_LOSE,
+    window: 'totalMp',
+    dy: 0,
+    expect: '41743'
+  },
   { label: 'MP layout / delta CR (lose)', file: MP_LOSE, window: 'deltaCr', dy: 0, expect: '-16' },
   { label: 'MP layout / total CR (lose)', file: MP_LOSE, window: 'totalCr', dy: 0, expect: '1557' },
   { label: 'MP layout / gained MP (win)', file: MP_WIN, window: 'gainedMp', dy: 0, expect: '+173' },
@@ -119,7 +149,9 @@ async function main() {
     console.error(`\n${failures} OCR window check(s) failed`)
     process.exitCode = 1
   } else {
-    console.log(`\nall ${CASES.length} OCR windows read their expected value via the engine's crops`)
+    console.log(
+      `\nall ${CASES.length} OCR windows read their expected value via the engine's crops`
+    )
   }
 }
 

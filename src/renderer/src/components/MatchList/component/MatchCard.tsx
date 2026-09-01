@@ -6,6 +6,7 @@ import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import NotesIcon from '@mui/icons-material/Notes'
 
 import { classesMap, isDecklessMode } from '@renderer/map/classMap'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import ModeLabel from '@renderer/components/Common/ModeLabel'
 import PlayOrderMark from '@renderer/components/Common/PlayOrderMark'
 import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
@@ -38,14 +39,26 @@ const VS_COLUMN_WIDTH = 28
 const DECK_NAME_MAX_WIDTH = 68
 
 /**
+ * The class emblem, and the gap between it and the two lines of text.
+ *
+ * It leads the whole block rather than sitting inline before the class name,
+ * because the deck name underneath then keeps its full width - putting a 20px
+ * mark on the name line alone would have pushed `MY_SIDE_WIDTH` out by the same
+ * amount while leaving the second line short of it.
+ */
+const CLASS_MARK = 20
+const CLASS_MARK_GAP = 8
+
+/**
  * Our half is a fixed width rather than a share of the row: text starts at the
  * left edge and the VS still lands on the same x every time. A short name
  * therefore leaves a gap before the VS - the deliberate cost of keeping both
  * the left edge and the VS column fixed. Sized to just clear the widest thing
  * either line can hold - a truncated deck name, the deck placeholder with its
- * caret, and the longest class name - so the gap stays as small as it can be.
+ * caret, and the longest class name - so the gap stays as small as it can be,
+ * plus the emblem that now leads both lines.
  */
-const MY_SIDE_WIDTH = DECK_NAME_MAX_WIDTH
+const MY_SIDE_WIDTH = DECK_NAME_MAX_WIDTH + CLASS_MARK + CLASS_MARK_GAP
 
 type Props = {
   match: MatchRow
@@ -80,39 +93,55 @@ const Side: React.FC<{
   <Box
     sx={{
       display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'flex-start',
+      alignItems: 'center',
+      gap: `${CLASS_MARK_GAP}px`,
       ...(side === 'my' ? { width: MY_SIDE_WIDTH, flexShrink: 0 } : { flex: 1 }),
       minWidth: 0,
       overflow: 'hidden'
     }}
   >
-    <Typography
-      fontWeight={800}
-      noWrap
-      sx={{ fontSize: 15, lineHeight: 1.35, color: classesMap[className]?.color, maxWidth: '100%' }}
+    <ClassIcon id={className} size={CLASS_MARK} />
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'flex-start',
+        minWidth: 0,
+        overflow: 'hidden'
+      }}
     >
-      {classesMap[className]?.label ?? className}
-    </Typography>
-    {/* 沒有牌組欄的模式連空行都不留：留著只是把卡片撐得更空。職業那列本來就垂直
-        置中，少一行只是這一側整體置中，不會歪掉 */}
-    {deckless ? null : deckName ? (
       <Typography
-        variant="body2"
+        fontWeight={800}
         noWrap
         sx={{
-          fontSize: 12.5,
+          fontSize: 15,
           lineHeight: 1.35,
-          maxWidth: DECK_NAME_MAX_WIDTH,
-          color: 'text.secondary'
+          color: classesMap[className]?.color,
+          maxWidth: '100%'
         }}
-        title={deckName}
       >
-        {deckName}
+        {classesMap[className]?.label ?? className}
       </Typography>
-    ) : (
-      <InlineDeckSelect klass={className} options={deckOptions} onSelect={onSelectDeck} />
-    )}
+      {/* 沒有牌組欄的模式連空行都不留：留著只是把卡片撐得更空。職業那列本來就垂直
+        置中，少一行只是這一側整體置中，不會歪掉 */}
+      {deckless ? null : deckName ? (
+        <Typography
+          variant="body2"
+          noWrap
+          sx={{
+            fontSize: 12.5,
+            lineHeight: 1.35,
+            maxWidth: DECK_NAME_MAX_WIDTH,
+            color: 'text.secondary'
+          }}
+          title={deckName}
+        >
+          {deckName}
+        </Typography>
+      ) : (
+        <InlineDeckSelect klass={className} options={deckOptions} onSelect={onSelectDeck} />
+      )}
+    </Box>
   </Box>
 )
 

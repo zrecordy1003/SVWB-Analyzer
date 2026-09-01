@@ -165,4 +165,65 @@ describe('IPC smoke flow', () => {
       data: [{ deckId: deck.data.id, total: 1, wins: 1, winRate: 100 }]
     })
   })
+
+  /**
+   * The provenance summary against a real database, not a hand-built fixture.
+   *
+   * The counting itself is covered by `provenanceStats.test.ts`; what this adds
+   * is that an edit through the real IPC path leaves the row in the shape that
+   * summary expects - the two are written in different files and nothing else
+   * checks that they agree.
+   */
+  it('summarises where match data came from, and what was corrected by hand', async () => {
+    const playedAt = new Date('2026-05-20T12:00:00Z')
+
+    const flagged = await insertMatch({
+      result: false,
+      play_order: 'second',
+      my_class: 'witch',
+      oppo_class: 'dragon',
+      mode: 'weekendPlaza',
+      playedAt,
+      recog_flags: ['weak-mode-accepted']
+    })
+    // A clean engine-written match, and one from before provenance existed.
+    await insertMatch({
+      result: true,
+      play_order: 'first',
+      my_class: 'elf',
+      oppo_class: 'royal',
+      mode: 'ranked',
+      playedAt
+    })
+    await insertMatch({
+      result: true,
+      play_order: 'first',
+      my_class: 'elf',
+      oppo_class: 'royal',
+      mode: 'ranked',
+      playedAt,
+      source: null
+    })
+
+    const before = await invoke<any>('matches:provenanceStats')
+    expect(before.bySource).toEqual({ engine: 2, manual: 0, unknown: 1 })
+    expect(before.flagged['weak-mode-accepted']).toEqual({ matches: 1, corrected: 0 })
+
+    const current = await invoke<any>('matches:getById', flagged)
+    await invoke('matches:updateWithExtras', {
+      id: flagged,
+      prevUpdatedAt: current.updatedAt,
+      mode: 'ranked',
+      note: 'plaza 誤判'
+    })
+
+    const after = await invoke<any>('matches:provenanceStats')
+    expect(after.flagged['weak-mode-accepted']).toEqual({ matches: 1, corrected: 1 })
+    // One engine row was flagged, so the comparison group is the other one.
+    expect(after.unflagged).toEqual({ matches: 1, corrected: 0 })
+    expect(after.editedByField).toEqual({ mode: 1, note: 1 })
+    expect(after.transitions).toEqual([
+      { field: 'mode', from: 'weekendPlaza', to: 'ranked', count: 1 }
+    ])
+  })
 })

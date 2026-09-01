@@ -8,6 +8,7 @@ import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 // import MilitaryTechIcon from '@mui/icons-material/MilitaryTech'
 import type { ClassName, GameMode, PlayOrder } from '@shared/domain'
 import { format as formatDate } from 'date-fns'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap, isDecklessMode, modesMap } from '@renderer/map/classMap'
 
 type Props = {
@@ -104,40 +105,50 @@ const SummaryHeader: React.FC<Props> = (props) => {
       useFlexGap
       flexWrap="wrap"
     >
-      <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
-        <Box sx={{ color: classesMap[my_class]?.color }}>{classesMap[my_class]?.label}</Box>
-        {!deckless && (
-          <Box
-            sx={{
-              color: classesMap[my_class]?.color
-                ? my_deckName
-                  ? classesMap[my_class]?.color
-                  : 'gray'
-                : undefined,
-              opacity: 0.9
-            }}
-          >
-            {my_deckName ? `${my_deckName}` : '未設置'}
-          </Box>
-        )}
+      <Box display={'flex'} alignItems={'center'} gap={1}>
+        <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
+          <Box sx={{ color: classesMap[my_class]?.color }}>{classesMap[my_class]?.label}</Box>
+          {!deckless && (
+            <Box
+              sx={{
+                color: classesMap[my_class]?.color
+                  ? my_deckName
+                    ? classesMap[my_class]?.color
+                    : 'gray'
+                  : undefined,
+                opacity: 0.9
+              }}
+            >
+              {my_deckName ? `${my_deckName}` : '未設置'}
+            </Box>
+          )}
+        </Box>
+        {/* 徽章靠右擺：這兩塊是右對齊的，字的右緣才是基準線，擺左邊會在職業名
+            短的時候和文字之間拉開一段空白。 */}
+        <ClassIcon id={my_class} size={22} />
       </Box>
 
-      <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
-        <Box sx={{ color: classesMap[oppo_class]?.color }}>{classesMap[oppo_class]?.label}</Box>
-        {!deckless && (
-          <Box
-            sx={{
-              color: classesMap[oppo_class]?.color
-                ? oppo_deckName
-                  ? classesMap[oppo_class]?.color
-                  : 'gray'
-                : undefined,
-              opacity: 0.9
-            }}
-          >
-            {oppo_deckName ? `${oppo_deckName}` : '未設置'}
-          </Box>
-        )}
+      <Box display={'flex'} alignItems={'center'} gap={1}>
+        <Box display={'flex'} flexDirection={'column'} textAlign={'right'}>
+          <Box sx={{ color: classesMap[oppo_class]?.color }}>{classesMap[oppo_class]?.label}</Box>
+          {!deckless && (
+            <Box
+              sx={{
+                color: classesMap[oppo_class]?.color
+                  ? oppo_deckName
+                    ? classesMap[oppo_class]?.color
+                    : 'gray'
+                  : undefined,
+                opacity: 0.9
+              }}
+            >
+              {oppo_deckName ? `${oppo_deckName}` : '未設置'}
+            </Box>
+          )}
+        </Box>
+        {/* 徽章靠右擺：這兩塊是右對齊的，字的右緣才是基準線，擺左邊會在職業名
+            短的時候和文字之間拉開一段空白。 */}
+        <ClassIcon id={oppo_class} size={22} />
       </Box>
 
       {/* <Chip

@@ -1,0 +1,516 @@
+{
+  "data_headers": {
+    "result_code": 1,
+    "csrf_token": ""
+  },
+  "data": {
+    "sort_card_id_list": [
+      10201110,
+      10501110,
+      10503210,
+      10703210,
+      10431120,
+      10534110,
+      10631110,
+      10031310,
+      10131320,
+      10831310,
+      10532310,
+      10632310,
+      10931310,
+      10031210,
+      10001110,
+      10001120,
+      10101110,
+      10103110,
+      10202110,
+      10203120,
+      10302110,
+      10401120,
+      10403120,
+      10601110
+    ],
+    "card_details": {
+      "10001110": {
+        "common": {
+          "card_id": 10001110,
+          "name": "不屈的劍鬥士",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>爆能強化</color>_4】使這張卡片+3/+3。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "8f726d216ea14aa4887075025c7f1578",
+          "card_banner_image_hash": "8322825ac4c04936a725ebe4fb0fb624",
+          "is_token": false
+        }
+      },
+      "10001120": {
+        "common": {
+          "card_id": 10001120,
+          "name": "叮噹天使‧莉亞",
+          "cost": 2,
+          "atk": 0,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>守護</color>】\n【<color=Keyword>謝幕曲</color>】由自己的牌堆中抽取1張卡片。\n<hr><ev>【<color=Keyword>進化時</color>】由自己的牌堆中抽取1張卡片。</ev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "8a463069eb3b448d8467c070345bd6eb",
+          "card_banner_image_hash": "35d87541a37d476dae7518e7c4eafd78",
+          "is_token": false
+        }
+      },
+      "10031210": {
+        "common": {
+          "card_id": 10031210,
+          "name": "魔女的鍊金釜",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 2,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            8
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】由自己的牌堆中抽取1張卡片。\n<hr>【<color=Keyword>土之印</color>】\n<hr>消費1【<color=Keyword>策動</color>】使自己戰場上的土之印+1。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "9d49df795e484158b64f4acaf1b7ea6e",
+          "card_banner_image_hash": "659486aa521f4586a21bf43a22beb3e8",
+          "is_token": false
+        }
+      },
+      "10031310": {
+        "common": {
+          "card_id": 10031310,
+          "name": "智慧耀光",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "由自己的牌堆中抽取1張卡片。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "f57d11ef42ab42a1a7c270f998e830a8",
+          "card_banner_image_hash": "ef6fe37955fc4c069b67912ae009ac4d",
+          "is_token": false
+        }
+      },
+      "10101110": {
+        "common": {
+          "card_id": 10101110,
+          "name": "貪婪的智天使‧露比",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】指定1張自己手牌中的卡片。使其返回牌堆中。由自己的牌堆中抽取1張卡片。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "183492eb78a049c68feb22e6ecce56c4",
+          "card_banner_image_hash": "bd3f2461985846e1a017fab9ac6b4a89",
+          "is_token": false
+        }
+      },
+      "10103110": {
+        "common": {
+          "card_id": 10103110,
+          "name": "樂朗天宮‧斐爾特亞",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "<ev>【<color=Keyword>進化時</color>】指定1張敵方戰場上的從者卡。將其破壞。</ev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "8b5cc62013c040b399622832dc09fb2b",
+          "card_banner_image_hash": "5b6425b5ef4d42d4bea67fd02ce25b22",
+          "is_token": false
+        }
+      },
+      "10131320": {
+        "common": {
+          "card_id": 10131320,
+          "name": "暴風噴射",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "X由2開始。\n【<color=Keyword>魔力增幅時</color>】使這張卡片的X+1。\n<hr>指定1張敵方戰場上的從者卡。給予其X點傷害。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "0ee26c0d428644c0ba32e9e1dd905914",
+          "card_banner_image_hash": "88ceaa0368844044b258fa5ba6fbb959",
+          "is_token": false
+        }
+      },
+      "10201110": {
+        "common": {
+          "card_id": 10201110,
+          "name": "雙刃哥布林",
+          "cost": 1,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】如果自己戰場上有已超進化的從者卡，則會指定1張敵方戰場上的從者卡。給予其4點傷害。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "0a8181b6031d489c9b3d1d14466bef44",
+          "card_banner_image_hash": "aca2639fc5674ba097d94dda4c321979",
+          "is_token": false
+        }
+      },
+      "10202110": {
+        "common": {
+          "card_id": 10202110,
+          "name": "女僕天使‧伽芮塔",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 2,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】如果為已超進化解禁的回合，則會使這張卡片+0/+3。\n<hr>【<color=Keyword>守護</color>】",
+          "deck_enabled_num": 3,
+          "card_image_hash": "290a6b950ca546e3bcb4823426d6b364",
+          "card_banner_image_hash": "7b0c17c7bd7e4731b6a5c263506f830c",
+          "is_token": false
+        }
+      },
+      "10203120": {
+        "common": {
+          "card_id": 10203120,
+          "name": "雷火雙神‧福尼加爾＆亞文哈爾",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>爆能強化</color>_5】使這張卡片進化。\n<hr>【<color=Keyword>謝幕曲</color>】如果這張卡片已進化，則會隨機給予1張敵方戰場上的從者卡4點傷害。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "038e117520724820b126bb81afa8c64d",
+          "card_banner_image_hash": "0bf7217bc5b444118f494f53b60941b6",
+          "is_token": false
+        }
+      },
+      "10302110": {
+        "common": {
+          "card_id": 10302110,
+          "name": "力抗悲嘆的少年",
+          "cost": 2,
+          "atk": 1,
+          "life": 3,
+          "type": 1,
+          "class": 0,
+          "rarity": 2,
+          "tribes": [
+            0
+          ],
+          "skill_text": "於手牌中發動。當敵方的從者卡超進化時，使這張卡片獲得【<color=Keyword>必殺</color>】。\n<hr>【<color=Keyword>守護</color>】",
+          "deck_enabled_num": 3,
+          "card_image_hash": "909fc8936d25453890dec551dfcf854c",
+          "card_banner_image_hash": "6a350a634a3045879dfda2dedcf29925",
+          "is_token": false
+        }
+      },
+      "10401120": {
+        "common": {
+          "card_id": 10401120,
+          "name": "惹人憐愛的搭檔‧碧",
+          "cost": 2,
+          "atk": 2,
+          "life": 2,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】如果為已超進化解禁的回合，則會使這張卡片進化。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "f0d6261cc24a4ec4a5a87a95f563ab8c",
+          "card_banner_image_hash": "28467e18354644f29959ba548c471d58",
+          "is_token": false
+        }
+      },
+      "10403120": {
+        "common": {
+          "card_id": 10403120,
+          "name": "掌握蒼空命運的少女‧露莉亞",
+          "cost": 2,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 0,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>爆能強化</color>_8】由自己的牌堆中抽取1張消費為7以上的從者卡。回復自己的PP 7點。\n<hr>【<color=Keyword>障壁</color>】",
+          "deck_enabled_num": 3,
+          "card_image_hash": "04cf344507ea46cd85c9a90e64cd1209",
+          "card_banner_image_hash": "5e6d79d68ffc48dabaf8aebb03dc1656",
+          "is_token": false
+        }
+      },
+      "10431120": {
+        "common": {
+          "card_id": 10431120,
+          "name": "遊歷四方的家庭教師‧蘇菲拉瑪",
+          "cost": 1,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "自己的回合結束時，使自己手牌中全部的卡片發動X次魔力增幅。X為「這張卡片的攻擊力」。\n<hr><ev>【<color=Keyword>進化時</color>】使這張卡片獲得「無法攻擊從者或主戰者」。</ev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "666799c9f631415f81e02baef6675579",
+          "card_banner_image_hash": "99ad18a503ee4d11b4645f1da35871ff",
+          "is_token": false
+        }
+      },
+      "10501110": {
+        "common": {
+          "card_id": 10501110,
+          "name": "妙筆精怪",
+          "cost": 1,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】如果戰場上有其他原始消費為1的卡片，則會使這張卡片+1/+1。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "1acd3046188c457d877de9cf45279cc5",
+          "card_banner_image_hash": "b6aaebc9e30d4893b91753f0b612ee6d",
+          "is_token": false
+        }
+      },
+      "10503210": {
+        "common": {
+          "card_id": 10503210,
+          "name": "大遊戲世界",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 3,
+          "class": 0,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>倒數</color>_5】\n當自己使用其他卡片時，如果戰場上有其以外原始消費為X的卡片，則會使這張卡片的倒數回合數-1。X為「所使用卡片的原始消費值」。\n【<color=Keyword>謝幕曲</color>】由自己的牌堆中抽取2張卡片。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "939dff9000a849e491ae0d31a870dbfc",
+          "card_banner_image_hash": "fa6880dae33b4a3789631fb6a564ebe5",
+          "is_token": false
+        }
+      },
+      "10532310": {
+        "common": {
+          "card_id": 10532310,
+          "name": "魔貓戲法",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 3,
+          "rarity": 2,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>土之秘術</color>_2】由下列能力中隨機發動2個能力。\n<ridx=0>（1）召喚1張『<color=Keyword>泥塵巨像</color>』到自己的戰場上。</ridx>\n<ridx=1>（2）回復自己的主戰者2點生命值。</ridx>\n<ridx=2>（3）使自己戰場上的土之印+3。</ridx>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "ca8e5f9d31d640f08243ad894c8493cb",
+          "card_banner_image_hash": "8264dc5791a84548bdfdcd6b8f93617b",
+          "is_token": false
+        }
+      },
+      "10534110": {
+        "common": {
+          "card_id": 10534110,
+          "name": "步履《愚者》‧琳庫露",
+          "cost": 1,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 3,
+          "rarity": 4,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>入場曲</color>】使自己獲得『紋章：步履《愚者》‧琳庫露』。\n<hr>【<color=Keyword>突進</color>】\n<hr><sev>【<color=Keyword>超進化時</color>】增加10張『<color=Keyword>步履《愚者》‧琳庫露</color>』到自己的牌堆中。</sev>",
+          "deck_enabled_num": 3,
+          "card_image_hash": "25efd675f063491aab394be2a9f11dbc",
+          "card_banner_image_hash": "c7f5c588a61b4ec4b38d9daafc7b9223",
+          "is_token": false
+        }
+      },
+      "10601110": {
+        "common": {
+          "card_id": 10601110,
+          "name": "混濁之民",
+          "cost": 2,
+          "atk": 2,
+          "life": 1,
+          "type": 1,
+          "class": 0,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>謝幕曲</color>】給予敵方的主戰者1點傷害。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "ae6c92896b1e4e2c8bde316e68c90f5b",
+          "card_banner_image_hash": "b031cc28104647adbb811e560351cf06",
+          "is_token": false
+        }
+      },
+      "10631110": {
+        "common": {
+          "card_id": 10631110,
+          "name": "天晶的魔手",
+          "cost": 1,
+          "atk": 1,
+          "life": 1,
+          "type": 1,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            19
+          ],
+          "skill_text": "【<color=Keyword>突進</color>】",
+          "deck_enabled_num": 3,
+          "card_image_hash": "6582a2b7cf0349efbee5356d4fece781",
+          "card_banner_image_hash": "95f29e4d823d4929a24f179997f61e5f",
+          "is_token": false
+        }
+      },
+      "10632310": {
+        "common": {
+          "card_id": 10632310,
+          "name": "侵蝕日常",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 3,
+          "rarity": 2,
+          "tribes": [
+            0
+          ],
+          "skill_text": "指定1張自己戰場上的『<color=Keyword>天晶的魔手</color>』。將其破壞。由自己的牌堆中抽取2張卡片。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "2561a55122534ec9841dde263f941ee5",
+          "card_banner_image_hash": "1cce99971db1461c874b5ea468b5764a",
+          "is_token": false
+        }
+      },
+      "10703210": {
+        "common": {
+          "card_id": 10703210,
+          "name": "巴貝倫城",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 3,
+          "class": 0,
+          "rarity": 3,
+          "tribes": [
+            0
+          ],
+          "skill_text": "【<color=Keyword>倒數</color>_1】\n自己的回合結束時，由下列能力中依序發動1個能力。\n<ridx=0>（1）隨機給予1張敵方戰場上的從者卡2點傷害。</ridx>\n<ridx=1>（2）回復自己的主戰者2點生命值。</ridx>\n<ridx=2>（3）給予敵方的主戰者2點傷害。破壞這張卡片。</ridx>\n<hr>消費1【<color=Keyword>策動</color>】指定1張自己手牌中的卡片。將其捨棄。使這張卡片的倒數回合數+1。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "cc0a044ef55e44738b3c206f5c9d1f00",
+          "card_banner_image_hash": "d276aa45044e41889f8fe9a4a0efb3b3",
+          "is_token": false
+        }
+      },
+      "10831310": {
+        "common": {
+          "card_id": 10831310,
+          "name": "暴風噴射",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "X由2開始。\n【<color=Keyword>魔力增幅時</color>】使這張卡片的X+1。\n<hr>指定1張敵方戰場上的從者卡。給予其X點傷害。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "31e279aee98740bba7d24bd4832ba8a2",
+          "card_banner_image_hash": "76582ed7d8534ef2979e1a1d61df44e0",
+          "is_token": false
+        }
+      },
+      "10931310": {
+        "common": {
+          "card_id": 10931310,
+          "name": "反應失控",
+          "cost": 1,
+          "atk": 0,
+          "life": 0,
+          "type": 4,
+          "class": 3,
+          "rarity": 1,
+          "tribes": [
+            0
+          ],
+          "skill_text": "增加3張『<color=Keyword>召喚真理</color>』到自己的手牌中。",
+          "deck_enabled_num": 3,
+          "card_image_hash": "32eb1defee044c64a6926eb55365eab4",
+          "card_banner_image_hash": "a23482040e3447b49154bdc1d5969c2a",
+          "is_token": false
+        }
+      }
+    }
+  }
+}

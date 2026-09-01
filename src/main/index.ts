@@ -21,6 +21,7 @@ import { createAppTray } from './windows/tray.js'
 import { attachSmartClose } from './windows/smartClose.js'
 import { openExitConfirmDialog } from './windows/exitConfirmDialog.js'
 import { broadcast } from './utils/broadcast.js'
+import { registerCardImageProtocol, registerCardImageScheme } from './protocol/cardImageProtocol.js'
 
 // Image recognition is handled by a self-contained Rust addon
 // (tools/svwb-vision.node), so no OpenCV SDK paths or runtime DLLs are needed.
@@ -30,6 +31,10 @@ const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
 }
+
+// Has to happen at module scope: privileged scheme registration is only read
+// once, before the app is ready.
+registerCardImageScheme()
 
 const MIN_SPLASH_MS = 800
 // The main UI has a persistent navigation rail, a deck selector and data-heavy
@@ -100,10 +105,19 @@ function clearCaptureImage(): void {
 function createSplash(): void {
   splash = new BrowserWindow({
     width: 360,
-    height: 420,
+    // Sized to the content (238px at this width) plus a little air. It was 420,
+    // which left a band of window above and below the panel - invisible while
+    // the window was transparent, and the first thing you saw once it was not.
+    height: 260,
     frame: false,
-    transparent: true,
+    // Opaque on purpose. This was `transparent: true`, and the splash's card
+    // leaned on `backdrop-filter: blur()` to be readable - but a transparent
+    // Electron window has nothing behind it to blur, so the card was a few
+    // percent of white laid straight over the desktop and its near-black text
+    // landed on whatever wallpaper happened to be there.
     resizable: false,
+    // Painted before the HTML does, so the first frame is not a white flash.
+    backgroundColor: '#0f1216',
     show: true,
     webPreferences: {
       preload: path.join(__dirname, '../preload/splash-preload.js'),
@@ -500,6 +514,8 @@ function startPollingForGame(): void {
 app.whenReady().then(async () => {
   electronApp.setAppUserModelId('app.electron.svwb-analyzer')
 
+  registerCardImageProtocol()
+
   await initDatabase()
 
   const { registerMatchesIpc } = await import('./ipc/matches.js')
@@ -510,6 +526,26 @@ app.whenReady().then(async () => {
 
   const { registerTagsIpc } = await import('./ipc/tags.js')
   registerTagsIpc()
+
+  const { registerCardImagesIpc } = await import('./ipc/cardImages.js')
+  registerCardImagesIpc()
+
+  const { registerCardsIpc } = await import('./ipc/cards.js')
+  registerCardsIpc()
+
+  // Fill the card pool if we have never done it, so decks and the builder are
+  // populated on first run instead of showing a button nobody knew to press.
+  //
+  // Deliberately NOT awaited: it is ~14 requests to somebody else's server, and
+  // the window must not wait on them. It skips everything already held, so this
+  // is a no-op from the second launch onwards, and a failure just means the
+  // next launch tries again.
+  void (async () => {
+    const { bootstrapCardPool } = await import('./data/cardPoolBootstrap.js')
+    const { getDb } = await import('./data/db/client.js')
+    const lang = store.get('settings')?.cardLang ?? 'cht'
+    await bootstrapCardPool(getDb(), lang).catch(() => {})
+  })()
 
   const { registerDiagnosticsIpc } = await import('./ipc/diagnostics.js')
   registerDiagnosticsIpc()
