@@ -159,8 +159,16 @@ if (-not (git tag --list $tag)) {
     if ($LASTEXITCODE -ne 0) { Fail "Could not create tag $tag." }
 }
 
-git push origin $tag
-if ($LASTEXITCODE -ne 0) { Fail "Could not push $tag." }
+# Not "origin": this repo's remote is named svwb-tool, so the remote is read
+# from the current branch's upstream rather than assumed.
+$branch = git rev-parse --abbrev-ref HEAD
+$remote = git config --get "branch.$branch.remote"
+if (-not $remote) {
+    Fail "Branch '$branch' has no upstream remote configured; cannot push $tag."
+}
+
+git push $remote $tag
+if ($LASTEXITCODE -ne 0) { Fail "Could not push $tag to $remote." }
 
 # All three files in one call: a release carrying the .exe but not latest.yml
 # is invisible to the updater, and one without the .blockmap costs every user
