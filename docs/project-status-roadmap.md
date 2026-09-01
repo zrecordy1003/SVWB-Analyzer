@@ -108,8 +108,9 @@ testable without a game, a database, or Electron.
   plans, ranked winrate, support prompt) and `tests/renderer/` (pure helpers: confidence, filter
   state, relative time). 48 tests.
 - `pnpm vision:verify` — the cargo tests plus clippy, the OCR oracle, and engine/addon parity.
-- `.github/workflows/ci.yml` runs typecheck, lint, vitest, the vision addon build, `vision:verify`
-  and the bundle build on `windows-latest`.
+- `.github/workflows/ci.yml` runs on `windows-latest` as two parallel jobs: `typescript`
+  (typecheck, lint, bundle build) and `rust` (engine build, vitest, the vision addon build,
+  `vision:verify`, the replay). vitest sits with Rust because it needs the engine binary.
 
 ## Completed Work
 

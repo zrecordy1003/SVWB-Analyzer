@@ -4,6 +4,12 @@ name: CI
 # `svwb-vision.node`, so this workflow builds the addon before running them.
 # That is the whole point: `pnpm vision:verify` is where the recognition
 # regressions get caught, and it is worthless if it only ever runs locally.
+#
+# Two jobs, not one. Everything in `typescript` was measured at ~52s and needs
+# no Rust toolchain, no cargo cache and no LFS object, so running it after the
+# Rust work put it on the critical path for nothing. The jobs share no state
+# deliberately: `pnpm test` needs the engine binary, so it stays with Rust
+# rather than being handed an artifact.
 
 on:
   push:
@@ -12,7 +18,40 @@ on:
   workflow_dispatch:
 
 jobs:
-  checks:
+  typescript:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      # No `lfs: true` here, unlike the rust job: eng.traineddata.gz is only
+      # read by vision:verify's OCR oracle. Skipping it keeps this job off the
+      # LFS bandwidth quota entirely.
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # `electron-builder install-app-deps` runs on postinstall and pulls the
+      # Electron binary. Nothing here launches Electron, so skip that download.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build renderer and main bundles
+        run: pnpm exec electron-vite build
+
+  rust:
     # Windows because the addon is built and consumed on Windows, and the
     # capture pipeline is Windows-only. Matching the target platform here keeps
     # a green CI meaningful.
@@ -46,17 +85,19 @@ jobs:
         with:
           # One Cargo workspace over all three crates, so a single cache key.
           workspaces: tools
+          # Bump this string to force the cache to be rewritten. rust-cache
+          # keys on Cargo.lock and the toolchain, and `save.ts` returns early
+          # on `isCacheUpToDate()` - so an exact key match saves nothing, and a
+          # change that adds a profile without touching Cargo.lock can never
+          # get that profile's dependencies into the cache. That is what
+          # happened when release-test was introduced: its dependencies were
+          # recompiled from scratch on every run. Measured locally,
+          # `cargo test --profile release-test --no-run` costs 32s with those
+          # dependencies cold and 4s with them cached.
+          key: profiles-release-test
 
-      # `electron-builder install-app-deps` runs on postinstall and pulls the
-      # Electron binary. Nothing here launches Electron, so skip that download.
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Lint
-        run: pnpm lint
 
       # The database-backed tests bring a scratch DB up through
       # `svwb-engine migrate` - the single owner of migrations, so the suite
@@ -103,6 +144,3 @@ jobs:
             exit 0
           fi
           pnpm engine:replay-cpu
-
-      - name: Build renderer and main bundles
-        run: pnpm exec electron-vite build
