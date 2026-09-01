@@ -99,7 +99,7 @@ pnpm capture:build   # PowerShell 腳本 + Windows Rust MSVC toolchain
 pnpm vision:build    # PowerShell 腳本，產出 svwb-vision.node
 pnpm vision:verify   # 內含 check-engine-parity，需要上面那個 addon
 pnpm build:win       # Windows／NSIS 發行環境
-pnpm publish:win     # 需要 Windows build artifact 與 GH_TOKEN
+pnpm release:win     # 需要 Windows build artifact 與已登入的 gh CLI
 ```
 
 `pnpm dev` 可以開起來，UI 開發完全可行。遊戲偵測會一直回報「未偵測到」——因為它找的是 `shadowversewb.exe`——所以擷取與辨識不會啟動。這是預期行為，不要把它當成真實功能驗證。

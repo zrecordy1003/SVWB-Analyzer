@@ -16,6 +16,9 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:only": "playwright test",
+    "smoke:portal": "node tools/svwb-api-smoke.mjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -24,7 +27,7 @@
     "vision:build": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/vision-node-addon/scripts/build.ps1",
     "engine:build": "cargo build --manifest-path tools/Cargo.toml -p svwb-engine --release",
     "vision:check": "cargo clippy --manifest-path tools/Cargo.toml --all-targets",
-    "vision:test": "cargo test --manifest-path tools/Cargo.toml --release",
+    "vision:test": "cargo test --manifest-path tools/Cargo.toml --profile release-test",
     "vision:check-diagnostics": "node tools/vision-node-addon/check-diagnostics.cjs",
     "vision:check-bundle": "node tools/vision-node-addon/check-bundle.cjs",
     "vision:check-ocr-numbers": "node tools/vision-node-addon/check-ocr-numbers.cjs",
@@ -41,7 +44,8 @@
     "build:win": "npm run capture:build && npm run vision:build && npm run engine:build && npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
     "build:linux": "electron-vite build && electron-builder --linux",
-    "publish:win": "dotenv -e .env -- pnpm exec electron-builder --win --publish always"
+    "release:win": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/scripts/release-win.ps1",
+    "release:win:dry": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/scripts/release-win.ps1 -DryRun"
   },
   "build": {
     "appId": "app.electron.svwb-analyzer",
@@ -54,9 +58,20 @@
     },
     "win": {
       "target": "NSIS",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "files": [
+        "out/**",
+        "!node_modules/better-sqlite3/prebuilds/darwin-arm64.node",
+        "!node_modules/better-sqlite3/prebuilds/darwin-x64.node",
+        "!node_modules/better-sqlite3/prebuilds/linux-arm64.node",
+        "!node_modules/better-sqlite3/prebuilds/linux-x64.node",
+        "!node_modules/better-sqlite3/prebuilds/linuxmusl-arm64.node",
+        "!node_modules/better-sqlite3/prebuilds/linuxmusl-x64.node",
+        "!node_modules/better-sqlite3/prebuilds/win32-arm64.node"
+      ]
     },
     "nsis": {
+      "artifactName": "SVWB-Analyzer-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
@@ -68,10 +83,15 @@
       "repo": "SVWB-Analyzer",
       "releaseType": "release"
     },
+    "electronLanguages": [
+      "en-US",
+      "zh-TW"
+    ],
     "files": [
       "out/**",
-      "node_modules/**",
-      "!svwb-capture-tool.exe"
+      "!node_modules/better-sqlite3/deps/**",
+      "!node_modules/better-sqlite3/src/**",
+      "!node_modules/tesseract.js-core/*.wasm.js"
     ],
     "extraResources": [
       "tools/svwb-capture-tool.exe",
@@ -108,33 +128,32 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.1",
     "@electron-toolkit/utils": "^4.0.0",
-    "@emotion/react": "^11.14.0",
-    "@emotion/styled": "^11.14.1",
-    "@mui/icons-material": "^7.2.0",
-    "@mui/material": "^7.2.0",
-    "@mui/x-date-pickers": "^8.9.2",
-    "@tanstack/react-virtual": "^3.14.10",
     "better-sqlite3": "^13.0.3",
-    "chart.js": "^4.5.0",
-    "date-fns": "^4.1.0",
     "electron-store": "^10.1.0",
     "electron-updater": "^6.3.9",
     "jszip": "^3.10.1",
     "kysely": "^0.29.5",
     "node-window-manager": "^2.2.4",
-    "react-chartjs-2": "^5.3.0",
-    "tesseract.js": "^6.0.1",
-    "tree-kill": "^1.2.2"
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.0.0",
     "@electron-toolkit/tsconfig": "^1.0.1",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/icons-material": "^7.2.0",
+    "@mui/material": "^7.2.0",
+    "@mui/x-date-pickers": "^8.9.2",
+    "@playwright/test": "^1.62.1",
+    "@tanstack/react-virtual": "^3.14.10",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.14.1",
     "@types/react": "^19.1.1",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "chart.js": "^4.5.0",
+    "date-fns": "^4.1.0",
     "dotenv-cli": "^10.0.0",
     "electron": "^35.1.5",
     "electron-builder": "^25.1.8",
@@ -145,6 +164,7 @@
     "eslint-plugin-react-refresh": "^0.4.19",
     "prettier": "^3.5.3",
     "react": "^19.1.0",
+    "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.2.6",

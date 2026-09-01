@@ -62,7 +62,14 @@ jobs:
       # `svwb-engine migrate` - the single owner of migrations, so the suite
       # exercises the same path the app does (tests/helpers/db.ts). That needs
       # the binary to exist before `pnpm test`, not just before vision:verify.
-      # rust-cache makes the rebuild below a no-op.
+      #
+      # This step costs ~53s even on a full cache hit, and that is expected:
+      # rust-cache restores the dependency artifacts but deletes this
+      # workspace's own crates before saving, so all four are always rebuilt.
+      # With `lto = true` and `codegen-units = 1` (tools/Cargo.toml) the link
+      # is the bulk of it. Do not "fix" this by widening the cache - the
+      # artifacts it would need to keep are the ones rust-cache prunes on
+      # purpose.
       - name: Build the engine
         run: pnpm engine:build
 

@@ -15,3 +15,21 @@ members = ["capture", "engine", "vision-native", "vision-node-addon"]
 lto = true
 codegen-units = 1
 strip = true
+
+# `cargo test --release` inherited the settings above, which meant a fat-LTO
+# link for each of the ~16 test and bin executables the workspace produces -
+# 21s locally for `--no-run`, against 9s without it. The shipped binaries still
+# want fat LTO, so the tests get their own profile instead of the release one
+# being weakened.
+#
+# Nothing consumes what this profile builds: everything that runs the engine
+# (src/main, the parity check, build.win.extraResources) reads
+# `target/release/svwb-engine.exe`, which `engine:build` produces - and
+# `vision:verify` runs `engine:build` before the checks that need it. The cost
+# is a third artifact set in `target/`, so the first CI run after this lands is
+# slower, not faster.
+[profile.release-test]
+inherits = "release"
+lto = false
+codegen-units = 16
+strip = false
