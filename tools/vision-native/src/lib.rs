@@ -70,8 +70,39 @@ const TEXTURED_ROW_SD: f64 = 8.0;
 /// for hundreds of rows, so requiring a short run rejects that noise.
 const TEXTURED_RUN: u32 = 4;
 
-/// Height of the window chrome (border plus title bar) included in a windowed
-/// capture, or 0 when the capture starts straight into the game.
+/// How far down the frame the scan for the start of the picture may go.
+///
+/// This is not a tidiness limit, it is the supported range of everything above
+/// the game: the window's title bar, and the letterbox the client paints when
+/// the display is taller than 16:9. Whatever is not scanned stays in frame, and
+/// the aspect crop then trims the BOTTOM - so an unrecognised top band shifts
+/// every calibrated window down by its own height, silently.
+///
+/// The previous value was `64.min(rows / 8)`, and both halves of that were too
+/// small to state the range honestly:
+///
+/// * The 64 put the boundary at 63px of chrome (measured: 62 and 63 normalise
+///   identically to a clean capture, 64 and above do not). A Win11 title bar is
+///   32px at 100% scaling, so a 4K or 2K display at **200% scaling** produces
+///   exactly 64 - a reachable setup that failed silently. 150% (45px) was fine.
+/// * `rows / 8` is EXACTLY the letterbox a 4:3 display gets (bar height is
+///   `rows * 0.125` at 4:3), so the scan stopped one row short of the very case
+///   it needed to cover. 1600x1200 lost the `result` banner completely.
+///
+/// 320 covers every common shape: 16:10 needs `0.05 * rows` (120px at
+/// 3840x2400), 5:4 needs `0.148 * rows` (178px at 1920x1200 5:4), 4:3 needs
+/// `0.125 * rows` (270px at 2880x2160). The `rows / 4` guard keeps the scan out
+/// of the picture on a small capture. Cost is nil in the normal case: the scan
+/// stops at the first textured run, and fullscreen 16:9 returns before it.
+const MAX_CHROME_ROWS: u32 = 320;
+
+/// Height of whatever sits above the picture - window chrome in a windowed
+/// capture, the client's own letterbox on a display taller than 16:9, or both -
+/// and 0 when the capture starts straight into the game.
+///
+/// The name is historical: it was written for title bars, and the letterbox
+/// turned out to be the same measurement taken for the same reason. See
+/// [`MAX_CHROME_ROWS`] for how far down it looks and why.
 ///
 /// The discriminator is **texture, never brightness**. Window chrome is painted
 /// in flat bands, so every such row has near-zero variance across the sampled
@@ -101,7 +132,7 @@ pub fn detect_title_bar_height(gray: &GrayImage) -> u32 {
         return 0;
     }
 
-    let max_rows = 64.min(rows / 8);
+    let max_rows = MAX_CHROME_ROWS.min(rows / 4);
     if max_rows == 0 {
         return 0;
     }
@@ -521,6 +552,44 @@ mod tests {
             detect_title_bar_height(&windowed_with_title_bar(240, 31)),
             31
         );
+    }
+
+    /// A Win11 title bar is 32px at 100% scaling, so a 2K or 4K display at 200%
+    /// hands over 64 - the exact height the old `64.min(rows / 8)` limit could
+    /// not reach, and a setup a user can arrive at through the display settings
+    /// alone. 150% (45px) always worked; this is the pair that did not.
+    #[test]
+    fn a_title_bar_at_200_percent_scaling_is_still_found() {
+        for bar in [45, 64, 96] {
+            assert_eq!(
+                detect_title_bar_height(&windowed_with_title_bar(240, bar)),
+                bar,
+                "a {bar}px title bar"
+            );
+        }
+    }
+
+    /// The letterbox a 4:3 display gets is `rows / 8` exactly, which is where
+    /// the old limit stopped - so the one shape that most needed the scan was
+    /// the one it could not reach. 1600x1200 lost the result banner outright.
+    #[test]
+    fn a_letterbox_taller_than_a_title_bar_is_found() {
+        // 4:3, 16:10 and 5:4 at their common sizes, as (width, height).
+        for (w, h) in [(1600u32, 1200u32), (1920, 1440), (1920, 1200), (1280, 1024)] {
+            let bar = (h - (w as f64 / GAME_ASPECT_RATIO) as u32) / 2;
+            let mut img = GrayImage::new(w, h);
+            for y in bar..(h - bar) {
+                for x in 0..w {
+                    let v = if (x / 4 + y / 4) % 2 == 0 { 30 } else { 190 };
+                    img.put_pixel(x, y, image::Luma([v]));
+                }
+            }
+            assert_eq!(
+                detect_title_bar_height(&img),
+                bar,
+                "{w}x{h} letterboxes the picture by {bar}px"
+            );
+        }
     }
 
     #[test]

@@ -442,3 +442,81 @@ fn the_windowed_2pick_result_screen_also_reads_as_ranked_at_first() {
     assert!(late.two_pick, "9s later the carousel has turned");
     assert_eq!(late.final_result, Some(true));
 }
+
+/// Whatever sits above the picture has to be measured away, whether it is a
+/// window's title bar or the letterbox a display taller than 16:9 gets.
+///
+/// It is not scanned, it stays in frame, and since the aspect crop then trims
+/// the BOTTOM, every calibrated window ends up shifted down by the height of
+/// the band - with no error, just scores that quietly stop clearing their
+/// thresholds. Both shapes below were unreachable before: a 4:3 letterbox is
+/// `rows / 8` exactly, which is where the scan used to stop, and a Win11 title
+/// bar at 200% display scaling is 64px against a limit of 63.
+///
+/// The frames are the 2560x1440 fixture with bands added, so "correct" is
+/// exactly the position the untouched frame produces - no tolerance to argue
+/// about.
+#[test]
+fn a_band_above_the_picture_does_not_move_the_calibrated_windows() {
+    use image::{DynamicImage, Rgba, RgbaImage};
+
+    let source = image::open(
+        repo_root()
+            .join("tests/fixtures/captures/ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png"),
+    )
+    .expect("the 2560 fixture must be readable");
+
+    let banded = |top: u32, bottom: u32, fill: Rgba<u8>| {
+        let src = source.to_rgba8();
+        let (w, h) = (src.width(), src.height());
+        let mut out = RgbaImage::from_pixel(w, h + top + bottom, fill);
+        image::imageops::replace(&mut out, &src, 0, i64::from(top));
+        DynamicImage::ImageRgba8(out)
+    };
+
+    let probe = |frame: &Frame| {
+        let hit = |set, window| {
+            store()
+                .best_in(frame, set, window)
+                .map(|h| (h.name, (h.x, h.y), h.score))
+        };
+        (
+            hit(calibration::templates::RESULT, calibration::RESULT),
+            hit(calibration::templates::MP_GAIN, calibration::MP_GAIN_ANCHOR),
+        )
+    };
+
+    let (result, mp_gain) = probe(&Frame::from_image(&source));
+    assert!(result.is_some() && mp_gain.is_some(), "the untouched frame must read");
+
+    let black = Rgba([0, 0, 0, 255]);
+    for (label, frame) in [
+        // A Win11 title bar at 200% scaling: 32px * 2, opaque and flat.
+        ("a 64px title bar", banded(64, 0, Rgba([255, 255, 255, 255]))),
+        // 2560x1920 is 4:3, so the client letterboxes by 240px top and bottom.
+        ("a 4:3 letterbox", banded(240, 240, black)),
+        // 2560x1600 is 16:10 - the shape a 1920x1200 display has.
+        ("a 16:10 letterbox", banded(80, 80, black)),
+        // Both at once: windowed on a display taller than 16:9.
+        ("a title bar over a letterbox", {
+            let letterboxed = banded(80, 80, black);
+            let src = letterboxed.to_rgba8();
+            let mut out =
+                RgbaImage::from_pixel(src.width(), src.height() + 64, Rgba([255, 255, 255, 255]));
+            image::imageops::replace(&mut out, &src, 0, 64);
+            DynamicImage::ImageRgba8(out)
+        }),
+    ] {
+        let (banded_result, banded_mp_gain) = probe(&Frame::from_image(&frame));
+        assert_eq!(
+            banded_result.as_ref().map(|h| (&h.0, h.1)),
+            result.as_ref().map(|h| (&h.0, h.1)),
+            "{label}: the result banner moved"
+        );
+        assert_eq!(
+            banded_mp_gain.as_ref().map(|h| (&h.0, h.1)),
+            mp_gain.as_ref().map(|h| (&h.0, h.1)),
+            "{label}: the 獲得MP label moved"
+        );
+    }
+}
