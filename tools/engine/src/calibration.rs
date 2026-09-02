@@ -120,8 +120,23 @@ pub const CUSTOM_OTHER: Rect = Rect::new(1138, 64, 119, 93);
 ///
 /// Width covers the label's horizontal drift during the count-up animation
 /// (measured 1053 -> 1105; the 階級/BP group slides while the reward list above
-/// it stays put). True labels score 0.955-1.000 across every fixture; the worst
-/// false positive over a 110s recording plus the CPU fixtures is 0.467.
+/// it stays put).
+///
+/// The `bp` template holds the 「BP」 glyphs ONLY, and stops there on purpose.
+/// It used to be 64px wide and include the 「：」 that followed them, cut from a
+/// client that drew one. A later client dropped the colon and tightened the
+/// spacing, so that third of the template came to sit over the first digit of
+/// the cumulative BP - a digit that changes every match. True labels fell from
+/// 0.955-1.000 to 0.706-0.727 against a 0.7 threshold, i.e. a coin flip per
+/// frame, which cost three matches their mode AND their BP (`mode-guessed` plus
+/// `ranked-no-numbers`) before anyone noticed. Cut to the glyphs, the same
+/// frames score 0.976-1.000 and the old colon-era fixtures still score 0.955
+/// (win 0.976), so one template covers both clients.
+///
+/// Trimming raised the known 2Pick false positive from 0.771 to 0.963 - see
+/// `Machine::ranked`, which is why that signal is only `Strong`. Everything
+/// that is neither a BP nor a 2Pick result screen stays at or below 0.595
+/// across every fixture.
 pub const SCORE_SYSTEM_ANCHOR: Rect = Rect::new(990, 230, 250, 250);
 
 /// OCR windows for the MP result screen (Grand Master and above), measured from

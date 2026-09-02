@@ -278,9 +278,16 @@ pub struct Machine {
     ///
     /// It is worth being clear about what this does NOT fix, because the
     /// tempting conclusion is wrong. The anchor also fires on the 2Pick result
-    /// screen's own 「BP 100」 - 0.757-0.787, nine frames running - so no number
-    /// of frames tells the two apart. That is why the ranked signal is only
-    /// `Strong` and why the mode is decided on the versus screen instead.
+    /// screen's own 「BP 100」 - nine frames running - so no number of frames
+    /// tells the two apart. That is why the ranked signal is only `Strong` and
+    /// why the mode is decided on the versus screen instead.
+    ///
+    /// That false positive got LOUDER, not quieter, when the `bp` template was
+    /// trimmed to the 「BP」 glyphs to survive the colon's removal from the
+    /// client: 0.757-0.787 became 0.948-0.963. It was already over the 0.7
+    /// threshold, so nothing here changes in kind - but the margin this design
+    /// leans on is now gone, and `TWO_PICK_VERSUS_OWN` staying authoritative is
+    /// the only thing keeping a 2Pick match off the ranked path.
     cpu: Debounce,
     plaza: Debounce,
     custom: Debounce,

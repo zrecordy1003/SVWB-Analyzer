@@ -178,8 +178,8 @@ impl Machine {
             // system is in play. It may correct an earlier weaker guess.
             //
             // Strong, NOT authoritative, and measured that way. The 2Pick result
-            // screen shows its own 「BP 100」, which scores 0.757-0.787 against the
-            // 「BP :」 template - over the 0.7 threshold, and on 9 consecutive
+            // screen shows its own 「BP 100」, which scores 0.948-0.963 against the
+            // 「BP」 template - well over the 0.7 threshold, and on 9 consecutive
             // frames of `2pick-1920-fullscreen-win`. This probe cannot tell a
             // ranked result screen from a 2Pick one, so it must not be able to
             // overrule something that can. `TWO_PICK_VERSUS_OWN` is that

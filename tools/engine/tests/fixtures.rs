@@ -50,6 +50,9 @@ fn quiet_screens_stay_quiet() {
         "cpu-practice-1920-fullscreen/04-battle.png",
         "custom-1280-windowed-lose/04-battle-card-art.png",
         "ranked-bp-1280-windowed-lose/03-battle.png",
+        // 1920x1032 windowed, with the app's own HUD on screen: the only fixture
+        // at a client area that is wider than 16:9 once its title bar is off.
+        "ranked-bp-1920-windowed-no-colon/03-battle.png",
         "2pick-1920-fullscreen-lose/03-battle.png",
         "non-2pick-versus/01-ranked-fullscreen.png",
         "non-2pick-versus/02-ranked-windowed.png",
@@ -90,6 +93,34 @@ fn ranked_result_screens_report_their_score_system() {
     let mp_win = read_fixture("ranked-gm-mp-windowed/02-result-win-mp-cr.png");
     assert_eq!(mp_win.final_result, Some(true));
     assert_eq!(mp_win.score_system.map(|s| s.system), Some(ScoreSystem::Mp));
+
+    // A client that dropped the 「：」 after 「BP」. Asserted on the SCORE, not just
+    // on the system: the colon-era template still technically cleared 0.7 here
+    // (0.7057), so a presence-only assertion passed while three real matches lost
+    // both their mode and their BP. See this fixture's README.
+    let no_colon = read_fixture("ranked-bp-1920-windowed-no-colon/01-result-lose-bp.png");
+    assert_eq!(no_colon.final_result, Some(false));
+    let hit = no_colon.score_system.expect("the no-colon BP label must be found");
+    assert_eq!(hit.system, ScoreSystem::Bp);
+    assert!(
+        hit.score >= 0.90,
+        "the BP label scored {:.4}; a margin this thin is a coin flip per frame, \
+         and the label is only up for ~1.6s",
+        hit.score
+    );
+    // The offset every number window is measured from. A template whose top edge
+    // moved would still match here and silently shift every OCR window with it.
+    assert_eq!(hit.y, 387, "the anchor y feeds result_layout_offset directly");
+
+    // 0.4s later, as the label fades. The colon-era template found nothing at all
+    // on this frame - this one is a pass/fail regression, not a margin.
+    let fading =
+        read_fixture("ranked-bp-1920-windowed-no-colon/02-result-label-thinnest.png");
+    assert_eq!(
+        fading.score_system.map(|s| s.system),
+        Some(ScoreSystem::Bp),
+        "the fading label must still be readable"
+    );
 }
 
 /// The frame that motivated the hold: the WIN banner is already readable while
