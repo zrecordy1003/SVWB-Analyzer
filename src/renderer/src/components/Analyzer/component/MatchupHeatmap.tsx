@@ -235,15 +235,9 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
                 gap={1}
                 sx={{ pb: 0.75, mb: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}
               >
-                <Box
-                  sx={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '2px',
-                    bgcolor: row.color,
-                    flexShrink: 0
-                  }}
-                />
+                {/* 同一顆徽章，只是小一號：tooltip 的標題行講的是同一個職業，
+                    列首有圖而這裡是色塊會讀成兩件事。 */}
+                <ClassIcon id={row.key} size={18} tone={row.color} />
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
                   {row.label}
                 </Typography>
@@ -306,12 +300,26 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
       {/* ---------- 標題與 compact summary ---------- */}
       <Box display="flex" justifyContent="space-between" alignItems="baseline" gap={2} mb={1.5}>
         <Box display="flex" alignItems="baseline" gap={1} flexWrap="wrap">
-          <Box display="flex" alignItems="center" gap={0.75}>
-            <ClassIcon id={stats.myClass} size={26} />
-            <Typography variant="h6" sx={classTextSx(stats.myClass)}>
-              {classesMap[stats.myClass]?.label ?? stats.myClass}
-            </Typography>
-          </Box>
+          {/* 徽章走行內排版而不是自己一個 flex 盒：外面這排是 baseline 對齊的，
+              而一個 flex 盒的 baseline 取自它的第一個項目——那就是沒有文字的
+              徽章，於是整個「巫師」被連著徽章一起往上拉。放進 Typography 裡當
+              inline-block，這一行的 baseline 就回到文字本身，徽章則靠
+              `vertical-align: middle` 對齊字的中線。 */}
+          <Typography variant="h6" sx={classTextSx(stats.myClass)}>
+            <Box
+              component="span"
+              sx={{
+                display: 'inline-block',
+                width: 26,
+                height: 26,
+                verticalAlign: 'middle',
+                mr: 0.75
+              }}
+            >
+              <ClassIcon id={stats.myClass} size={26} />
+            </Box>
+            {classesMap[stats.myClass]?.label ?? stats.myClass}
+          </Typography>
           <Typography variant="h6" sx={{ color: 'rgba(255,255,255,0.9)' }}>
             對各職業勝率
           </Typography>

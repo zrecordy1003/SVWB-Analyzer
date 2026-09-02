@@ -46,6 +46,18 @@ export const GameMode = {
 export type GameMode = (typeof GameMode)[keyof typeof GameMode]
 
 /**
+ * 這些模式的牌是抽出來的，沒有「牌組」可言。
+ *
+ * 整個 UI 都不給它們牌組欄位（卡片不留那一行，編輯視窗不給選），存檔時也會把
+ * 殘留的牌組清掉。原本只住在 renderer 的 `map/classMap.ts`，搬到這裡是因為
+ * 手動新增紀錄的 IPC 也要做同一件事——寫入端不能只相信畫面已經清乾淨了。
+ */
+const MODES_WITHOUT_DECK = new Set<string>([GameMode.twoPick])
+
+export const isDecklessMode = (mode: string | null | undefined): boolean =>
+  !!mode && MODES_WITHOUT_DECK.has(mode)
+
+/**
  * Model shapes as the rest of the app consumes them - dates as `Date`, booleans
  * as booleans. SQLite stores epoch-millisecond integers and 0/1; the data layer
  * converts at the boundary exactly as the Prisma client used to, so nothing
@@ -124,6 +136,17 @@ export interface Deck {
   battleFormat: number | null
   keyCardId: number | null
   importedAt: Date | null
+  /**
+   * Deck versioning - see `resources/migrations/011_add_deck_family.sql` and
+   * docs/deck-versioning-plan.md.
+   *
+   * `familyId` ties the generations of one deck together; it equals `id` for a
+   * deck that has never been forked. `archivedAt` non-null means the row was
+   * "deleted" while matches still reference it: it stays out of pickers but
+   * keeps its matches and statistics.
+   */
+  familyId: number | null
+  archivedAt: Date | null
 }
 
 export interface DeckCategory {

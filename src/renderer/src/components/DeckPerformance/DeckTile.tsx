@@ -60,6 +60,8 @@ export type DeckTileData = {
   total: number
   wins: number
   winRate: number
+  /** The whole family was deleted while matches still referenced it (plan 3.3). */
+  archived: boolean
 }
 
 export default function DeckTile({
@@ -86,12 +88,17 @@ export default function DeckTile({
           onClick()
         }
       }}
+      data-testid={`deck-tile-${deck.id}`}
+      data-archived={deck.archived ? 'true' : undefined}
       sx={{
         position: 'relative',
         overflow: 'hidden',
         borderRadius: 2,
         cursor: 'pointer',
         minHeight: 150,
+        // 封存的牌組灰階：它還在（戰績要看得到），但已經不是一副在打的牌。
+        opacity: deck.archived ? 0.62 : 1,
+        filter: deck.archived ? 'grayscale(0.7)' : 'none',
         border: '1px solid rgba(255,255,255,0.08)',
         // The class tint is the base layer, so a deck without art still reads
         // as its class rather than as an empty box.
@@ -147,6 +154,15 @@ export default function DeckTile({
           <Typography fontWeight={800} noWrap sx={{ flex: 1, minWidth: 0 }} title={deck.name}>
             {deck.name}
           </Typography>
+          {deck.archived && (
+            <Chip
+              size="small"
+              variant="outlined"
+              label="已刪除"
+              data-testid="deck-archived-badge"
+              sx={{ height: 20, fontSize: 11, flexShrink: 0, color: 'text.secondary' }}
+            />
+          )}
           {(archetype || deck.categoryName) && (
             <Chip
               size="small"

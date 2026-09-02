@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { sql, type Expression, type ExpressionBuilder, type SqlBool } from 'kysely'
-import type { ClassName, Deck, GameMode, Match, Tag } from '../../shared/domain.js'
+import { ClassName, isDecklessMode } from '../../shared/domain.js'
+import type { Deck, GameMode, Match, PlayOrder, Tag } from '../../shared/domain.js'
 import {
   deckFromRow,
   getDb,
@@ -14,6 +15,7 @@ import {
 import { provenancePatch, type ProvenanceSource } from '../data/provenance.js'
 import { summariseProvenance, type ProvenanceStats } from '../data/provenanceStats.js'
 import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
+import { myDeckIdsExpression, type MyDeckScope } from './deckScope.js'
 import { broadcast } from '../utils/broadcast.js'
 
 /**
@@ -29,6 +31,21 @@ function notifyMatchesChanged(): void {
   broadcast('matches:needRefetch')
 }
 
+/**
+ * A rejection the caller is meant to have prevented.
+ *
+ * Electron wraps a thrown Error's message on its way through `invoke`, so this
+ * is not a channel for user-facing copy - the form does that. It carries a
+ * `code` for the renderer to branch on and a message that is worth having in a
+ * log, and it exists so the write path validates rather than trusting that the
+ * UI already did.
+ */
+function invalid(code: string, message: string): Error {
+  const err = new Error(`${code}: ${message}`)
+  ;(err as Error & { code?: string }).code = code
+  return err
+}
+
 export type QueryPayload = {
   myClassIds?: ClassName[]
   oppoClassIds?: ClassName[]
@@ -37,6 +54,8 @@ export type QueryPayload = {
   start?: string | number | Date | null
   end?: string | number | Date | null
   myDeckIds?: number[] // 只篩我方牌組；若要同時含對方，改 OR
+  /** 預設 'family'：選中的牌組展開成它整個家族的版本。見 deckScope.ts。 */
+  myDeckScope?: MyDeckScope
   tagIds?: number[]
   note?: 'any' | 'with' | 'without'
   crMin?: number | null
@@ -116,9 +135,10 @@ function computeDateRangeByKey(p: Pick<QueryPayload, 'rangeKey' | 'start' | 'end
  * The one place the list filters become SQL. Every list surface - count, the
  * keyset page, the offset pages - goes through this, so a filter cannot mean
  * one thing in the count and another in the rows it counts. Returned as
- * expressions so each call site keeps its own SELECT shape.
+ * expressions so each call site keeps its own SELECT shape. Exported for
+ * `cardStats.ts`, which scopes its card joins to the same match set.
  */
-function filterExpressions(
+export function filterExpressions(
   eb: ExpressionBuilder<Database, 'Match'>,
   p: QueryPayload
 ): Expression<SqlBool>[] {
@@ -132,7 +152,9 @@ function filterExpressions(
   if (start) exprs.push(eb('playedAt', '>=', toMs(start)))
   if (end) exprs.push(eb('playedAt', '<=', toMs(end)))
 
-  if (p.myDeckIds?.length) exprs.push(eb('my_deckId', 'in', p.myDeckIds))
+  // 預設展開成家族：清單上挑的是「這副牌」（當前版本的 id），而它 fork 之前的
+  // 對局指著舊版本的 id。逐 id 比對會讓那些對局消失。
+  if (p.myDeckIds?.length) exprs.push(myDeckIdsExpression(eb, p.myDeckIds, p.myDeckScope))
   // 若要「我方或對方任一」命中，改成 or([my_deckId in, oppo_deckId in])
 
   if (p.tagIds?.length) {
@@ -512,6 +534,7 @@ export function registerMatchesIpc(): void {
         start?: string | number | Date
         end?: string | number | Date
         myDeckIds?: number[]
+        myDeckScope?: MyDeckScope
         tagIds?: number[]
         crMin?: number
         crMax?: number
@@ -646,6 +669,93 @@ export function registerMatchesIpc(): void {
     return match ? toPivotShape(match) : null
   })
 
+  /**
+   * 手動新增一筆紀錄。
+   *
+   * 為了兩種使用者而存在：辨識沒抓到、以及想把工具啟用前的舊資料補進來的人。
+   * 兩者都是在填一段已經發生過的事，所以這裡不套用任何「現在」的預設值——
+   * `playedAt` 由呼叫端給，不給就是現在，年月日跟著它算，不是跟著時鐘算。
+   *
+   * `source: 'manual'` 是這個 handler 唯一寫死的欄位，也是它存在的另一半理由：
+   * `provenanceStats` 早就分開數 engine 與 manual，手打進來的資料不該混進辨識
+   * 準確率的分母裡。相對地，`observed` 與 `edited_fields` 一律留空——那兩欄記
+   * 的是「引擎看到什麼、人改了什麼」，而這一筆從頭到尾沒有引擎的觀測可言，寫
+   * 一份空快照進去只會讓後面的統計以為它被改過。
+   *
+   * 驗證放在這裡而不是只放在表單：`play_order`、`my_class`、`oppo_class` 三個
+   * 欄位在 schema 是 NOT NULL，靠畫面擋等於把資料完整性交給 UI。
+   */
+  ipcMain.handle('matches:create', async (_e, payload) => {
+    const input = (payload ?? {}) as Record<string, unknown>
+
+    const asClass = (value: unknown): ClassName | null =>
+      typeof value === 'string' && value in ClassName ? (value as ClassName) : null
+
+    const my_class = asClass(input.my_class)
+    const oppo_class = asClass(input.oppo_class)
+    if (!my_class || !oppo_class) throw invalid('MISSING_CLASS', '雙方職業都要選')
+
+    const play_order =
+      input.play_order === 'first' || input.play_order === 'second'
+        ? (input.play_order as PlayOrder)
+        : null
+    if (!play_order) throw invalid('MISSING_PLAY_ORDER', '先攻／後攻要選一個')
+
+    const playedAtMs = input.playedAt == null ? nowMs() : toMs(input.playedAt as string | number)
+    if (!Number.isFinite(playedAtMs)) throw invalid('BAD_PLAYED_AT', '對戰時間看不出來是什麼時候')
+    const playedAt = new Date(playedAtMs)
+
+    const mode = (typeof input.mode === 'string' ? input.mode : null) as GameMode | null
+    // 抽牌模式沒有牌組。表單已經不給選，但寫入端自己也要清一次。
+    const deckless = isDecklessMode(mode)
+
+    const asInt = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isFinite(value) ? Math.trunc(value) : null
+
+    const created = await db.transaction().execute(async (tx) => {
+      const row = await tx
+        .insertInto('Match')
+        .values({
+          result: input.result === null || input.result === undefined ? null : input.result ? 1 : 0,
+          play_order,
+          my_class,
+          oppo_class,
+          mode,
+          bp: asInt(input.bp),
+          current_cr: asInt(input.current_cr),
+          delta_cr: asInt(input.delta_cr),
+          durationTime: asInt(input.durationTime),
+          my_deckId: deckless ? null : asInt(input.my_deckId),
+          oppo_deckId: deckless ? null : asInt(input.oppo_deckId),
+          note: typeof input.note === 'string' && input.note.trim() ? input.note : null,
+          playedAt: playedAtMs,
+          year: playedAt.getFullYear(),
+          month: playedAt.getMonth() + 1,
+          day: playedAt.getDate(),
+          updatedAt: nowMs(),
+          source: 'manual'
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow()
+
+      const tagIds = Array.isArray(input.tagIds)
+        ? [...new Set(input.tagIds.filter((id): id is number => typeof id === 'number'))]
+        : []
+      if (tagIds.length) {
+        await tx
+          .insertInto('MatchTag')
+          .values(tagIds.map((tagId) => ({ matchId: row.id, tagId })))
+          .execute()
+      }
+
+      return row
+    })
+
+    const [reloaded] = await loadWithRelations([created.id])
+    notifyMatchesChanged()
+    return reloaded ? toPivotShape(reloaded) : null
+  })
+
   // 編輯（含 tags，同步集合；內含樂觀鎖）
   ipcMain.handle('matches:updateWithExtras', async (_e, payload) => {
     const {
@@ -662,7 +772,9 @@ export function registerMatchesIpc(): void {
       my_deckId,
       oppo_deckId,
       note,
-      playedAt
+      playedAt,
+      current_cr,
+      delta_cr
     } = payload
 
     const current = await provenanceSourceOf(id)
@@ -677,6 +789,10 @@ export function registerMatchesIpc(): void {
     if (typeof bp !== 'undefined') values.bp = bp
     if (typeof durationTime !== 'undefined') values.durationTime = durationTime
     if (typeof note !== 'undefined') values.note = note
+    // The edit dialog has always had CR fields; the payload never carried them,
+    // so every CR correction was silently thrown away on save.
+    if (typeof current_cr !== 'undefined') values.current_cr = current_cr
+    if (typeof delta_cr !== 'undefined') values.delta_cr = delta_cr
     if (typeof my_deckId !== 'undefined') values.my_deckId = my_deckId ?? null
     if (typeof oppo_deckId !== 'undefined') values.oppo_deckId = oppo_deckId ?? null
 

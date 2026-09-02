@@ -104,6 +104,22 @@ function Segment({ segment }: { segment: CardTextSegment }): React.JSX.Element {
   )
 }
 
+/**
+ * The card text on its own, for anything that shows a card in full rather than
+ * on hover (the 卡片 page's drill-down). Same parsing, same tones, so a card
+ * reads identically wherever its text is printed.
+ */
+export function CardTextBlocks({ skillText }: { skillText: string | null }): React.JSX.Element {
+  const segments = React.useMemo(() => parseCardText(skillText), [skillText])
+  return (
+    <>
+      {segments.map((segment, i) => (
+        <Segment key={i} segment={segment} />
+      ))}
+    </>
+  )
+}
+
 export type CardTooltipCard = {
   name: string
   cost: number | null

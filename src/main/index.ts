@@ -533,6 +533,9 @@ app.whenReady().then(async () => {
   const { registerCardsIpc } = await import('./ipc/cards.js')
   registerCardsIpc()
 
+  const { registerCardStatsIpc } = await import('./ipc/cardStats.js')
+  registerCardStatsIpc()
+
   // Fill the card pool if we have never done it, so decks and the builder are
   // populated on first run instead of showing a button nobody knew to press.
   //

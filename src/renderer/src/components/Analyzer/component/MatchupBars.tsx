@@ -16,6 +16,7 @@ import { Box, Button, MenuItem, Select, Tooltip, Typography } from '@mui/materia
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
 
+import ClassIcon from '@renderer/components/Common/ClassIcon'
 import EmptyState from '@renderer/components/Common/EmptyState'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 import { useFlipRows } from '@renderer/components/Common/useFlipRows'
@@ -238,7 +239,8 @@ function MatchupBarRow({
         gap={1}
         sx={{ pb: 0.75, mb: 0.75, borderBottom: '1px solid', borderColor: 'divider' }}
       >
-        <Box sx={{ width: 8, height: 8, borderRadius: '2px', bgcolor: row.color, flexShrink: 0 }} />
+        {/* 徽章帶著 `tone`：取不到官方圖時退回同一顆色塊，長相與從前相同。 */}
+        <ClassIcon id={row.key} size={18} tone={row.color} />
         <Typography variant="body2" sx={{ fontWeight: 700 }}>
           {row.label}
         </Typography>
@@ -325,19 +327,14 @@ function MatchupBarRow({
           '&:hover': { bgcolor: 'rgba(255,255,255,0.035)' }
         }}
       >
-        {/* 職業，先後差接在它底下 - 那是這一列的結論，不是第三個並排的數字。 */}
-        <Box sx={{ minWidth: 0 }}>
-          <Box display="flex" alignItems="center" gap={1} sx={{ minWidth: 0 }}>
-            <Box
-              sx={{
-                width: 8,
-                height: 8,
-                borderRadius: '2px',
-                bgcolor: row.color,
-                opacity: row.games === 0 ? 0.3 : 1,
-                flexShrink: 0
-              }}
-            />
+        {/* 職業，先後差接在它底下 - 那是這一列的結論，不是第三個並排的數字。
+            徽章擺在兩行的外面而不是跟在職業名那一行：有先後差時這一格是兩行高，
+            徽章跟著第一行就會偏上，領著整塊反而是對著兩行的中線。 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+          {/* 和熱圖那一列同一顆徽章、同一個 `dim`：兩種畫法看同一份資料，
+              職業那一欄不該長得不一樣。沒有場次時一起壓暗。 */}
+          <ClassIcon id={row.key} tone={row.color} dim={row.games === 0} />
+          <Box sx={{ minWidth: 0 }}>
             <Typography
               variant="body2"
               noWrap
@@ -345,22 +342,21 @@ function MatchupBarRow({
             >
               {row.label}
             </Typography>
+            {showDelta && (
+              <Typography
+                variant="caption"
+                component="div"
+                // 用那一邊自己的顏色：這行講的是哪一邊有利，和下面兩條長條
+                // 是同一組編碼，不必再回頭對照哪條是先攻
+                sx={{
+                  ...NUMERIC,
+                  color: swing > 0 ? 'primary.main' : 'secondary.main'
+                }}
+              >
+                {swing > 0 ? '先攻優勢' : '後攻優勢'} +{Math.abs(swing).toFixed(1)}%
+              </Typography>
+            )}
           </Box>
-          {showDelta && (
-            <Typography
-              variant="caption"
-              component="div"
-              // 用那一邊自己的顏色：這行講的是哪一邊有利，和下面兩條長條
-              // 是同一組編碼，不必再回頭對照哪條是先攻
-              sx={{
-                ...NUMERIC,
-                pl: 2,
-                color: swing > 0 ? 'primary.main' : 'secondary.main'
-              }}
-            >
-              {swing > 0 ? '先攻優勢' : '後攻優勢'} +{Math.abs(swing).toFixed(1)}%
-            </Typography>
-          )}
         </Box>
 
         <Box

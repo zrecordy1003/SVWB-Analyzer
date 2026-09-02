@@ -5,6 +5,13 @@ import type { RangeKey } from '@shared/types'
 // 讓既有的 import 位置不用跟著搬家。
 import { CR_MAX_BOUND, CR_MIN_BOUND, clampCr } from '../Common/filters/crBounds'
 import { RANGE_LABELS, rangeChipLabel } from '../Common/filters/rangeLabels'
+import {
+  deckSelectionChipLabel,
+  emptyDeckSelection,
+  resolveDeckSelection,
+  type DeckSelection
+} from '../Common/filters/deckSelection'
+import type { DeckFamily, VersionLike } from '../DeckCards/deckVersions'
 
 export { CR_MAX_BOUND, CR_MIN_BOUND, clampCr, RANGE_LABELS }
 
@@ -28,7 +35,12 @@ export type AnalyzerFilters = {
   rangeKey: RangeKey
   startDate: Date | null
   endDate: Date | null
-  deckIds: number[]
+  /**
+   * Whole decks and single versions, kept apart until the query is built -
+   * see `deckSelection.ts`. Resolved to concrete deck row ids in
+   * `buildQueryParams`, so main never sees the two levels.
+   */
+  decks: DeckSelection
   tagIds: number[]
   crEnabled: boolean
   crMin: number
@@ -55,7 +67,10 @@ export const SETTINGS_KEYS = {
   rangeKey: 'analyzer.rangeKey',
   startDate: 'analyzer.startDate',
   endDate: 'analyzer.endDate',
+  /** Single versions, by deck row id. */
   deckIds: 'analyzer.deckIds',
+  /** Whole decks, by family id. */
+  familyIds: 'analyzer.familyIds',
   tagIds: 'analyzer.tagIds',
   crEnabled: 'analyzer.crEnabled',
   crMin: 'analyzer.crMin',
@@ -72,7 +87,7 @@ export function defaultFilters(): AnalyzerFilters {
     rangeKey: '7d',
     startDate: today,
     endDate: today,
-    deckIds: [],
+    decks: emptyDeckSelection(),
     tagIds: [],
     crEnabled: false,
     crMin: 1650,
@@ -181,8 +196,20 @@ export function hydrateFilters(
   const end = asDate(readSetting(raw, SETTINGS_KEYS.endDate))
   if (end) base.endDate = end
 
-  const deckIds = asNumberArray(readSetting(raw, SETTINGS_KEYS.deckIds))
-  if (deckIds) base.deckIds = deckIds
+  const deckIds = asNumberArray(readSetting(raw, SETTINGS_KEYS.deckIds)) ?? []
+  const familyIds = asNumberArray(readSetting(raw, SETTINGS_KEYS.familyIds))
+  if (familyIds) {
+    base.decks = { familyIds, deckIds }
+  } else if (readSetting(raw, 'analyzer.deckScope') === 'deck') {
+    // Written by the build that had a whole-deck / single-version switch, set
+    // to single version: those ids were versions and still are.
+    base.decks = { familyIds: [], deckIds }
+  } else {
+    // Older still, or the switch at its default: a picked id meant "this deck,
+    // every version". It was the current version's id, not the family's; the
+    // component's pruning pass maps it onto its family once decks are loaded.
+    base.decks = { familyIds: deckIds, deckIds: [] }
+  }
   const tagIds = asNumberArray(readSetting(raw, SETTINGS_KEYS.tagIds))
   if (tagIds) base.tagIds = tagIds
 
@@ -225,7 +252,8 @@ export function toSettingsRecord(filters: AnalyzerFilters): Record<string, unkno
     [SETTINGS_KEYS.rangeKey]: filters.rangeKey,
     [SETTINGS_KEYS.startDate]: filters.startDate ? filters.startDate.toISOString() : null,
     [SETTINGS_KEYS.endDate]: filters.endDate ? filters.endDate.toISOString() : null,
-    [SETTINGS_KEYS.deckIds]: filters.deckIds,
+    [SETTINGS_KEYS.deckIds]: filters.decks.deckIds,
+    [SETTINGS_KEYS.familyIds]: filters.decks.familyIds,
     [SETTINGS_KEYS.tagIds]: filters.tagIds,
     [SETTINGS_KEYS.crEnabled]: filters.crEnabled,
     [SETTINGS_KEYS.crMin]: filters.crMin,
@@ -279,8 +307,8 @@ export function advancedFilterChips(filters: AnalyzerFilters): AdvancedFilterChi
   const rangeLabel = rangeChipLabel(filters.rangeKey, filters.startDate, filters.endDate)
   if (rangeLabel) chips.push({ key: 'range', label: rangeLabel })
 
-  if (filters.deckIds.length)
-    chips.push({ key: 'decks', label: `${filters.deckIds.length} 個牌組` })
+  const deckLabel = deckSelectionChipLabel(filters.decks)
+  if (deckLabel) chips.push({ key: 'decks', label: deckLabel })
   if (filters.tagIds.length) chips.push({ key: 'tags', label: `${filters.tagIds.length} 個標籤` })
   if (filters.crEnabled) chips.push({ key: 'cr', label: `CR ${filters.crMin}–${filters.crMax}` })
 
@@ -299,7 +327,7 @@ export function clearAdvancedFilter(key: AdvancedFilterKey): Partial<AnalyzerFil
     case 'range':
       return { rangeKey: 'all' }
     case 'decks':
-      return { deckIds: [] }
+      return { decks: emptyDeckSelection() }
     case 'tags':
       return { tagIds: [] }
     case 'cr':
@@ -336,7 +364,7 @@ export function enableAdvancedFilter(key: AdvancedFilterKey): Partial<AnalyzerFi
 
 /** Every advanced condition off at once. */
 export function clearAllAdvancedFilters(): Partial<AnalyzerFilters> {
-  return { rangeKey: 'all', deckIds: [], tagIds: [], crEnabled: false }
+  return { rangeKey: 'all', decks: emptyDeckSelection(), tagIds: [], crEnabled: false }
 }
 
 /** What a battle - live or just recorded - says about class and mode. */
@@ -377,7 +405,9 @@ export function followBattlePatch(
 export type WinrateQueryParams = {
   myClass: ClassName
   gameMode: ModeFilter
+  /** Concrete deck row ids - families already expanded. Always paired with `'deck'`. */
   myDeckIds: number[]
+  myDeckScope: 'deck'
   tagIds: number[]
   rangeKey?: RangeKey
   start?: Date
@@ -387,12 +417,23 @@ export type WinrateQueryParams = {
   limit?: number
 }
 
-/** Filter state -> the exact argument object `getRankedWinrate` expects. */
-export function buildQueryParams(filters: AnalyzerFilters): WinrateQueryParams {
+/**
+ * Filter state -> the exact argument object `getRankedWinrate` expects.
+ *
+ * `families` is what the deck picks resolve against (a whole deck -> every
+ * version's id). A caller whose decks have not loaded yet should wait rather
+ * than call this: an unresolvable pick comes out as an empty list, and an empty
+ * list reads as "every deck".
+ */
+export function buildQueryParams(
+  filters: AnalyzerFilters,
+  families: readonly DeckFamily<VersionLike>[] = []
+): WinrateQueryParams {
   const params: WinrateQueryParams = {
     myClass: filters.myClass,
     gameMode: filters.gameMode,
-    myDeckIds: filters.deckIds,
+    myDeckIds: resolveDeckSelection(filters.decks, families),
+    myDeckScope: 'deck',
     tagIds: filters.tagIds
   }
 

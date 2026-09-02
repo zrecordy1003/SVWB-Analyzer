@@ -55,6 +55,12 @@ export type QueryPayload = {
   start?: string | number | Date | null
   end?: string | number | Date | null
   myDeckIds?: number[]
+  /**
+   * How `myDeckIds` is read. `'family'` (the default) expands each id to every
+   * version of that deck; `'deck'` matches exactly those rows. See
+   * `main/ipc/deckScope.ts`.
+   */
+  myDeckScope?: 'family' | 'deck'
   tagIds?: number[]
   note?: 'any' | 'with' | 'without'
   crMin?: number | null

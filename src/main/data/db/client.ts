@@ -84,6 +84,16 @@ export interface DeckRow {
   keyCardId: number | null
   importedAt: number | null
   rawJson: string | null
+  /**
+   * Deck versioning. See `resources/migrations/011_add_deck_family.sql`.
+   *
+   * `familyId` links the generations of one deck; after migration 011 it is
+   * never NULL (writers backfill `familyId = id` right after insert, in the
+   * same transaction). `archivedAt` NULL means "not archived": archived rows
+   * keep their matches and stats but leave the pickers.
+   */
+  familyId: number | null
+  archivedAt: number | null
 }
 
 export interface DeckCardRow {
@@ -280,7 +290,8 @@ export function deckFromRow(row: Selectable<DeckRow>): Deck {
     sourceKind: row.sourceKind as Deck['sourceKind'],
     createdAt: toDate(row.createdAt),
     updatedAt: toDateOrNull(row.updatedAt),
-    importedAt: toDateOrNull(row.importedAt)
+    importedAt: toDateOrNull(row.importedAt),
+    archivedAt: toDateOrNull(row.archivedAt)
   }
 }
 

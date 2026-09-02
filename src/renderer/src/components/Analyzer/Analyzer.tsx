@@ -2,14 +2,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
-  Badge,
   Box,
-  Button,
-  Chip,
-  Collapse,
   Divider,
-  Drawer,
-  IconButton,
+  FormControlLabel,
   Paper,
   Switch,
   ToggleButton,
@@ -17,7 +12,6 @@ import {
   ToggleButtonGroup,
   Typography
 } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 import AlignHorizontalLeftIcon from '@mui/icons-material/AlignHorizontalLeft'
 import type { SvgIconComponent } from '@mui/icons-material'
@@ -26,7 +20,6 @@ import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
 import MilitaryTechOutlinedIcon from '@mui/icons-material/MilitaryTechOutlined'
 import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
-import TuneIcon from '@mui/icons-material/Tune'
 
 import { classes, modes } from '@renderer/map/classMap'
 import MatchupHeatmap from './component/MatchupHeatmap'
@@ -40,10 +33,19 @@ import {
   DeckEditor,
   RangeEditor,
   TagEditor,
-  type DeckLite,
   type TagLite
 } from '@renderer/components/Common/filters/FilterEditors'
+import {
+  buildDeckFamilyOptions,
+  deckSelectionSize,
+  emptyDeckSelection,
+  isEmptyDeckSelection,
+  pruneDeckSelection,
+  sameDeckSelection,
+  visibleDeckOptions
+} from '@renderer/components/Common/filters/deckSelection'
 import { useDecksTags } from '../../hooks/useDecksTags'
+import { groupDeckFamilies } from '@renderer/components/DeckCards/deckVersions'
 import {
   ADVANCED_FILTER_LABELS,
   MATCH_LIMIT_PRESETS,
@@ -65,17 +67,25 @@ import {
 import type { ClassName } from '@shared/domain'
 import type { BattleStatus, RankedWinrateByOpponent } from '@shared/types'
 
-/** 同一份資料的兩種畫法。 */
+/**
+ * 同一組篩選的兩種畫法：對手職業 × 先後攻的表格與長條。卡片維度不在這裡 -
+ * 它有自己的一頁（側欄「卡片」），問的是另一個問題（docs/card-stats-research.md）。
+ */
 type ChartKind = 'heatmap' | 'bars'
 const CHART_KIND_SETTING = 'analyzer.chartKind'
-/** 圖示先於文字被認出來，兩段之間的差別因此不必讀完才知道。 */
+/** 圖示先於文字被認出來，段與段之間的差別因此不必讀完才知道。 */
 const CHART_OPTIONS: Array<{ id: ChartKind; label: string; icon: React.ReactNode }> = [
   { id: 'heatmap', label: '對戰表', icon: <TableChartOutlinedIcon sx={{ fontSize: 16 }} /> },
   { id: 'bars', label: '長條圖', icon: <AlignHorizontalLeftIcon sx={{ fontSize: 16 }} /> }
 ]
+/**
+ * 舊版存過的 `'cards'` 對不到任何一段，落回預設的對戰表 - 存檔裡的值不該讓
+ * 分段切換空著。
+ */
+const isChartKind = (value: unknown): value is ChartKind =>
+  CHART_OPTIONS.some((option) => option.id === value)
 
 const CLASS_ORDER = classes.map((c) => String(c.id))
-const classOrderIndex = new Map<string, number>(CLASS_ORDER.map((id, idx) => [id, idx]))
 
 /** Injected into the pure hydrator so it never has to import the class map. */
 const FILTER_VOCABULARY: FilterVocabulary = {
@@ -110,7 +120,6 @@ const Analyzer: React.FC = () => {
   // The date range, decks, tags and CR live in the right-hand drawer; the
   // toolbar keeps class, mode and match count, plus a chip per active condition
   // that edits the same condition in place.
-  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   /**
    * 同一份資料的兩種看法：表格適合把數字讀出來，長條適合把差距看出來。
@@ -118,7 +127,24 @@ const Analyzer: React.FC = () => {
    */
   const [chartKind, setChartKind] = useState<ChartKind>('heatmap')
   const chartKindLoadedRef = useRef(false)
-  const { allDecks, allTags, refreshDecks, refreshTags } = useDecksTags()
+  const {
+    allDeckVersions,
+    allTags,
+    loading: decksLoading,
+    refreshDecks,
+    refreshTags
+  } = useDecksTags()
+
+  /**
+   * 刪掉的牌組預設不列（plan 3.3）。開關只管這一頁、不存檔：它是「我現在想找
+   * 一副退役的牌」，不是偏好。
+   */
+  const [showArchivedDecks, setShowArchivedDecks] = useState(false)
+  /**
+   * 上次存下的牌組篩選全部都已不存在時，數字會安靜地變成「所有牌組」。這個
+   * 提示就是為了不讓它安靜——值是被剔掉的 id 數，0 表示沒有事要說。
+   */
+  const [prunedDeckCount, setPrunedDeckCount] = useState(0)
 
   /**
    * The write gate. It opens as soon as the stored settings have been read -
@@ -160,7 +186,7 @@ const Analyzer: React.FC = () => {
       const raw = await window.settings.getAll().catch(() => null)
       if (!mounted) return
       const storedChart = raw ? readSetting(raw, CHART_KIND_SETTING) : undefined
-      if (storedChart === 'heatmap' || storedChart === 'bars') setChartKind(storedChart)
+      if (isChartKind(storedChart)) setChartKind(storedChart)
       chartKindLoadedRef.current = true
 
       const hydrated = hydrateFilters(raw, FILTER_VOCABULARY)
@@ -180,31 +206,43 @@ const Analyzer: React.FC = () => {
    * A deck or tag deleted since the last session would otherwise sit in the
    * saved ids forever, narrowing every query to nothing with no visible cause.
    * Prune once, on the first load that actually returned options.
+   *
+   * Pruned against EVERY version row, deleted ones included: a deleted deck or
+   * an old version still exists and still has matches, so a filter on it is
+   * still a real filter. Only ids that are genuinely gone (hard-deleted) come
+   * out. The same pass maps ids an older build stored onto their family
+   * (`pruneDeckSelection`).
+   *
+   * When every picked id is gone the filter would fall back to "all decks"
+   * while the chart still looks perfectly plausible - so that case is
+   * surfaced as a notice rather than left silent.
    */
   useEffect(() => {
     if (prunedRef.current) return
     if (!settingsLoadedRef.current) return
-    if (!allDecks?.length && !allTags?.length) return
+    if (!allDeckVersions?.length && !allTags?.length) return
     prunedRef.current = true
 
-    const deckIdSet = new Set((allDecks ?? []).map((d) => d.id))
+    const families = groupDeckFamilies(allDeckVersions ?? [])
     const tagIdSet = new Set((allTags ?? []).map((t) => t.id))
     setFilters((prev) => {
-      const deckIds = allDecks?.length
-        ? prev.deckIds.filter((id) => deckIdSet.has(id))
-        : prev.deckIds
+      const decks = allDeckVersions?.length ? pruneDeckSelection(prev.decks, families) : prev.decks
       const tagIds = allTags?.length ? prev.tagIds.filter((id) => tagIdSet.has(id)) : prev.tagIds
-      if (deckIds.length === prev.deckIds.length && tagIds.length === prev.tagIds.length)
-        return prev
-      return { ...prev, deckIds, tagIds }
+      if (sameDeckSelection(decks, prev.decks) && tagIds.length === prev.tagIds.length) return prev
+      if (!isEmptyDeckSelection(prev.decks) && isEmptyDeckSelection(decks)) {
+        setPrunedDeckCount(deckSelectionSize(prev.decks))
+      }
+      return { ...prev, decks, tagIds }
     })
-  }, [allDecks, allTags])
+  }, [allDeckVersions, allTags])
 
   /* ---------- 切換職業時清空已選牌組 ---------- */
   useEffect(() => {
     if (!settingsLoadedRef.current) return
     if (prevClassRef.current && prevClassRef.current !== filters.myClass) {
-      setFilters((prev) => (prev.deckIds.length ? { ...prev, deckIds: [] } : prev))
+      setFilters((prev) =>
+        isEmptyDeckSelection(prev.decks) ? prev : { ...prev, decks: emptyDeckSelection() }
+      )
     }
     prevClassRef.current = filters.myClass
   }, [filters.myClass])
@@ -226,11 +264,19 @@ const Analyzer: React.FC = () => {
     window.settings.set(CHART_KIND_SETTING, chartKind).catch(() => {})
   }, [chartKind])
 
+  /* ---------- 牌組 / 標籤選項 ---------- */
+  const deckFamilies = useMemo(() => groupDeckFamilies(allDeckVersions ?? []), [allDeckVersions])
+  /** Read by the long-lived `needRefetch` subscription, next to `filtersRef`. */
+  const familiesRef = useRef(deckFamilies)
+  useEffect(() => {
+    familiesRef.current = deckFamilies
+  }, [deckFamilies])
+
   /* ---------- 載入資料 ---------- */
   const runQuery = useCallback(async (f: AnalyzerFilters): Promise<void> => {
     const requestId = ++requestIdRef.current
     try {
-      const params = buildQueryParams(f)
+      const params = buildQueryParams(f, familiesRef.current)
       const stats = await window.matches.getRankedWinrate(params)
       // A slower earlier request must not overwrite a newer result.
       if (requestId !== requestIdRef.current) return
@@ -247,9 +293,12 @@ const Analyzer: React.FC = () => {
 
   useEffect(() => {
     if (!settingsLoadedRef.current) return
+    // A deck pick resolves against the deck list; before that list has arrived
+    // it would resolve to nothing, and nothing means "every deck".
+    if (decksLoading && !isEmptyDeckSelection(filters.decks)) return
     const handle = setTimeout(() => void runQuery(filters), QUERY_DEBOUNCE_MS)
     return () => clearTimeout(handle)
-  }, [filters, runQuery])
+  }, [decksLoading, deckFamilies, filters, runQuery])
 
   /* ---------- 跟隨對戰 ---------- */
 
@@ -314,45 +363,28 @@ const Analyzer: React.FC = () => {
     }
   }, [applyFollowPatch, runQuery])
 
-  /* ---------- 牌組 / 標籤選項 ---------- */
-  const deckOptionsSortedFiltered = useMemo<DeckLite[]>(() => {
-    const src = (allDecks ?? []) as DeckLite[]
-    const filtered = filters.myClass
-      ? src.filter((d) => d.classId != null && String(d.classId) === String(filters.myClass))
-      : src
-
-    const arr = [...filtered]
-    arr.sort((a, b) => {
-      const as = a.categorySort ?? 9999
-      const bs = b.categorySort ?? 9999
-      if (as !== bs) return as - bs
-
-      const an = (a.categoryName ?? '未分類').localeCompare(b.categoryName ?? '未分類')
-      if (an !== 0) return an
-
-      const ai = classOrderIndex.get(String(a.classId)) ?? 9999
-      const bi = classOrderIndex.get(String(b.classId)) ?? 9999
-      if (ai !== bi) return ai - bi
-
-      return a.name.localeCompare(b.name)
-    })
-    return arr
-  }, [allDecks, filters.myClass])
-
-  // Selection is derived from the persisted ids rather than held separately, so
-  // there is no window in which the two can disagree.
-  const selectedDecks = useMemo<DeckLite[]>(() => {
-    const idSet = new Set(filters.deckIds)
-    return ((allDecks ?? []) as DeckLite[]).filter((d) => idSet.has(d.id))
-  }, [allDecks, filters.deckIds])
+  /**
+   * 每副牌一個選項，版本掛在底下。全部的一份給已選的 chip 找名字（不受職業、
+   * 「顯示已刪除」影響，否則切一次職業就會把選好的牌組默默清掉），篩過的一份
+   * 才是清單裡列出來的。
+   */
+  const allDeckOptions = useMemo(
+    () => buildDeckFamilyOptions(deckFamilies, CLASS_ORDER),
+    [deckFamilies]
+  )
+  const deckOptions = useMemo(
+    () =>
+      visibleDeckOptions(allDeckOptions, {
+        classId: filters.myClass ? String(filters.myClass) : null,
+        showArchived: showArchivedDecks
+      }),
+    [allDeckOptions, filters.myClass, showArchivedDecks]
+  )
 
   const selectedTags = useMemo<TagLite[]>(() => {
     const idSet = new Set(filters.tagIds)
     return ((allTags ?? []) as TagLite[]).filter((t) => idSet.has(t.id))
   }, [allTags, filters.tagIds])
-
-  /* ---------- CR ---------- */
-  const crActive = filters.crEnabled
 
   /* ---------- 場數 ---------- */
 
@@ -390,11 +422,34 @@ const Analyzer: React.FC = () => {
       case 'decks':
         return (
           <DeckEditor
-            options={deckOptionsSortedFiltered}
-            value={selectedDecks}
+            options={deckOptions}
+            allOptions={allDeckOptions}
+            value={filters.decks}
             onOpen={refreshDecks}
-            onChange={(deckIds) => patchFilters({ deckIds })}
+            onChange={(decks) => patchFilters({ decks })}
             autoFocus={autoFocus}
+            header={
+              <Box display="flex" alignItems="center" justifyContent="flex-end" gap={1}>
+                <Box data-testid="analyzer-show-archived">
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        size="small"
+                        checked={showArchivedDecks}
+                        onChange={(event) => setShowArchivedDecks(event.target.checked)}
+                        inputProps={{ 'aria-label': '顯示已刪除的牌組' }}
+                      />
+                    }
+                    label={
+                      <Typography variant="caption" color="text.secondary">
+                        顯示已刪除的牌組
+                      </Typography>
+                    }
+                    sx={{ mr: 0 }}
+                  />
+                </Box>
+              </Box>
+            }
           />
         )
       case 'tags':
@@ -457,8 +512,6 @@ const Analyzer: React.FC = () => {
             onChange={(myClass) => patchFilters({ myClass, followBattle: false })}
             height={TOOLBAR_CONTROL_HEIGHT}
           />
-
-          <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
 
           {/* 模式：一個月不見得動一次，所以收成一個下拉。
               The backend has always understood `'all'`; it simply had no control. */}
@@ -523,20 +576,6 @@ const Analyzer: React.FC = () => {
               <Typography variant="body2">全部</Typography>
             </ToggleButton>
           </ToggleButtonGroup>
-
-          <Box sx={{ flex: 1, minWidth: 8 }} />
-
-          <Badge badgeContent={advancedChips.length} color="primary">
-            <Button
-              size="small"
-              variant={advancedChips.length ? 'contained' : 'outlined'}
-              startIcon={<TuneIcon />}
-              onClick={() => setAdvancedOpen(true)}
-              sx={{ height: TOOLBAR_CONTROL_HEIGHT, whiteSpace: 'nowrap' }}
-            >
-              進階篩選
-            </Button>
-          </Badge>
         </Box>
 
         {/* 進階條件列與分析器共用同一個元件，chip、＋ 選單與就地編輯的
@@ -550,7 +589,7 @@ const Analyzer: React.FC = () => {
           onEnable={(key) => patchFilters(enableAdvancedFilter(key))}
           onRemove={(key) => patchFilters(clearAdvancedFilter(key))}
           onClearAll={() => patchFilters(clearAllAdvancedFilters())}
-          editorWidth={(key) => (key === 'decks' ? 380 : 340)}
+          editorWidth={(key) => (key === 'decks' ? 420 : 340)}
           // 圖表切換貼在這一列右端：那段空白本來就是空的，而它和條件同屬
           // 「現在正在看什麼」，不值得為它多開一列。
           trailing={
@@ -565,6 +604,18 @@ const Analyzer: React.FC = () => {
           }
         />
       </Paper>
+
+      {/* The saved deck filter pointed at decks that no longer exist, so the
+          chart below is "all decks" - which looks like any other chart. Say so. */}
+      {prunedDeckCount > 0 && (
+        <Alert
+          severity="info"
+          data-testid="analyzer-deck-filter-pruned"
+          onClose={() => setPrunedDeckCount(0)}
+        >
+          上次選的 {prunedDeckCount} 個牌組已經不存在，目前顯示的是所有牌組的數字。
+        </Alert>
+      )}
 
       {/* A failed query keeps the previous chart, so say so explicitly. */}
       {error && (
@@ -589,146 +640,6 @@ const Analyzer: React.FC = () => {
           <MatchupBars data={analyzeData} />
         )}
       </Box>
-
-      {/* 進階篩選抽屜。條件即時生效，沒有「套用」按鈕 - 查詢本來就有 debounce，
-          多一顆按鈕只會多一種「以為改了其實沒按到」的狀態。 */}
-      <Drawer
-        anchor="right"
-        open={advancedOpen}
-        onClose={() => setAdvancedOpen(false)}
-        sx={{ zIndex: (theme) => theme.zIndex.modal + 1 }}
-        slotProps={{
-          paper: {
-            sx: {
-              width: 440,
-              maxWidth: 'calc(100vw - 32px)',
-              borderTopLeftRadius: 16,
-              borderBottomLeftRadius: 16
-            }
-          }
-        }}
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <Box
-            sx={{
-              px: 3,
-              pt: 3,
-              pb: 2,
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: 2
-            }}
-          >
-            <Box>
-              <Typography variant="h6" component="h2" fontWeight={700}>
-                進階篩選
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                時間區間、牌組、標籤與 CR
-              </Typography>
-            </Box>
-            <IconButton
-              size="small"
-              onClick={() => setAdvancedOpen(false)}
-              aria-label="關閉進階篩選"
-            >
-              <CloseIcon />
-            </IconButton>
-          </Box>
-
-          <Box
-            sx={{
-              flex: 1,
-              overflowY: 'auto',
-              px: 3,
-              py: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2.5
-            }}
-          >
-            {(['range', 'decks', 'tags'] as const).map((key) => {
-              const Icon = ADVANCED_FILTER_ICONS[key]
-              return (
-                <Box key={key}>
-                  <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
-                    <Icon fontSize="small" />
-                    <Typography variant="subtitle2" fontWeight={700}>
-                      {ADVANCED_FILTER_LABELS[key]}
-                    </Typography>
-                  </Box>
-                  {renderEditor(key)}
-                </Box>
-              )
-            })}
-
-            {/* CR keeps its own on/off header: unlike the others it has a range
-                even while switched off, so the switch is what says whether the
-                query carries it. */}
-            <Box
-              sx={{
-                border: '1px solid',
-                borderColor: crActive ? 'primary.main' : 'divider',
-                borderRadius: 2,
-                bgcolor: 'background.paper',
-                overflow: 'hidden',
-                transition: 'border-color .2s'
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 2,
-                  py: 1,
-                  cursor: 'pointer',
-                  userSelect: 'none'
-                }}
-                onClick={() => patchFilters({ crEnabled: !crActive })}
-              >
-                <MilitaryTechOutlinedIcon fontSize="small" />
-                <Typography sx={{ fontWeight: 600 }}>CR 篩選</Typography>
-                {crActive && (
-                  <Chip
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                    label={`${filters.crMin} – ${filters.crMax}`}
-                  />
-                )}
-                <Box flex={1} />
-                <Switch
-                  size="small"
-                  checked={crActive}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(_, checked) => patchFilters({ crEnabled: checked })}
-                />
-              </Box>
-
-              <Collapse in={crActive}>
-                <Box sx={{ px: 2, pb: 2 }}>{renderEditor('cr')}</Box>
-              </Collapse>
-            </Box>
-          </Box>
-
-          <Box sx={{ borderTop: 1, borderColor: 'divider', px: 3, py: 2 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
-              <Button
-                size="small"
-                disabled={advancedChips.length === 0}
-                onClick={() => patchFilters(clearAllAdvancedFilters())}
-              >
-                清除全部條件
-              </Button>
-              <Button variant="contained" size="small" onClick={() => setAdvancedOpen(false)}>
-                完成
-              </Button>
-            </Box>
-          </Box>
-        </Box>
-      </Drawer>
     </Box>
   )
 }

@@ -33,9 +33,16 @@ import SearchIcon from '@mui/icons-material/Search'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
+import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
+import NewDeckDrawer from '@renderer/components/DeckBuilder/NewDeckDrawer'
+import DeckVersionsDialog from '@renderer/components/DeckCards/DeckVersionsDialog'
+import type { CorrectVersionRequest } from '@renderer/components/DeckCards/DeckVersionsPanel'
+import { groupDeckFamilies, type DeckFamily } from '@renderer/components/DeckCards/deckVersions'
 import { classes, classesMap } from '@renderer/map/classMap'
 import type { ClassName } from '@shared/domain'
+import { useDecksTags, type DeckLite } from '@renderer/hooks/useDecksTags'
 
 /** BattleState 介面（來自事件） */
 interface BattleState {
@@ -51,13 +58,15 @@ type Err = { ok: false; error: string }
 type Res<T> = Ok<T> | Err
 
 /** DB 型別 */
-type DbDeckCategory = { id: string; name: string; sort?: number }
 type DbDeck = {
   id: number
   name: string
   class: ClassName
   categoryId: string | null
   isDefault?: boolean
+  familyId?: number | null
+  archivedAt?: string | number | Date | null
+  createdAt?: string | number | Date
 }
 
 /** UI 型別 */
@@ -69,6 +78,22 @@ type Deck = {
   classId: ClassId
   categoryId: string | null
   isDefault: boolean
+  /** 版本（docs/deck-versioning-plan.md）：這張卡片代表一個家族的當前版本。 */
+  familyId: number
+  versionCount: number
+  currentVersion: number
+}
+
+/** 一個版本列，給 `groupDeckFamilies` 與版本對話框用的形狀。 */
+type VersionDeck = {
+  id: number
+  name: string
+  classId: ClassId
+  categoryId: string | null
+  isDefault: boolean
+  familyId: number | null
+  archivedAt: number | null
+  createdAt: number
 }
 
 /** 分類顯示對應（可自訂字樣） */
@@ -86,6 +111,16 @@ const displayName = (s: string) => (s.length > 12 ? s.slice(0, 12) + '…' : s)
 /** 「全部」分類的虛擬 id */
 const ALL_CAT = '__ALL__'
 
+/**
+ * 這一頁的兩個疊層。
+ *
+ * 牌組管理自己的抽屜是 1500、編輯面板 1510（都是行內寫死的既有值），所以從這裡
+ * 開出來的東西要再高一階。建構器是 fullScreen 的 Dialog，預設只有 1300——不抬高
+ * 就會整片開在抽屜後面。
+ */
+const NEW_DECK_DRAWER_Z = 1520
+const DECK_BUILDER_Z = 1530
+
 type DeckManagerControlProps = {
   label?: string
   width?: number | string
@@ -101,22 +136,89 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
-  // DB 資料
-  const [categories, setCategories] = useState<DeckCategory[]>([])
-  const [decks, setDecks] = useState<Deck[]>([])
-  const [loadError, setLoadError] = useState<string | null>(null)
+  /**
+   * 牌組/分類資料來自 `useDecksTags` 共用的 module-level cache，而不是這個
+   * 元件自己的一份 state：這個抽屜常駐在 App 頂層不會 unmount，過去自己維護
+   * 一份 `decks` state 只在自己的新增/編輯流程後 reload，導致牌組戰績那邊
+   * 新增的牌組完全不會反映到這裡。改吃共用 cache 之後，main process 既有的
+   * `reference-data:changed` 廣播會讓所有訂閱者（含這裡）自動同步，而且多個
+   * 訂閱者共用同一次 IPC 查詢，不會各自重打一份。
+   */
+  const {
+    allDeckVersions,
+    allCategories,
+    reload: reloadDecks,
+    error: decksLoadError,
+    setDefaultOptimistic
+  } = useDecksTags()
 
-  // Tabs 狀態
+  const categories: DeckCategory[] = useMemo(
+    () => allCategories.map((c) => ({ id: c.id, name: c.name })),
+    [allCategories]
+  )
+
+  /** 全部版本，依家族分好。清單上的卡片是各家族的當前版本；版本對話框看這個。 */
+  const families: DeckFamily<VersionDeck>[] = useMemo(() => {
+    const versions: VersionDeck[] = allDeckVersions
+      .filter((d): d is DeckLite & { classId: ClassId } => d.classId != null)
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        classId: d.classId,
+        categoryId: d.deckCategoryId,
+        isDefault: d.isDefault,
+        familyId: d.familyId,
+        archivedAt: d.archivedAt,
+        createdAt: d.createdAt
+      }))
+    return groupDeckFamilies(versions)
+  }, [allDeckVersions])
+
+  // 這一頁不顯示封存的牌組：它管的是「現在打哪副牌、哪副是預設」，退役的牌
+  // 組去牌組戰績那邊開「顯示已封存」看。
+  const decks: Deck[] = useMemo(
+    () =>
+      families
+        .filter((family) => !family.archived)
+        .map((family) => ({
+          id: family.current.id,
+          name: family.current.name,
+          classId: family.current.classId,
+          categoryId: family.current.categoryId,
+          isDefault: family.current.isDefault,
+          familyId: family.familyId,
+          versionCount: family.versions.length,
+          currentVersion:
+            family.versions.find((v) => v.deck.id === family.current.id)?.number ??
+            family.versions.length
+        })),
+    [families]
+  )
+
+  const loadError = decksLoadError
+    ? ((decksLoadError as any)?.message ?? String(decksLoadError))
+    : null
+
+  /** 開著版本對話框的家族。 */
+  const [versionsFamilyId, setVersionsFamilyId] = useState<number | null>(null)
+  /** 剛匯入/建立、還在等它出現在共用 cache 裡的那副牌——見 `handleDeckArrived`。 */
+  const [pendingFocusDeckId, setPendingFocusDeckId] = useState<number | null>(null)
+
+  // Tabs 狀態：一律從「全部」開始，避免預設牌組或上次瀏覽狀態改變使用者視野。
   const [activeClass, setActiveClass] = useState<ClassId>('witch')
-  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null)
+  const [activeCategoryId, setActiveCategoryId] = useState<string | null>(ALL_CAT)
 
-  // 新增
-  const [newName, setNewName] = useState('')
-  const [newCategoryId, setNewCategoryId] = useState<string | ''>('') // 建立時可選分類
-  const [newClass, setNewClass] = useState<ClassId>('witch')
-  const [newSetDefault, setNewSetDefault] = useState(false)
-  const [creating, setCreating] = useState(false)
-  const [isCreatePanelOpen, setIsCreatePanelOpen] = useState(false)
+  /**
+   * 新增牌組的兩道門，和牌組戰績、對局紀錄用的是同一個元件。
+   *
+   * 這裡本來有自己一份「名稱 + 分類 + 設為預設」的建立表單，於是 app 裡有三個
+   * 長得不一樣的「新增牌組」，而這一份還是唯一連不到匯入與建構器的那個。名稱、
+   * 分類與預設沒有消失——建好之後這一頁的編輯面板就在旁邊，那本來就是它的工作。
+   */
+  const [isNewDeckDrawerOpen, setIsNewDeckDrawerOpen] = useState(false)
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false)
+  /** 從版本對話框點「修正卡表…」進來的那一版；建構器以修正模式開它。 */
+  const [correcting, setCorrecting] = useState<CorrectVersionRequest | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // 編輯
@@ -129,51 +231,57 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   // 刪除
   const [deleting, setDeleting] = useState<Deck | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
+  // 這副牌（含歷代版本）底下有幾場對局。null = 還在問。打過的牌組刪掉後戰績
+  // 要留（主行程把它標成已刪除而不是移除），確認框的文字得先知道這個數字才講得對。
+  const [deleteImpact, setDeleteImpact] = useState<{ matches: number; versions: number } | null>(
+    null
+  )
+
+  useEffect(() => {
+    if (!deleting) {
+      setDeleteImpact(null)
+      return
+    }
+    let mounted = true
+    void window.electron.ipcRenderer
+      .invoke('decks:deleteImpact', { id: deleting.id })
+      .then((res: Res<{ matches: number; versions: number }>) => {
+        if (mounted && res.ok) setDeleteImpact(res.data)
+      })
+      .catch(() => {
+        /* 問不到就退回一般文字，不擋刪除。 */
+      })
+    return () => {
+      mounted = false
+    }
+  }, [deleting])
 
   // 設定預設時的忙碌 deckId（避免連點）
   const [defaultBusyId, setDefaultBusyId] = useState<number | null>(null)
 
-  // 初始化：載入分類與牌組
+  const versionsFamily = useMemo(
+    () => families.find((f) => f.familyId === versionsFamilyId) ?? null,
+    [families, versionsFamilyId]
+  )
+
+  // 版本對話框開著的家族被刪到整副牌組消失時，對話框沒有東西可以再顯示。
   useEffect(() => {
-    let mounted = true
-    ;(async () => {
-      try {
-        setLoadError(null)
-        const [catRes, deckRes] = (await Promise.all([
-          window.electron.ipcRenderer.invoke('deckCategories:all'),
-          window.electron.ipcRenderer.invoke('decks:all')
-        ])) as [Res<DbDeckCategory[]>, Res<DbDeck[]>]
-
-        if (!mounted) return
-        if (!catRes.ok) throw new Error(catRes.error)
-        if (!deckRes.ok) throw new Error(deckRes.error)
-
-        const cats: DeckCategory[] = catRes.data.map((c) => ({ id: c.id, name: c.name }))
-        const ds: Deck[] = deckRes.data.map((d) => ({
-          id: d.id,
-          name: d.name,
-          classId: d.class,
-          categoryId: d.categoryId,
-          isDefault: !!d.isDefault
-        }))
-
-        setCategories(cats)
-        setDecks(ds)
-
-        // 初始分類一律顯示全部，避免預設牌組或上次瀏覽狀態改變使用者視野。
-        const initClass: ClassId = 'witch'
-        setActiveClass(initClass)
-        setNewClass(initClass)
-        setActiveCategoryId(ALL_CAT)
-        setNewCategoryId(cats[0]?.id ?? '')
-      } catch (err: any) {
-        setLoadError(err?.message ?? '載入失敗（Failed to load）')
-      }
-    })()
-    return () => {
-      mounted = false
+    if (versionsFamilyId !== null && !families.some((f) => f.familyId === versionsFamilyId)) {
+      setVersionsFamilyId(null)
     }
-  }, [])
+  }, [families, versionsFamilyId])
+
+  // 剛匯入/建立的牌組要等它出現在共用 cache 裡才找得到——`reloadDecks()` 是
+  // force fetch，不等 debounce，但終究還是一次 IPC 往返，不是同步的。
+  useEffect(() => {
+    if (pendingFocusDeckId == null) return
+    const arrived = decks.find((d) => d.id === pendingFocusDeckId)
+    if (!arrived) return
+    setActiveClass(arrived.classId)
+    setActiveCategoryId(arrived.categoryId ?? ALL_CAT)
+    setPendingFocusDeckId(null)
+    setError(null)
+  }, [pendingFocusDeckId, decks])
 
   /** 以 classes 陣列動態產生各職業的預設牌組 id map */
   const classIds = useMemo(() => classes.map((c) => c.id as ClassId), [])
@@ -197,7 +305,6 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
       if (msg.inBattle && msg.ownClass) {
         const cls = msg.ownClass as ClassId
         setActiveClass(cls)
-        setNewClass(cls)
         setActiveCategoryId(ALL_CAT)
       }
     }
@@ -230,19 +337,25 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
     return base
   }, [decks, activeClass, activeCategoryId, query])
 
-  /** 設為該職業預設（交易 API，唯一性由後端保證） */
+  /**
+   * 設為該職業預設（交易 API，唯一性由後端保證）。
+   *
+   * 這是唯一還做樂觀更新的寫入：點下去要立刻看到星號換人，不等 IPC 往返。
+   * `setDefaultOptimistic` 寫的是共用 cache，所以任何其他訂閱者（例如同時
+   * 開著的牌組戰績頁）也會馬上看到同一個結果，而不是只有這個抽屜自己超前。
+   * 失敗就強制重讀，把樂觀寫入蓋回真實狀態。
+   */
   const setDefaultForClass = async (deck: Deck) => {
     try {
       setDefaultBusyId(deck.id)
+      setDefaultOptimistic(deck.id, deck.classId)
       const res = (await window.electron.ipcRenderer.invoke('decks:setDefaultForClass', {
         deckId: deck.id
       })) as Res<DbDeck>
       if (!res.ok) throw new Error(res.error)
-      setDecks((prev) =>
-        prev.map((d) => (d.classId !== deck.classId ? d : { ...d, isDefault: d.id === deck.id }))
-      )
     } catch (err: any) {
       setError(err?.message ?? '設定預設失敗')
+      void reloadDecks()
     } finally {
       setDefaultBusyId(null)
     }
@@ -252,93 +365,36 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   const handleChangeClassTab = (_: unknown, idx: number) => {
     const cls = classes[idx].id as ClassId
     setActiveClass(cls)
-    setNewClass(cls)
     setActiveCategoryId(ALL_CAT)
   }
 
-  // 沒有預設時，建立畫面預設打勾（看 newClass）
-  useEffect(() => {
-    setNewSetDefault(defaultIdByClass[newClass] == null)
-  }, [newClass, defaultIdByClass])
-
-  const handleCreate = async () => {
-    const catId = newCategoryId || activeCategoryId || ''
-    if (!catId || catId === ALL_CAT) return setError('請選擇分類')
-    const name = newName.trim()
-    if (!name) return setError('需要名稱')
-    if (name.length > NAME_LIMIT) return setError(`名稱最多 ${NAME_LIMIT} 字`)
-
-    const dup = decks.some(
-      (d) =>
-        d.classId === newClass &&
-        d.categoryId === catId &&
-        d.name.toLowerCase() === name.toLowerCase()
-    )
-    if (dup) return setError('名稱已存在')
-
+  /**
+   * 新增的門帶回一個 deckId 之後：強制重讀共用 cache，並把畫面帶到那一副牌
+   * 所在的分類。
+   *
+   * 匯進來的牌組會被自動命名、也不會是預設——那些是「建好之後」的事，而這一頁的
+   * 編輯面板就在旁邊。把視野移到它身上，就是告訴使用者「它在這裡，要改就從這裡改」。
+   *
+   * `reloadDecks()` 只保證發起 force fetch，不保證這個元件下一次 render 就看
+   * 得到它——那筆更新要等 hook 的 snapshot 換過一輪。所以這裡記下
+   * `pendingFocusDeckId`，交給旁邊那個 effect 在 `decks` 真的更新後再對焦。
+   */
+  const handleDeckArrived = async (deckId: number): Promise<void> => {
+    setPendingFocusDeckId(deckId)
     try {
-      setCreating(true)
-      const res = (await window.electron.ipcRenderer.invoke('decks:create', {
-        name,
-        class: newClass,
-        categoryId: catId,
-        isDefault: newSetDefault
-      })) as Res<DbDeck>
-
-      if (!res.ok) throw new Error(res.error)
-
-      const createdDb = res.data
-      const created: Deck = {
-        id: createdDb.id,
-        name: createdDb.name,
-        classId: createdDb.class,
-        categoryId: createdDb.categoryId,
-        isDefault: !!createdDb.isDefault
-      }
-
-      setDecks((prev) => {
-        if (created.isDefault) {
-          return prev
-            .map((d) => (d.classId === created.classId ? { ...d, isDefault: false } : d))
-            .concat(created)
-        }
-        return [created, ...prev]
-      })
-
-      // 建好後：若職業不同，切到該職業；同時切到它的分類，方便立刻看到
-      if (newClass !== activeClass) setActiveClass(newClass)
-      setActiveCategoryId(created.categoryId)
-      setNewCategoryId(created.categoryId ?? '')
-      setNewName('')
-      setError(null)
-      setIsCreatePanelOpen(false)
+      await reloadDecks()
     } catch (err: any) {
-      setError(err?.message ?? '建立失敗')
-    } finally {
-      setCreating(false)
+      setError(err?.message ?? '讀取牌組失敗')
     }
   }
 
-  const openCreatePanel = () => {
-    const initialCategoryId =
-      activeCategoryId && activeCategoryId !== ALL_CAT
-        ? activeCategoryId
-        : (categories[0]?.id ?? '')
-    setNewClass(activeClass)
-    setNewCategoryId(initialCategoryId)
-    setNewName('')
-    setNewSetDefault(defaultIdByClass[activeClass] == null)
-    setError(null)
-    setIsCreatePanelOpen(true)
-  }
-
-  const isDeckPanelOpen = !!editing || isCreatePanelOpen
-  const isDeckPanelBusy = savingEdit || creating
-  const panelClass = editing?.classId ?? newClass
+  // 這個面板現在只做編輯。新增走的是 `NewDeckDrawer`，和其他兩個入口同一個。
+  const isDeckPanelOpen = !!editing
+  const isDeckPanelBusy = savingEdit
+  const panelClass = editing?.classId ?? activeClass
   const closeDeckPanel = () => {
     if (isDeckPanelBusy) return
     setEditing(null)
-    setIsCreatePanelOpen(false)
   }
 
   // 編輯（rename / move category）
@@ -368,24 +424,9 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
 
       if (!res.ok) throw new Error(res.error)
 
-      const updatedDb = res.data
-      const updated: Deck = {
-        id: updatedDb.id,
-        name: updatedDb.name,
-        classId: updatedDb.class,
-        categoryId: updatedDb.categoryId,
-        isDefault: !!updatedDb.isDefault
-      }
-
-      setDecks((prev) =>
-        prev.map((deck) => {
-          if (deck.id === updated.id) return updated
-          if (updated.isDefault && deck.classId === updated.classId) {
-            return { ...deck, isDefault: false }
-          }
-          return deck
-        })
-      )
+      // main 端寫入成功後已經廣播過 `reference-data:changed`；這裡再強制
+      // reload 一次是為了不等 debounce，讓抽屜立刻看到自己剛存的結果。
+      await reloadDecks()
       setEditing(null)
       setError(null)
     } catch (err: any) {
@@ -402,10 +443,10 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
       setDeletingBusy(true)
       const res = (await window.electron.ipcRenderer.invoke('decks:delete', {
         id: deleting.id
-      })) as Res<{ success: true }>
+      })) as Res<{ success: true; deleted: number; archived: number }>
 
       if (!res.ok) throw new Error(res.error)
-      setDecks((prev) => prev.filter((d) => d.id !== deleting.id))
+      await reloadDecks()
       setDeleting(null)
     } catch (err: any) {
       setError(err?.message ?? '刪除失敗')
@@ -434,25 +475,22 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
               {/* 這一塊講的是「目前是哪個職業」，徽章擺在最前面正是它要回答的問題。 */}
               <ClassIcon id={activeClass} size={30} />
               <Box sx={{ minWidth: 0 }}>
-                <Typography variant="overline" sx={{ opacity: 0.8 }} noWrap>
+                <Typography
+                  variant="caption"
+                  fontSize="11px"
+                  sx={{ opacity: 0.6, lineHeight: 1.3 }}
+                  noWrap
+                >
                   {label}
                 </Typography>
-                <br />
                 <Typography
-                  variant="caption"
-                  fontSize={'14px'}
-                  sx={{ color: classesMap[activeClass]?.color }}
+                  variant="body2"
+                  fontSize="15px"
+                  fontWeight={600}
+                  sx={{ color: classesMap[activeClass]?.color, lineHeight: 1.3 }}
+                  noWrap
                 >
-                  {`${classesMap[activeClass]?.label}  `}
-                </Typography>
-                －
-                <Typography
-                  variant="caption"
-                  fontSize={'14px'}
-                  sx={{ color: classesMap[activeClass]?.color, opacity: 0.9 }}
-                >
-                  {' '}
-                  {defaultDeckOfActive?.name ?? ' 未設定'}
+                  {defaultDeckOfActive?.name ?? '未設定'}
                 </Typography>
               </Box>
             </Stack>
@@ -531,6 +569,15 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
               </Alert>
             )}
 
+            {/* `error` 過去只畫在編輯面板裡，於是「設為預設」失敗是無聲的——那顆
+                操作根本不會開那個面板。現在新增的門也寫這個 state，所以它得有一個
+                在主畫面看得到的位置。 */}
+            {error && !isDeckPanelOpen && (
+              <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
+                {error}
+              </Alert>
+            )}
+
             {/* 頂部：本職業預設提示條 */}
             <Paper
               sx={{
@@ -542,6 +589,9 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
               }}
             >
               <Stack direction="row" alignItems="center" spacing={1}>
+                {/* 這條提示條的底色已經是目前職業的顏色，徽章把它說成一件
+                    看得出來的事，而不必先讀完那句話才知道講的是哪個職業。 */}
+                <ClassIcon id={activeClass} size={20} />
                 <StarIcon color="warning" fontSize="small" />
                 <Typography variant="body2">
                   {defaultDeckOfActive
@@ -563,7 +613,11 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                 <Tab
                   key={c.id}
                   label={
-                    <Stack direction="row" alignItems="center" gap={0.5}>
+                    <Stack direction="row" alignItems="center" gap={0.75}>
+                      {/* 八個分頁的差別就是職業，所以徽章擺在名字前面：掃這一排
+                          時圖形比一行字先被認出來。18px 而不是清單的 20px -
+                          分頁的字比較小，徽章跟著小一號才不會把分頁撐高。 */}
+                      <ClassIcon id={c.id} size={18} />
                       <span>{c.label}</span>
                       {defaultIdByClass[c.id as ClassId] ? (
                         <StarIcon color="warning" fontSize="small" />
@@ -639,7 +693,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                   }}
                 >
                   <CardActionArea
-                    onClick={openCreatePanel}
+                    onClick={() => setIsNewDeckDrawerOpen(true)}
                     sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 0.75 }}
                   >
                     <AddIcon color="primary" />
@@ -660,6 +714,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                     <Card
                       key={d.id}
                       variant="outlined"
+                      data-testid={`deck-manager-card-${d.familyId}`}
                       sx={{
                         p: 1.5,
                         height: 132,
@@ -691,9 +746,31 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                         justifyContent="space-between"
                         gap={1}
                       >
-                        <Typography variant="subtitle2" fontWeight={700} noWrap sx={{ pr: 1 }}>
-                          {displayName(d.name)}
-                        </Typography>
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={0.75}
+                          sx={{ minWidth: 0, pr: 1 }}
+                        >
+                          <Typography variant="subtitle2" fontWeight={700} noWrap>
+                            {displayName(d.name)}
+                          </Typography>
+                          {/* fork 過才掛版本號：一副只有 v1 的牌，「v1」沒講出任何事。 */}
+                          {d.versionCount > 1 && (
+                            <Chip
+                              size="small"
+                              label={`v${d.currentVersion}`}
+                              data-testid="deck-manager-version-badge"
+                              sx={{
+                                height: 18,
+                                fontSize: 10.5,
+                                fontWeight: 800,
+                                flexShrink: 0,
+                                bgcolor: 'rgba(122,162,247,0.16)'
+                              }}
+                            />
+                          )}
+                        </Stack>
 
                         {/* 卡片操作獨立於整卡設定預設的行為 */}
                         <Stack
@@ -716,6 +793,19 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                                 )}
                               </IconButton>
                             </span>
+                          </Tooltip>
+                          <Tooltip title={`版本歷史（${d.versionCount}）`}>
+                            <IconButton
+                              size="small"
+                              data-testid={`deck-manager-versions-${d.familyId}`}
+                              aria-label="版本歷史"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setVersionsFamilyId(d.familyId)
+                              }}
+                            >
+                              <HistoryRoundedIcon fontSize="small" />
+                            </IconButton>
                           </Tooltip>
                           <Tooltip title="編輯">
                             <IconButton
@@ -767,26 +857,6 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                           sx={{ height: 22, fontWeight: 600 }}
                         />
                       </Stack>
-
-                      <Stack
-                        direction="row"
-                        alignItems="center"
-                        spacing={0.5}
-                        sx={{ zIndex: 0, mt: 'auto' }}
-                      >
-                        {isDefault ? (
-                          <>
-                            <StarIcon color="warning" sx={{ fontSize: 16 }} />
-                            <Typography variant="caption" color="text.secondary" fontWeight={700}>
-                              預設牌組
-                            </Typography>
-                          </>
-                        ) : (
-                          <Typography variant="caption" color="text.secondary">
-                            點一下卡片設為預設
-                          </Typography>
-                        )}
-                      </Stack>
                     </Card>
                   )
                 })}
@@ -823,7 +893,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
             <Stack direction="row" alignItems="flex-start" justifyContent="space-between" gap={2}>
               <Box>
                 <Typography variant="h6" component="h2" fontWeight={700}>
-                  {editing ? '編輯牌組' : '新增牌組'}
+                  編輯牌組
                 </Typography>
                 <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.75 }}>
                   <ClassIcon id={panelClass} size={18} />
@@ -850,26 +920,19 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
                   基本資料
                 </Typography>
-                {isCreatePanelOpen && (
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    這副牌組會建立在目前選取的「{classesMap[newClass].label}」職業下。
-                  </Typography>
-                )}
                 <TextField
                   fullWidth
                   autoFocus
                   label="牌組名稱"
-                  value={editing ? editName : newName}
-                  onChange={(e) =>
-                    editing ? setEditName(e.target.value) : setNewName(e.target.value)
-                  }
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
                   disabled={isDeckPanelBusy}
                   slotProps={{ input: { inputProps: { maxLength: NAME_LIMIT } } }}
-                  helperText={`${(editing ? editName : newName).length}/${NAME_LIMIT}`}
+                  helperText={`${editName.length}/${NAME_LIMIT}`}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') {
                       e.preventDefault()
-                      void (editing ? handleEditSave() : handleCreate())
+                      void handleEditSave()
                     }
                   }}
                 />
@@ -879,50 +942,22 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
                   牌組分類
                 </Typography>
-                {isCreatePanelOpen ? (
-                  <Box
-                    role="group"
-                    aria-label="選擇牌組分類"
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                      gap: 1
-                    }}
+                <FormControl fullWidth disabled={isDeckPanelBusy}>
+                  <InputLabel>選擇分類</InputLabel>
+                  <Select
+                    value={editCategoryId ?? ''}
+                    label="選擇分類"
+                    onChange={(e) =>
+                      setEditCategoryId(e.target.value ? String(e.target.value) : null)
+                    }
                   >
-                    {categories.map((category) => {
-                      const selected = newCategoryId === category.id
-                      return (
-                        <Button
-                          key={category.id}
-                          variant={selected ? 'contained' : 'outlined'}
-                          color={selected ? 'primary' : 'inherit'}
-                          onClick={() => setNewCategoryId(category.id)}
-                          disabled={isDeckPanelBusy}
-                          sx={{ minHeight: 48, fontWeight: selected ? 700 : 500 }}
-                        >
-                          {getCategoryLabel(category.name)}
-                        </Button>
-                      )
-                    })}
-                  </Box>
-                ) : (
-                  <FormControl fullWidth disabled={isDeckPanelBusy}>
-                    <InputLabel>選擇分類</InputLabel>
-                    <Select
-                      value={editCategoryId ?? ''}
-                      label="選擇分類"
-                      onChange={(e) =>
-                        setEditCategoryId(e.target.value ? String(e.target.value) : null)
-                      }
-                    >
-                      {categories.map((cat) => (
-                        <MenuItem key={cat.id} value={cat.id}>
-                          {getCategoryLabel(cat.name)}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                )}
+                    {categories.map((cat) => (
+                      <MenuItem key={cat.id} value={cat.id}>
+                        {getCategoryLabel(cat.name)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Box>
 
               <Box
@@ -953,12 +988,8 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                   </Typography>
                 </Box>
                 <Switch
-                  checked={editing ? editSetDefault : newSetDefault}
-                  onChange={(event) =>
-                    editing
-                      ? setEditSetDefault(event.target.checked)
-                      : setNewSetDefault(event.target.checked)
-                  }
+                  checked={editSetDefault}
+                  onChange={(event) => setEditSetDefault(event.target.checked)}
                   disabled={isDeckPanelBusy}
                   inputProps={{ 'aria-label': '設為預設牌組' }}
                 />
@@ -968,30 +999,27 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
 
           <Box sx={{ borderTop: 1, borderColor: 'divider', px: 3, py: 2.5 }}>
             <Stack direction="row" alignItems="center" justifyContent="space-between" gap={1}>
-              {editing ? (
-                <Button
-                  color="error"
-                  onClick={() => {
-                    setDeleting(editing)
-                    setEditing(null)
-                  }}
-                  disabled={isDeckPanelBusy}
-                >
-                  刪除牌組
-                </Button>
-              ) : (
-                <Box />
-              )}
+              <Button
+                color="error"
+                onClick={() => {
+                  if (!editing) return
+                  setDeleting(editing)
+                  setEditing(null)
+                }}
+                disabled={isDeckPanelBusy}
+              >
+                刪除牌組
+              </Button>
               <Stack direction="row" spacing={1}>
                 <Button onClick={closeDeckPanel} disabled={isDeckPanelBusy}>
                   取消
                 </Button>
                 <Button
-                  onClick={() => void (editing ? handleEditSave() : handleCreate())}
+                  onClick={() => void handleEditSave()}
                   variant="contained"
-                  disabled={isDeckPanelBusy || (!editing && (!newName.trim() || !newCategoryId))}
+                  disabled={isDeckPanelBusy || !editName.trim()}
                 >
-                  {isDeckPanelBusy ? '儲存中…' : editing ? '儲存變更' : '建立牌組'}
+                  {isDeckPanelBusy ? '儲存中…' : '儲存變更'}
                 </Button>
               </Stack>
             </Stack>
@@ -1033,7 +1061,11 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         }
       >
         <Typography variant="body2" color="text.secondary">
-          即將刪除「{deleting?.name}」。這不會移除既有對局紀錄，但此操作無法復原。
+          {deleteImpact && deleteImpact.matches > 0
+            ? `即將刪除「${deleting?.name}」。它有 ${deleteImpact.matches} 場對局，刪除後戰績會保留，只是牌組不再出現在清單與挑選選單。`
+            : deleteImpact
+              ? `即將刪除「${deleting?.name}」。這副牌組還沒打過，會直接移除，無法復原。`
+              : `即將刪除「${deleting?.name}」。已經打過的對局與戰績會保留。`}
         </Typography>
         <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 2 }}>
           <InfoOutlinedIcon fontSize="small" color="action" />
@@ -1042,6 +1074,55 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
           </Typography>
         </Stack>
       </AppDialog>
+
+      {/* 版本歷史：一副牌的歷代卡表、各版本的場次與勝率、版本間的差異，以及
+          「刪除此版本」。和牌組戰績展開列裡的是同一個面板。 */}
+      <DeckVersionsDialog
+        open={versionsFamily !== null}
+        family={versionsFamily}
+        zIndex={1520}
+        onClose={() => setVersionsFamilyId(null)}
+        onChanged={() => void reloadDecks()}
+        onCorrect={(request) => setCorrecting(request)}
+      />
+
+      {/* 修正某一版的卡表：建構器開在版本對話框之上，存檔直接改寫那一版。 */}
+      {correcting && (
+        <DeckBuilder
+          open
+          deckId={correcting.deckId}
+          correction={{ versionLabel: correcting.versionLabel }}
+          categories={categories}
+          zIndex={DECK_BUILDER_Z}
+          onClose={() => setCorrecting(null)}
+          onSaved={() => void reloadDecks()}
+        />
+      )}
+
+      {/* 新增牌組：和牌組戰績、對局紀錄同一個元件、同一份內容。這一頁的抽屜自己
+          在 1500，所以要疊得比它高。 */}
+      <NewDeckDrawer
+        open={isNewDeckDrawerOpen}
+        klass={activeClass}
+        zIndex={NEW_DECK_DRAWER_Z}
+        onClose={() => setIsNewDeckDrawerOpen(false)}
+        onOpenDeck={(deckId) => void handleDeckArrived(deckId)}
+        onBuildManually={() => setIsBuilderOpen(true)}
+      />
+
+      {/* 手動建立帶著目前這個職業分頁的職業進去——這一頁的每一個畫面都已經是
+          「某一個職業的牌組」，到了建構器再問一次職業就是把已經回答過的問題
+          再問一遍。 */}
+      {isBuilderOpen && (
+        <DeckBuilder
+          open
+          categories={categories}
+          initialClass={activeClass}
+          zIndex={DECK_BUILDER_Z}
+          onClose={() => setIsBuilderOpen(false)}
+          onSaved={() => void reloadDecks()}
+        />
+      )}
     </>
   )
 }

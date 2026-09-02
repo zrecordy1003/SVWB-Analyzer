@@ -33,6 +33,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close'
 import SearchIcon from '@mui/icons-material/Search'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import {
   cardImageUrl,
   CLASS_NAME_TO_ID,
@@ -72,21 +73,55 @@ const COST_BUCKETS = [0, 1, 2, 3, 4, 5, 6, 7] as const
 
 type Category = { id: string; name: string }
 
+/**
+ * 「修正卡表」模式：存檔直接改寫 `deckId` 那一版，不建立新版本。`versionLabel`
+ * 只給橫幅用（建構器自己不知道它是第幾版）。
+ */
+export type DeckCorrection = { versionLabel: string }
+
 export default function DeckBuilder({
   open,
   categories,
   /** Set to edit an existing deck; omit to build a new one. */
   deckId = null,
+  correction = null,
+  initialClass,
+  zIndex,
   onClose,
   onSaved
 }: {
   open: boolean
   categories: Category[]
   deckId?: number | null
+  /**
+   * 由版本列的「修正卡表…」開啟時帶進來。平常存檔不出現任何版本字眼——一副
+   * 打過的牌改了就是新版本，使用者不必知道；這條是給「輸入錯了」的逃生門
+   * （plan 3.2），頂部一條橫幅講清楚存檔會做什麼。
+   */
+  correction?: DeckCorrection | null
+  /**
+   * 開新牌組時預選的職業。
+   *
+   * 從牌組管理的某個職業分頁、或對局紀錄的某一側點進來時，職業已經是確定的了，
+   * 而讓使用者在建構器裡再選一次不只多一步，還多一個選錯的機會。編輯既有牌組時
+   * 這個值不生效——那副牌自己的職業才是對的。
+   */
+  initialClass?: ClassName
+  /**
+   * 疊在已經浮著的東西上面時要抬高。
+   *
+   * 建構器是個 fullScreen 的 Dialog，預設層級 1300；牌組管理的抽屜自己就在 1500，
+   * 不抬高的話從那裡點「手動建立」會開在抽屜後面。
+   */
+  zIndex?: number
   onClose: () => void
-  onSaved: () => void
+  /**
+   * 存好之後帶回實際寫入的那一列。編輯一副打過的牌會 fork 出新版本，`id` 就
+   * 不再是傳進來的 `deckId`——呼叫端若還盯著舊 id 看，看到的會是舊卡表。
+   */
+  onSaved: (saved: { id: number }) => void
 }) {
-  const [className, setClassName] = React.useState<ClassName>('elf')
+  const [className, setClassName] = React.useState<ClassName>(initialClass ?? 'elf')
   const [battleFormat, setBattleFormat] = React.useState('2')
   const classId = CLASS_NAME_TO_ID[className]
 
@@ -100,6 +135,8 @@ export default function DeckBuilder({
   const [counts, setCounts] = React.useState<Map<number, number>>(new Map())
   const [deckName, setDeckName] = React.useState('')
   const [saving, setSaving] = React.useState(false)
+  /** 修正模式的橫幅要講「這一版有 N 場對局」；問 `decks:versionImpact`。null = 還在問。 */
+  const [correctionMatches, setCorrectionMatches] = React.useState<number | null>(null)
 
   const [categoryId, setCategoryId] = React.useState('')
 
@@ -158,6 +195,23 @@ export default function DeckBuilder({
   }, [open, loadPool])
 
   React.useEffect(() => {
+    setCorrectionMatches(null)
+    if (!open || !correction || deckId == null) return
+    let cancelled = false
+    void window.electron.ipcRenderer
+      .invoke('decks:versionImpact', { id: deckId })
+      .then((res: { ok: boolean; data?: { matches: number } }) => {
+        if (!cancelled && res?.ok && res.data) setCorrectionMatches(res.data.matches)
+      })
+      .catch(() => {
+        /* 問不到就不講數字，橫幅其餘照常。 */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, correction, deckId])
+
+  React.useEffect(() => {
     const unsubscribe = window.electron?.ipcRenderer.on(
       'cards:poolBootstrap',
       (_event, ...args) => {
@@ -184,7 +238,12 @@ export default function DeckBuilder({
     setQuery('')
     setCostFilter(null)
 
-    if (deckId == null) return
+    if (deckId == null) {
+      // 新牌組：呼叫端知道職業時就直接帶進來。也在這裡設一次而不是只靠 useState
+      // 的初值，因為建構器在有些畫面是常駐掛著的，初值只會生效一次。
+      if (initialClass) setClassName(initialClass)
+      return
+    }
     let cancelled = false
 
     void (async () => {
@@ -229,7 +288,7 @@ export default function DeckBuilder({
     return () => {
       cancelled = true
     }
-  }, [open, deckId])
+  }, [open, deckId, initialClass])
 
   /**
    * Switching class or format changes which cards are legal, so the deck in
@@ -353,7 +412,10 @@ export default function DeckBuilder({
         classId,
         battleFormat: Number(battleFormat),
         categoryId: categoryId || null,
-        cards: deckCards.map((row) => ({ cardId: row.card.cardId, count: row.count }))
+        cards: deckCards.map((row) => ({ cardId: row.card.cardId, count: row.count })),
+        // 預設讓主行程決定（打過的牌改了就是新版本）；修正模式是從版本列
+        // 明確點進來的，直接改寫那一版（plan 3.2）。
+        forceInPlace: correction !== null
       })
       if (!res?.ok) {
         throw new Error(
@@ -362,7 +424,7 @@ export default function DeckBuilder({
             : (res?.error ?? '儲存失敗')
         )
       }
-      onSaved()
+      onSaved({ id: Number(res.data?.id ?? deckId) })
       onClose()
     } catch (err: any) {
       setError(err?.message ?? '儲存失敗')
@@ -378,6 +440,7 @@ export default function DeckBuilder({
       open={open}
       onClose={saving ? undefined : onClose}
       fullScreen
+      sx={zIndex === undefined ? undefined : { zIndex }}
       slotProps={{ paper: { sx: { background: CANVAS_BG } } }}
     >
       <Stack sx={{ height: '100%' }}>
@@ -461,11 +524,29 @@ export default function DeckBuilder({
             variant="contained"
             onClick={() => void handleSave()}
             disabled={saving || total === 0}
+            data-testid="deck-builder-save"
             sx={{ borderRadius: 2, fontWeight: 800, px: 2.5 }}
           >
             {saving ? '儲存中…' : deckId == null ? '儲存牌組' : '儲存變更'}
           </Button>
         </Stack>
+
+        {/* 修正模式的橫幅：淡色、一句話，講存檔會做什麼。平常編輯沒有這條。 */}
+        {correction && deckId != null && (
+          <Alert
+            severity="info"
+            icon={<EditOutlinedIcon fontSize="small" />}
+            square
+            data-testid="deck-builder-correction-banner"
+            sx={{ py: 0.5 }}
+          >
+            正在修正 {correction.versionLabel} 的卡表：存檔會直接改寫這一版，不建立新版本
+            {correctionMatches !== null && correctionMatches > 0
+              ? `，這一版既有的 ${correctionMatches} 場對局會以新卡表解讀`
+              : ''}
+            。
+          </Alert>
+        )}
 
         {error && (
           <Alert severity="error" square onClose={() => setError(null)}>

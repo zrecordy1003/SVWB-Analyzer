@@ -96,7 +96,8 @@ testable without a game, a database, or Electron.
   race at startup.
 - Current migrations: `001_init`, `002_add_updated_column`, `003_add_sort_column_and_isdefault`,
   `004_add_cr_column`, `005_add_perf_indexes`, `006_add_mp_columns`,
-  `007_add_match_list_filter_indexes`.
+  `007_add_match_list_filter_indexes`, `008_add_provenance`, `009_add_deck_import`,
+  `010_add_card_pool`, `011_add_deck_family`, `012_add_telemetry_state`.
 - The engine writes match recording; the UI writes user edits (decks, tags, notes) and does all
   reads.
 

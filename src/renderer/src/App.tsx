@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 
 import { ThemeProvider, createTheme, styled } from '@mui/material/styles'
+import CircularProgress from '@mui/material/CircularProgress'
 import CssBaseline from '@mui/material/CssBaseline'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
@@ -18,6 +19,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import AutoAwesomeMotionOutlinedIcon from '@mui/icons-material/AutoAwesomeMotionOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
 // import Sun from '@mui/icons-material/Brightness4'
 // import Moon from '@mui/icons-material/Brightness7'
@@ -35,6 +37,7 @@ import TelemetryPrompt from './components/Common/TelemetryPrompt'
 const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerformance'))
+const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
 // import Statistics from './components/Statistics'
 
 const DRAWER_COLLAPSED_WIDTH = 92
@@ -56,7 +59,27 @@ const Main = styled('main')(({ theme }) => ({
   overflowY: 'auto'
 }))
 
-type PageKey = 'Analyzer' | 'MatchList' | 'DeckPerformance' | 'Settings' | 'About'
+/**
+ * `Suspense` 的 fallback，只有第一次切到某個分頁、它的程式碼區塊還沒抓下來時
+ * 才會短暫出現。原本是一行沒有高度的純文字，切過去的瞬間版面先塌成一行、
+ * 抓完再彈回整頁高度，看起來就像畫面抖了一下。這裡改成撐滿 `Main` 剩下的
+ * 高度，換頁時的版面大小從頭到尾不變。
+ */
+const PageLoading = (): React.JSX.Element => (
+  <Box flex={1} display="flex" alignItems="center" justifyContent="center">
+    <CircularProgress size={28} />
+  </Box>
+)
+
+type PageKey = 'Analyzer' | 'MatchList' | 'DeckPerformance' | 'Cards' | 'Settings' | 'About'
+const PAGE_KEYS: readonly PageKey[] = [
+  'Analyzer',
+  'MatchList',
+  'DeckPerformance',
+  'Cards',
+  'Settings',
+  'About'
+]
 
 function App(): React.JSX.Element {
   // theme mode
@@ -139,6 +162,8 @@ function App(): React.JSX.Element {
   const menuItems: Array<{ key: PageKey; text: string; icon: React.ReactNode }> = [
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'DeckPerformance', text: '牌組戰績', icon: <StyleOutlinedIcon /> },
+    // 疊起來的幾張：牌組戰績那顆是「一副牌」，這顆是「一堆卡」。
+    { key: 'Cards', text: '卡片', icon: <AutoAwesomeMotionOutlinedIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
     { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
@@ -149,6 +174,7 @@ function App(): React.JSX.Element {
     Analyzer: '分析器',
     MatchList: '對局列表',
     DeckPerformance: '牌組戰績',
+    Cards: '卡片',
     Settings: '設定',
     About: '關於與授權'
   }
@@ -167,15 +193,7 @@ function App(): React.JSX.Element {
     const unsubscribe = window.electron?.ipcRenderer.on(
       'app:navigate',
       (_event: unknown, page: PageKey) => {
-        if (
-          page === 'Analyzer' ||
-          page === 'MatchList' ||
-          page === 'DeckPerformance' ||
-          page === 'Settings' ||
-          page === 'About'
-        ) {
-          setCurrentPage(page)
-        }
+        if (PAGE_KEYS.includes(page)) setCurrentPage(page)
       }
     )
     return () => unsubscribe?.()
@@ -292,9 +310,10 @@ function App(): React.JSX.Element {
         {/* 主內容 */}
         <Main>
           <Toolbar />
-          <Suspense fallback={<div>載入中...</div>}>
+          <Suspense fallback={<PageLoading />}>
             {currentPage === 'MatchList' && <MatchList />}
             {currentPage === 'DeckPerformance' && <DeckPerformance />}
+            {currentPage === 'Cards' && <CardsPage />}
             {currentPage === 'Analyzer' && <Analyzer />}
             {currentPage === 'Settings' && <Settings />}
             {currentPage === 'About' && <About />}

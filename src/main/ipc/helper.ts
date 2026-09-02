@@ -2,6 +2,7 @@ import type { Expression, ExpressionBuilder, SqlBool } from 'kysely'
 
 import { ClassName, GameMode, PlayOrder } from '../../shared/domain.js'
 import { getDb, type Database } from '../data/db/client.js'
+import { myDeckIdsExpression, type MyDeckScope } from './deckScope.js'
 import type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
 
 export type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
@@ -23,6 +24,8 @@ export async function getRankedWinrateByOpponent(params: {
   start?: Date | number | string // inclusive；不給=不限
   end?: Date | number | string // inclusive；不給=不限
   myDeckIds?: number[]
+  /** Default 'family': a picked deck stands for every version of it. See deckScope.ts. */
+  myDeckScope?: MyDeckScope
   tagIds?: number[]
   crMin?: number
   crMax?: number
@@ -52,7 +55,9 @@ export async function getRankedWinrateByOpponent(params: {
     }
     if (startDate) list.push(eb('playedAt', '>=', startDate.getTime()))
     if (endDateExclusive) list.push(eb('playedAt', '<', endDateExclusive.getTime()))
-    if (params.myDeckIds?.length) list.push(eb('my_deckId', 'in', params.myDeckIds))
+    if (params.myDeckIds?.length) {
+      list.push(myDeckIdsExpression(eb, params.myDeckIds, params.myDeckScope))
+    }
     if (params.tagIds?.length) {
       // 任一符合 (OR within selected tags)
       const ids = params.tagIds

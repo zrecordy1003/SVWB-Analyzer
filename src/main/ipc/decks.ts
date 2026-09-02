@@ -1,5 +1,5 @@
 import { clipboard, ipcMain } from 'electron'
-import type { Kysely, Selectable, Transaction } from 'kysely'
+import { sql, type Kysely, type Selectable, type Transaction } from 'kysely'
 import type { ClassName, Deck, DeckCategory, GameMode } from '../../shared/domain.js'
 import {
   type Database,
@@ -67,7 +67,7 @@ type DeckImportCommitInput = {
 }
 
 type DeckSaveLocalInput = {
-  /** Set to edit an existing deck in place; omit to create one. */
+  /** Set to edit an existing deck; omit to create one. */
   deckId?: number | null
   name: string
   classId: number
@@ -75,6 +75,13 @@ type DeckSaveLocalInput = {
   categoryId?: string | null
   isDefault?: boolean
   cards: { cardId: number; count: number }[]
+  /**
+   * The escape hatch of plan rule 3.2: "correct this deck, do not create a new
+   * version". A played deck normally freezes and editing it forks a new row;
+   * a typo fixed the day after is not a new version, so this flag forces the
+   * old in-place overwrite. Default is fork - the caller must say it out loud.
+   */
+  forceInPlace?: boolean
 }
 
 /**
@@ -132,10 +139,32 @@ type Res<T> = Ok<T> | Err
 
 type Db = Kysely<Database> | Transaction<Database>
 type DeckStatsRow = {
-  deckId: number
+  /**
+   * Under `groupBy: 'family'` (the default) this is the family's current
+   * version id, so the renderer's deckId -> stat lookup keeps working
+   * unchanged. Null only on the "no deck assigned" catch-all row.
+   */
+  deckId: number | null
+  familyId: number | null
   total: number
   wins: number
   winRate: number
+  /**
+   * 先攻／後攻各自的成績。
+   *
+   * 條件寫成明確比對 `= 'first'` 與 `= 'second'` 而不是「不是先攻就是後攻」：
+   * `play_order` 目前是 NOT NULL，兩者相加等於 `total`，但真要跑出第三種值時，
+   * 這樣寫是少一列，而不是把它默默算成後攻。
+   */
+  first: { total: number; wins: number }
+  second: { total: number; wins: number }
+  /**
+   * 這一列（家族或版本）最早與最晚一場對局的 `playedAt`（epoch ms），受同一組
+   * 篩選限制。版本時間線用它畫「實際打過的期間」——一個版本的 createdAt 只說它
+   * 何時被存下來，說不出它何時在打。沒有對局就是 null。
+   */
+  firstPlayedAt: number | null
+  lastPlayedAt: number | null
 }
 type ReferenceDataScope = 'decks' | 'tags' | 'categories' | 'all'
 
@@ -200,22 +229,158 @@ async function ensureCategoryExists(db: Db, categoryId?: string | null): Promise
   if (!exists) throw new Error('NOT_FOUND:Category')
 }
 
-// 不分大小寫重名檢查（同職業 + 同分類）
+// 不分大小寫重名檢查（同職業 + 同分類）。同家族不算重名：fork 出的版本沿用
+// 名稱是設計要求（名稱是「這副牌」的屬性），不是撞名。
 const norm = (s: string): string => s.trim().toLocaleLowerCase()
 async function hasNameDuplicateCI(
   db: Db,
-  params: { cls: string; categoryId: string | null; name: string; excludeId?: number }
+  params: {
+    cls: string
+    categoryId: string | null
+    name: string
+    excludeId?: number
+    excludeFamilyId?: number
+  }
 ): Promise<boolean> {
-  let query = db.selectFrom('Deck').select(['id', 'name']).where('class', '=', params.cls)
+  let query = db
+    .selectFrom('Deck')
+    .select(['id', 'name', 'familyId'])
+    .where('class', '=', params.cls)
   query =
     params.categoryId === null
       ? query.where('categoryId', 'is', null)
       : query.where('categoryId', '=', params.categoryId)
   const rows = await query.execute()
   const target = norm(params.name)
-  return rows.some(
-    (r) => (params.excludeId ? r.id !== params.excludeId : true) && norm(r.name) === target
-  )
+  return rows.some((r) => {
+    if (params.excludeId && r.id === params.excludeId) return false
+    if (params.excludeFamilyId != null && (r.familyId ?? r.id) === params.excludeFamilyId) {
+      return false
+    }
+    return norm(r.name) === target
+  })
+}
+
+/**
+ * Has any match ever been played with (or against) this deck row?
+ *
+ * This is the freeze line of plan rule 3.1: a referenced row's card list is
+ * history and never changes again. The check MUST run inside the same
+ * transaction as the write that depends on it - the Rust engine inserts
+ * matches from another process exactly while the user is editing decks, and a
+ * check-then-write gap would let a match slip in between and have its card
+ * list rewritten under it.
+ */
+async function isDeckReferenced(db: Db, deckId: number): Promise<boolean> {
+  const row = await db
+    .selectFrom('Match')
+    .select('id')
+    .where((eb) => eb.or([eb('my_deckId', '=', deckId), eb('oppo_deckId', '=', deckId)]))
+    .limit(1)
+    .executeTakeFirst()
+  return !!row
+}
+
+/**
+ * The family's current version: the highest UNARCHIVED id, falling back to the
+ * highest id when the whole family is archived. Ordered by id, not createdAt -
+ * createdAt mixes integer and text storage in historical databases and sorts
+ * wrong silently, while AUTOINCREMENT ids are monotonic with no ties.
+ */
+async function familyRepresentativeId(db: Db, familyId: number): Promise<number | null> {
+  const rows = await db
+    .selectFrom('Deck')
+    .select(['id', 'archivedAt'])
+    .where((eb) => eb.or([eb('familyId', '=', familyId), eb('id', '=', familyId)]))
+    .orderBy('id', 'desc')
+    .execute()
+  if (rows.length === 0) return null
+  return rows.find((r) => r.archivedAt === null)?.id ?? rows[0].id
+}
+
+/** Every version row of a family, oldest first. Ordered by id, never createdAt (plan 3.4). */
+async function familyVersionRows(
+  db: Db,
+  familyId: number
+): Promise<{ id: number; archivedAt: number | null; isDefault: number }[]> {
+  return db
+    .selectFrom('Deck')
+    .select(['id', 'archivedAt', 'isDefault'])
+    .where((eb) => eb.or([eb('familyId', '=', familyId), eb('id', '=', familyId)]))
+    .orderBy('id', 'asc')
+    .execute()
+}
+
+/**
+ * Retire deck rows by the rule of plan 3.3, one row at a time: a row no match
+ * references is hard-deleted (the FK takes its DeckCard rows with it - there is
+ * nothing to protect); a row some match references is archived, because in
+ * this model that row IS the card list those matches were played with.
+ *
+ * Archiving clears `isDefault`. The engine assigns new matches with
+ * `SELECT id FROM Deck WHERE class = ? AND isDefault = 1`, so an archived row
+ * still holding it would keep collecting games under a "deleted" deck.
+ *
+ * The reference check runs inside the caller's transaction: the engine inserts
+ * matches from another process, and a deck it just recorded a game on must
+ * archive, not vanish.
+ */
+async function retireDeckRows(
+  tx: Transaction<Database>,
+  ids: number[],
+  now: number
+): Promise<{ deleted: number; archived: number }> {
+  let deleted = 0
+  let archived = 0
+  for (const id of ids) {
+    if (await isDeckReferenced(tx, id)) {
+      await tx
+        .updateTable('Deck')
+        .set({ archivedAt: now, isDefault: 0, updatedAt: now })
+        .where('id', '=', id)
+        .execute()
+      archived++
+    } else {
+      await tx.deleteFrom('Deck').where('id', '=', id).execute()
+      deleted++
+    }
+  }
+  return { deleted, archived }
+}
+
+/** How many matches reference any of these rows, on either side. */
+async function countMatchesReferencing(db: Db, ids: number[]): Promise<number> {
+  if (ids.length === 0) return 0
+  const counted = await db
+    .selectFrom('Match')
+    .select(({ fn }) => fn.countAll<number>().as('total'))
+    .where((eb) => eb.or([eb('my_deckId', 'in', ids), eb('oppo_deckId', 'in', ids)]))
+    .executeTakeFirst()
+  return Number(counted?.total ?? 0)
+}
+
+/**
+ * Push name / categoryId onto every version of a family.
+ *
+ * Names and categories belong to "this deck", not to "this version" (plan rule
+ * 3.1): leaving old versions behind under an old name would split one deck's
+ * history across two names, and across two category groups in every list.
+ */
+async function applyFamilyMutables(
+  tx: Transaction<Database>,
+  params: { familyId: number; name?: string; categoryId?: string | null; now: number }
+): Promise<void> {
+  const data: { name?: string; categoryId?: string | null; updatedAt: number } = {
+    updatedAt: params.now
+  }
+  if (typeof params.name === 'string') data.name = params.name
+  if (params.categoryId !== undefined) data.categoryId = params.categoryId
+  if (data.name === undefined && data.categoryId === undefined) return
+  await tx
+    .updateTable('Deck')
+    .set(data)
+    .where((eb) => eb.or([eb('familyId', '=', params.familyId), eb('id', '=', params.familyId)]))
+    .execute()
 }
 
 /**
@@ -235,45 +400,138 @@ async function upsertDeckWithCards(
     isDefault?: boolean
     cards: { cardId: number; count: number }[]
     now: number
+    /**
+     * How to treat a replace target that matches already reference. 'fork'
+     * (the default) creates a new version and leaves the old row untouched;
+     * 'inPlace' is the explicit correction mode of plan rule 3.2 and rewrites
+     * the frozen row the way every save used to.
+     */
+    mode?: 'fork' | 'inPlace'
   }
 ): Promise<Selectable<DeckRow>> {
   if (params.isDefault) {
     await tx.updateTable('Deck').set({ isDefault: 0 }).where('class', '=', params.cls).execute()
   }
 
-  let deckRow: Selectable<DeckRow>
-  if (params.replaceDeckId !== null) {
-    const current = await tx
-      .selectFrom('Deck')
-      .select('id')
-      .where('id', '=', params.replaceDeckId)
-      .executeTakeFirst()
-    if (!current) throw new Error('NOT_FOUND:Deck')
-    deckRow = await tx
-      .updateTable('Deck')
-      .set(params.fields)
-      .where('id', '=', params.replaceDeckId)
-      .returningAll()
-      .executeTakeFirstOrThrow()
-    // Replaced, not merged: two copies of a card the user removed would
-    // otherwise survive as a stale row.
-    await tx.deleteFrom('DeckCard').where('deckId', '=', params.replaceDeckId).execute()
-  } else {
-    deckRow = await tx
+  const writeCards = async (deckId: number): Promise<void> => {
+    if (params.cards.length === 0) return
+    await tx
+      .insertInto('DeckCard')
+      .values(params.cards.map((c) => ({ deckId, cardId: c.cardId, count: c.count })))
+      .execute()
+  }
+
+  // ---- create: a brand-new deck founds its own family --------------------
+  if (params.replaceDeckId === null) {
+    const inserted = await tx
       .insertInto('Deck')
       .values({ ...params.fields, class: params.cls, createdAt: params.now } as never)
       .returningAll()
       .executeTakeFirstOrThrow()
-  }
-
-  if (params.cards.length > 0) {
+    // AUTOINCREMENT means the row cannot know its own id before insert, so
+    // familyId = id is a backfill in the same transaction, never a guess.
     await tx
-      .insertInto('DeckCard')
-      .values(params.cards.map((c) => ({ deckId: deckRow.id, cardId: c.cardId, count: c.count })))
+      .updateTable('Deck')
+      .set({ familyId: inserted.id })
+      .where('id', '=', inserted.id)
+      .where('familyId', 'is', null)
       .execute()
+    await writeCards(inserted.id)
+    return { ...inserted, familyId: inserted.familyId ?? inserted.id }
   }
 
-  return deckRow
+  // ---- replace: freeze check inside THIS transaction ---------------------
+  const current = await tx
+    .selectFrom('Deck')
+    .selectAll()
+    .where('id', '=', params.replaceDeckId)
+    .executeTakeFirst()
+  if (!current) throw new Error('NOT_FOUND:Deck')
+
+  const familyId = current.familyId ?? current.id
+  const referenced = await isDeckReferenced(tx, current.id)
+
+  if (!referenced || params.mode === 'inPlace') {
+    // Nothing points at this card list (or the caller explicitly asked for a
+    // correction), so overwriting it destroys no history.
+    const deckRow = await tx
+      .updateTable('Deck')
+      .set(params.fields)
+      .where('id', '=', current.id)
+      .returningAll()
+      .executeTakeFirstOrThrow()
+    // Replaced, not merged: two copies of a card the user removed would
+    // otherwise survive as a stale row.
+    await tx.deleteFrom('DeckCard').where('deckId', '=', current.id).execute()
+    await writeCards(current.id)
+    // Name and category belong to the family, not the row (plan rule 3.1).
+    await applyFamilyMutables(tx, {
+      familyId,
+      name: typeof params.fields.name === 'string' ? params.fields.name : undefined,
+      categoryId:
+        'categoryId' in params.fields
+          ? ((params.fields.categoryId ?? null) as string | null)
+          : undefined,
+      now: params.now
+    })
+    return deckRow
+  }
+
+  // The row is frozen. Same fingerprint means the card list did not actually
+  // change - saving a deck you only looked at, or re-importing the same 40
+  // cards - and a fork here would mint an identical fake version. Update the
+  // mutable fields and stop.
+  const newFingerprint =
+    typeof params.fields.fingerprint === 'string' ? params.fields.fingerprint : null
+  if (newFingerprint !== null && newFingerprint === current.fingerprint) {
+    const mutable: Record<string, unknown> = { updatedAt: params.now }
+    if (typeof params.fields.isDefault === 'number') mutable.isDefault = params.fields.isDefault
+    await tx.updateTable('Deck').set(mutable).where('id', '=', current.id).execute()
+    await applyFamilyMutables(tx, {
+      familyId,
+      name: typeof params.fields.name === 'string' ? params.fields.name : undefined,
+      categoryId:
+        'categoryId' in params.fields
+          ? ((params.fields.categoryId ?? null) as string | null)
+          : undefined,
+      now: params.now
+    })
+    return tx.selectFrom('Deck').selectAll().where('id', '=', current.id).executeTakeFirstOrThrow()
+  }
+
+  // ---- fork: a new version row; the old card list and its matches stay ----
+  //
+  // isDefault travels to the new version. The engine assigns new matches via
+  // `SELECT id FROM Deck WHERE class = ? AND isDefault = 1`, and the user's
+  // mental model is "I changed my deck", so new games belong to the new list.
+  const wasDefault = current.isDefault === 1
+  const makeDefault = Boolean(params.isDefault) || wasDefault
+  if (wasDefault) {
+    await tx.updateTable('Deck').set({ isDefault: 0 }).where('id', '=', current.id).execute()
+  }
+
+  const forked = await tx
+    .insertInto('Deck')
+    .values({
+      ...params.fields,
+      class: current.class,
+      createdAt: params.now,
+      familyId,
+      isDefault: makeDefault ? 1 : 0
+    } as never)
+    .returningAll()
+    .executeTakeFirstOrThrow()
+  await writeCards(forked.id)
+  await applyFamilyMutables(tx, {
+    familyId,
+    name: typeof params.fields.name === 'string' ? params.fields.name : undefined,
+    categoryId:
+      'categoryId' in params.fields
+        ? ((params.fields.categoryId ?? null) as string | null)
+        : undefined,
+    now: params.now
+  })
+  return forked
 }
 
 /**
@@ -390,14 +648,20 @@ export function registerDecksIpc(): void {
   )
 
   // 取全部牌組（給前端用的排序；回傳必要欄位）
+  //
+  // 預設只回每個家族的「當前版本」（未封存中 id 最大的那一列），並且整個家族都
+  // 封存的不回。這是階段 1「畫面跟今天一樣」的關鍵：fork 出來的舊版本不會在清單
+  // 裡冒出一堆同名項目。對局卡片上的牌組名稱不受影響——那是 matches IPC 端用
+  // deckId 直接查列，任何版本、封存與否都查得到。
+  // 要看全部版本（階段 2 的版本 UI、測試）就帶 scope: 'all'。
   ipcMain.handle(
     'decks:all',
-    async (): Promise<Res<DeckListItem[]>> =>
+    async (_e, params: { scope?: 'current' | 'all' } = {}): Promise<Res<DeckListItem[]>> =>
       wrap(async () => {
         // The key card's banner comes along for the ride so the deck list can
         // use it as a background. A LEFT join, because the card cache may not
         // hold that card - a deck with no picture still has to list.
-        const rows = await db
+        const allRows = await db
           .selectFrom('Deck')
           .leftJoin('Card', 'Card.cardId', 'Deck.keyCardId')
           .selectAll('Deck')
@@ -407,6 +671,21 @@ export function registerDecksIpc(): void {
           .orderBy('Deck.updatedAt', 'desc')
           .orderBy('Deck.name', 'asc')
           .execute()
+
+        let rows = allRows
+        if (params?.scope !== 'all') {
+          // Current version = highest unarchived id per family, derived rather
+          // than stored (plan 3.4). Ordering by id, never createdAt: mixed
+          // integer/text storage makes createdAt sort wrong silently.
+          const currentByFamily = new Map<number, number>()
+          for (const row of allRows) {
+            if (row.archivedAt !== null) continue
+            const fam = row.familyId ?? row.id
+            const best = currentByFamily.get(fam)
+            if (best === undefined || row.id > best) currentByFamily.set(fam, row.id)
+          }
+          rows = allRows.filter((row) => currentByFamily.get(row.familyId ?? row.id) === row.id)
+        }
 
         // One query for every deck's cards rather than one per deck. A deck is
         // ~16 rows and a collection is tens of decks, so grouping in JS is far
@@ -450,7 +729,12 @@ export function registerDecksIpc(): void {
       })
   )
 
-  // 牌組戰績：依我方牌組統計勝率
+  // 牌組戰績：依我方牌組統計勝率。
+  //
+  // groupBy 'family'（預設）把一副牌歷代版本的戰績合在一起，回傳列的 deckId 是
+  // 該家族當前版本的 id——所以在 fork 從未發生過的資料庫上，輸出跟舊版逐 deckId
+  // 分組完全相同（相容性保證：使用者看到的數字不變）。groupBy 'deck' 才把版本
+  // 各自分開。封存的牌組照算：封存是「離開挑選清單」，不是「離開歷史」。
   ipcMain.handle(
     'decks:stats',
     async (
@@ -461,41 +745,180 @@ export function registerDecksIpc(): void {
         rangeKey?: RangeKey
         start?: string | number | Date | null
         end?: string | number | Date | null
+        groupBy?: 'family' | 'deck'
       } = {}
     ): Promise<Res<DeckStatsRow[]>> =>
       wrap(async () => {
         const { start, end } = computeRange(params)
+        const groupBy = params.groupBy ?? 'family'
+        const famExpr = sql<number>`coalesce("Deck"."familyId", "Deck"."id")`
 
         let query = db
           .selectFrom('Match')
+          .innerJoin('Deck', 'Deck.id', 'Match.my_deckId')
           .select(({ fn, eb }) => [
-            'my_deckId',
+            sql<number | null>`"Match"."my_deckId"`.as('my_deckId'),
+            famExpr.as('familyId'),
             fn.countAll<number>().as('total'),
             // SQLite has no FILTER-free conditional count shorter than SUM.
-            eb.fn.sum<number>(eb.case().when('result', '=', 1).then(1).else(0).end()).as('wins')
+            eb.fn
+              .sum<number>(eb.case().when('Match.result', '=', 1).then(1).else(0).end())
+              .as('wins'),
+            // 先後攻各自的場數與勝場。分開算而不是回傳一個先攻勝率：一副只先攻
+            // 過兩場的牌組，那個 50% 和三十場的 50% 不是同一件事，而畫面要能把
+            // 這件事說出來就得拿得到分母。
+            eb.fn
+              .sum<number>(eb.case().when('Match.play_order', '=', 'first').then(1).else(0).end())
+              .as('firstTotal'),
+            eb.fn
+              .sum<number>(
+                eb
+                  .case()
+                  .when(eb.and([eb('Match.play_order', '=', 'first'), eb('Match.result', '=', 1)]))
+                  .then(1)
+                  .else(0)
+                  .end()
+              )
+              .as('firstWins'),
+            eb.fn
+              .sum<number>(eb.case().when('Match.play_order', '=', 'second').then(1).else(0).end())
+              .as('secondTotal'),
+            eb.fn
+              .sum<number>(
+                eb
+                  .case()
+                  .when(eb.and([eb('Match.play_order', '=', 'second'), eb('Match.result', '=', 1)]))
+                  .then(1)
+                  .else(0)
+                  .end()
+              )
+              .as('secondWins'),
+            fn.min<number | null>('Match.playedAt').as('firstPlayedAt'),
+            fn.max<number | null>('Match.playedAt').as('lastPlayedAt')
           ])
-          .where('my_deckId', 'is not', null)
-          .where('result', 'is not', null)
-          .groupBy('my_deckId')
+          .where('Match.my_deckId', 'is not', null)
+          .where('Match.result', 'is not', null)
 
-        if (params.deckIds?.length) query = query.where('my_deckId', 'in', params.deckIds)
-        if (params.mode && params.mode !== 'all') query = query.where('mode', '=', params.mode)
-        if (start) query = query.where('playedAt', '>=', toMs(start))
-        if (end) query = query.where('playedAt', '<=', toMs(end))
+        query = groupBy === 'family' ? query.groupBy(famExpr) : query.groupBy('Match.my_deckId')
+
+        if (params.deckIds?.length) {
+          if (groupBy === 'family') {
+            // "These decks" means "these decks' families": a filter pinned to
+            // the current version id must keep counting the games played on
+            // the versions before it.
+            const famRows = await db
+              .selectFrom('Deck')
+              .select(['id', 'familyId'])
+              .where('id', 'in', params.deckIds)
+              .execute()
+            const fams = [...new Set(famRows.map((r) => r.familyId ?? r.id))]
+            query = fams.length
+              ? query.where(famExpr, 'in', fams)
+              : query.where('Match.my_deckId', 'in', params.deckIds)
+          } else {
+            query = query.where('Match.my_deckId', 'in', params.deckIds)
+          }
+        }
+        if (params.mode && params.mode !== 'all')
+          query = query.where('Match.mode', '=', params.mode)
+        if (start) query = query.where('Match.playedAt', '>=', toMs(start))
+        if (end) query = query.where('Match.playedAt', '<=', toMs(end))
 
         const grouped = await query.execute()
-        return grouped
-          .filter((row) => row.my_deckId != null)
-          .map((row) => {
-            const total = Number(row.total)
-            const wins = Number(row.wins ?? 0)
-            return {
-              deckId: row.my_deckId as number,
+
+        // Family -> current version id, so the renderer's existing
+        // deckId-keyed lookup lands on the row it is already displaying.
+        const deckRows = await db
+          .selectFrom('Deck')
+          .select(['id', 'familyId', 'archivedAt'])
+          .execute()
+        const repByFamily = new Map<number, number>()
+        for (const row of deckRows) {
+          const fam = row.familyId ?? row.id
+          const existing = repByFamily.get(fam)
+          const existingRow = deckRows.find((r) => r.id === existing)
+          if (existing === undefined) {
+            repByFamily.set(fam, row.id)
+            continue
+          }
+          const rowLive = row.archivedAt === null
+          const existingLive = existingRow ? existingRow.archivedAt === null : false
+          if ((rowLive && !existingLive) || (rowLive === existingLive && row.id > existing)) {
+            repByFamily.set(fam, row.id)
+          }
+        }
+
+        const toStatsRow = (row: {
+          my_deckId: number | null
+          familyId: number | null
+          total: number
+          wins: number
+          firstTotal: number
+          firstWins: number
+          secondTotal: number
+          secondWins: number
+          firstPlayedAt: number | null
+          lastPlayedAt: number | null
+        }): DeckStatsRow => {
+          const total = Number(row.total)
+          const wins = Number(row.wins ?? 0)
+          const familyId = row.familyId ?? row.my_deckId
+          return {
+            deckId:
+              groupBy === 'family'
+                ? (repByFamily.get(familyId as number) ?? (row.my_deckId as number))
+                : (row.my_deckId as number),
+            familyId,
+            total,
+            wins,
+            winRate: total > 0 ? +((wins / total) * 100).toFixed(2) : 0,
+            first: { total: Number(row.firstTotal ?? 0), wins: Number(row.firstWins ?? 0) },
+            second: { total: Number(row.secondTotal ?? 0), wins: Number(row.secondWins ?? 0) },
+            firstPlayedAt: row.firstPlayedAt == null ? null : Number(row.firstPlayedAt),
+            lastPlayedAt: row.lastPlayedAt == null ? null : Number(row.lastPlayedAt)
+          }
+        }
+        const out = grouped.filter((row) => row.my_deckId != null).map(toStatsRow)
+
+        // The catch-all row for matches with no deck assigned. Without it the
+        // per-deck rows can never add up to the total match count and the
+        // screen has no line saying where the difference went. Skipped when
+        // the caller filtered to specific decks - "no deck" is not one of them.
+        if (!params.deckIds?.length) {
+          let unassigned = db
+            .selectFrom('Match')
+            .select(({ fn, eb }) => [
+              fn.countAll<number>().as('total'),
+              eb.fn.sum<number>(eb.case().when('result', '=', 1).then(1).else(0).end()).as('wins')
+            ])
+            .where('my_deckId', 'is', null)
+            .where('result', 'is not', null)
+          if (params.mode && params.mode !== 'all') {
+            unassigned = unassigned.where('mode', '=', params.mode)
+          }
+          if (start) unassigned = unassigned.where('playedAt', '>=', toMs(start))
+          if (end) unassigned = unassigned.where('playedAt', '<=', toMs(end))
+          const u = await unassigned.executeTakeFirst()
+          const total = Number(u?.total ?? 0)
+          if (total > 0) {
+            const wins = Number(u?.wins ?? 0)
+            out.push({
+              deckId: null,
+              familyId: null,
               total,
               wins,
-              winRate: total > 0 ? +((wins / total) * 100).toFixed(2) : 0
-            }
-          })
+              winRate: total > 0 ? +((wins / total) * 100).toFixed(2) : 0,
+              // 這一列是「沒有指定牌組」的合計，沒有牌組就沒有牌組的先後攻表現。
+              first: { total: 0, wins: 0 },
+              second: { total: 0, wins: 0 },
+              // 沒有牌組就沒有「版本的期間」可畫；這一列不上時間線。
+              firstPlayedAt: null,
+              lastPlayedAt: null
+            })
+          }
+        }
+
+        return out
       })
   )
 
@@ -546,7 +969,7 @@ export function registerDecksIpc(): void {
           }
 
           const now = nowMs()
-          return tx
+          const inserted = await tx
             .insertInto('Deck')
             .values({
               name,
@@ -558,6 +981,16 @@ export function registerDecksIpc(): void {
             })
             .returningAll()
             .executeTakeFirstOrThrow()
+          // A new deck founds its own family. AUTOINCREMENT means the id is
+          // unknowable before insert, so this is a backfill in the same
+          // transaction - familyId must never be NULL after migration 011.
+          await tx
+            .updateTable('Deck')
+            .set({ familyId: inserted.id })
+            .where('id', '=', inserted.id)
+            .where('familyId', 'is', null)
+            .execute()
+          return { ...inserted, familyId: inserted.familyId ?? inserted.id }
         })
         notifyReferenceDataChanged('decks')
         return deckFromRow(created)
@@ -592,7 +1025,10 @@ export function registerDecksIpc(): void {
             data.categoryId = nextCat
           }
 
-          // 名稱唯一檢查（以「欲更新後的 class + categoryId + name」為準）
+          const familyId = current.familyId ?? current.id
+
+          // 名稱唯一檢查（以「欲更新後的 class + categoryId + name」為準）。
+          // 同家族的其他版本本來就同名，不算撞名。
           if (typeof data.name === 'string' || typeof data.categoryId !== 'undefined') {
             const nextCatId =
               typeof data.categoryId !== 'undefined' ? data.categoryId : current.categoryId
@@ -601,12 +1037,12 @@ export function registerDecksIpc(): void {
               cls: current.class,
               categoryId: nextCatId ?? null,
               name: nextName,
-              excludeId: id
+              excludeFamilyId: familyId
             })
             if (dup) throw new Error('DUPLICATE_NAME')
           }
 
-          // isDefault 調整（同職業僅能有一個）
+          // isDefault 調整（同職業僅能有一個）——這是「這一列」的屬性，不跟家族走。
           if (typeof input.isDefault === 'boolean') {
             if (input.isDefault) {
               await tx
@@ -620,9 +1056,25 @@ export function registerDecksIpc(): void {
             }
           }
 
+          const now = nowMs()
+          // 名稱與分類是「這副牌」的屬性，整個家族一起改（plan 規則 3.1）；否則
+          // 版本歷史裡會出現不同名字、被分進不同分類的同一副牌。
+          await applyFamilyMutables(tx, {
+            familyId,
+            name: data.name,
+            categoryId: typeof data.categoryId !== 'undefined' ? data.categoryId : undefined,
+            now
+          })
+          if (typeof data.isDefault !== 'undefined') {
+            await tx
+              .updateTable('Deck')
+              .set({ isDefault: data.isDefault, updatedAt: now })
+              .where('id', '=', id)
+              .execute()
+          }
           return tx
             .updateTable('Deck')
-            .set({ ...data, updatedAt: nowMs() })
+            .set({ updatedAt: now })
             .where('id', '=', id)
             .returningAll()
             .executeTakeFirstOrThrow()
@@ -632,15 +1084,118 @@ export function registerDecksIpc(): void {
       })
   )
 
-  // 刪除牌組。FK 的 onDelete: SetNull 定義在 schema（001_init.sql），行為不變。
+  // 刪除牌組：作用在整個家族（plan 規則 3.3）。逐列查引用——沒有任何對局引用的
+  // 版本真刪（FK 讓 DeckCard 一併消失，沒有東西要保護）；有引用的封存（寫
+  // archivedAt），因為在這個模型裡那一列就是那幾十場對局的卡表。封存列若持有
+  // isDefault 必須清掉，否則 engine 會繼續把新對局安靜地掛到「已刪除」的牌組上。
   ipcMain.handle(
     'decks:delete',
-    async (_e, { id }: { id: number }): Promise<Res<{ success: true }>> =>
+    async (
+      _e,
+      { id }: { id: number }
+    ): Promise<Res<{ success: true; deleted: number; archived: number }>> =>
       wrap(async () => {
-        const deleted = await db.deleteFrom('Deck').where('id', '=', id).executeTakeFirst()
-        if (deleted.numDeletedRows === 0n) throw new Error('NOT_FOUND:Deck')
+        const result = await db.transaction().execute(async (tx) => {
+          const target = await tx
+            .selectFrom('Deck')
+            .select(['id', 'familyId'])
+            .where('id', '=', id)
+            .executeTakeFirst()
+          if (!target) throw new Error('NOT_FOUND:Deck')
+          const familyId = target.familyId ?? target.id
+          const rows = await familyVersionRows(tx, familyId)
+          return retireDeckRows(
+            tx,
+            rows.map((r) => r.id),
+            nowMs()
+          )
+        })
         notifyReferenceDataChanged('decks')
-        return { success: true as const }
+        return { success: true as const, ...result }
+      })
+  )
+
+  // 刪除前的預告：這副牌（整個家族）底下有幾場對局、幾個版本。刪除確認框要
+  // 讓使用者知道會走「封存」還是「真刪」，就得先講得出這兩個數字。
+  ipcMain.handle(
+    'decks:deleteImpact',
+    async (_e, { id }: { id: number }): Promise<Res<{ matches: number; versions: number }>> =>
+      wrap(async () => {
+        const target = await db
+          .selectFrom('Deck')
+          .select(['id', 'familyId'])
+          .where('id', '=', id)
+          .executeTakeFirst()
+        if (!target) throw new Error('NOT_FOUND:Deck')
+        const familyId = target.familyId ?? target.id
+
+        const ids = (await familyVersionRows(db, familyId)).map((v) => v.id)
+        return { matches: await countMatchesReferencing(db, ids), versions: ids.length }
+      })
+  )
+
+  // 捨棄單一版本前的預告：這一個版本有幾場對局、它是不是家族最後一個未封存的
+  // 版本。後者決定了「捨棄此版本」會不會變成「刪掉整副牌」——確認框要先講。
+  ipcMain.handle(
+    'decks:versionImpact',
+    async (
+      _e,
+      { id }: { id: number }
+    ): Promise<Res<{ matches: number; versions: number; isLastActive: boolean }>> =>
+      wrap(async () => {
+        const target = await db
+          .selectFrom('Deck')
+          .select(['id', 'familyId', 'archivedAt'])
+          .where('id', '=', id)
+          .executeTakeFirst()
+        if (!target) throw new Error('NOT_FOUND:Deck')
+
+        const rows = await familyVersionRows(db, target.familyId ?? target.id)
+        const active = rows.filter((r) => r.archivedAt === null)
+        return {
+          matches: await countMatchesReferencing(db, [id]),
+          versions: rows.length,
+          isLastActive: target.archivedAt === null && active.length <= 1
+        }
+      })
+  )
+
+  // 捨棄單一版本（階段 2 的版本 UI）。作用在那一列：無引用真刪、有引用封存
+  // （封存時清 isDefault）。例外是家族最後一個未封存的版本——把它拿掉等於
+  // 「刪掉這副牌」，所以行為等同 decks:delete，整個家族一起處理；否則家族的
+  // 「當前版本」定義會回退到某個封存的舊列，或這副牌從清單上安靜消失。
+  ipcMain.handle(
+    'decks:deleteVersion',
+    async (
+      _e,
+      { id }: { id: number }
+    ): Promise<Res<{ success: true; deleted: number; archived: number; familyDeleted: boolean }>> =>
+      wrap(async () => {
+        const result = await db.transaction().execute(async (tx) => {
+          const target = await tx
+            .selectFrom('Deck')
+            .select(['id', 'familyId', 'archivedAt'])
+            .where('id', '=', id)
+            .executeTakeFirst()
+          if (!target) throw new Error('NOT_FOUND:Deck')
+
+          const rows = await familyVersionRows(tx, target.familyId ?? target.id)
+          const active = rows.filter((r) => r.archivedAt === null)
+          const now = nowMs()
+
+          if (target.archivedAt === null && active.length <= 1) {
+            const retired = await retireDeckRows(
+              tx,
+              rows.map((r) => r.id),
+              now
+            )
+            return { ...retired, familyDeleted: true }
+          }
+          const retired = await retireDeckRows(tx, [id], now)
+          return { ...retired, familyDeleted: false }
+        })
+        notifyReferenceDataChanged('decks')
+        return { success: true as const, ...result }
       })
   )
 
@@ -700,14 +1255,20 @@ export function registerDecksIpc(): void {
           throw e
         })
 
-        // 先告知重複，但不代替使用者決定要覆蓋還是另存。
+        // 先告知重複，但不代替使用者決定要覆蓋還是另存。指紋可能撞到某個舊版本
+        // （封存與否都算），但回給 UI 的語意指向「那副牌」——家族的當前版本——
+        // 而不是撞到的那一列。
         const existing = await db
           .selectFrom('Deck')
-          .select('id')
+          .select(['id', 'familyId'])
           .where('fingerprint', '=', preview.fingerprint)
+          .orderBy('id', 'desc')
           .executeTakeFirst()
 
-        return { preview, duplicateDeckId: existing?.id ?? null }
+        const duplicateDeckId = existing
+          ? await familyRepresentativeId(db, existing.familyId ?? existing.id)
+          : null
+        return { preview, duplicateDeckId }
       })
   )
 
@@ -752,21 +1313,35 @@ export function registerDecksIpc(): void {
           await ensureCategoryExists(tx, categoryId)
 
           const replaceId = input.replaceDeckId ?? null
-          if (replaceId === null) {
+          let replaceFamilyId: number | undefined
+          if (replaceId !== null) {
+            const replaceTarget = await tx
+              .selectFrom('Deck')
+              .select(['id', 'familyId'])
+              .where('id', '=', replaceId)
+              .executeTakeFirst()
+            if (!replaceTarget) throw new Error('NOT_FOUND:Deck')
+            replaceFamilyId = replaceTarget.familyId ?? replaceTarget.id
+          } else {
             const dupContent = await tx
               .selectFrom('Deck')
-              .select('id')
+              .select(['id', 'familyId'])
               .where('fingerprint', '=', preview.fingerprint)
+              .orderBy('id', 'desc')
               .executeTakeFirst()
-            // 帶上 id，讓 UI 能提供「改成更新那一副」而不是只說失敗。
-            if (dupContent) throw new Error(`DUPLICATE_CONTENT:${dupContent.id}`)
+            // 帶上 id，讓 UI 能提供「改成更新那一副」而不是只說失敗。指紋撞到的
+            // 可能是某個舊版本；回的 id 指向那個家族的當前版本，語意是「這副牌」。
+            if (dupContent) {
+              const rep = await familyRepresentativeId(tx, dupContent.familyId ?? dupContent.id)
+              throw new Error(`DUPLICATE_CONTENT:${rep ?? dupContent.id}`)
+            }
           }
 
           const dupName = await hasNameDuplicateCI(tx, {
             cls,
             categoryId,
             name,
-            excludeId: replaceId ?? undefined
+            excludeFamilyId: replaceFamilyId
           })
           if (dupName) throw new Error('DUPLICATE_NAME')
 
@@ -874,21 +1449,23 @@ export function registerDecksIpc(): void {
           // class is what its recorded matches were played as. Silently keeping
           // the old class while saving another class's cards would produce a row
           // that describes a deck nobody ever played.
+          let replaceFamilyId: number | undefined
           if (replaceId !== null) {
             const current = await tx
               .selectFrom('Deck')
-              .select('class')
+              .select(['id', 'class', 'familyId'])
               .where('id', '=', replaceId)
               .executeTakeFirst()
             if (!current) throw new Error('NOT_FOUND:Deck')
             if (current.class !== cls) throw new Error('INVALID_INPUT:Cannot change deck class')
+            replaceFamilyId = current.familyId ?? current.id
           }
 
           const dupName = await hasNameDuplicateCI(tx, {
             cls,
             categoryId,
             name,
-            excludeId: replaceId ?? undefined
+            excludeFamilyId: replaceFamilyId
           })
           if (dupName) throw new Error('DUPLICATE_NAME')
 
@@ -899,6 +1476,8 @@ export function registerDecksIpc(): void {
             isDefault: input.isDefault,
             cards,
             now,
+            // 預設 fork；「修正、不建立新版本」是使用者明講的例外（plan 3.2）。
+            mode: input.forceInPlace ? 'inPlace' : 'fork',
             fields: {
               name,
               categoryId,

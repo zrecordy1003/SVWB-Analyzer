@@ -131,6 +131,8 @@ declare global {
         start?: Date | number | string
         end?: Date | number | string
         myDeckIds?: number[]
+        /** `'family'` (default) expands each id to every version of that deck. */
+        myDeckScope?: 'family' | 'deck'
         tagIds?: number[]
         crMin?: number
         crMax?: number

@@ -42,7 +42,15 @@ export const EDITABLE_COLUMNS = [
   'playedAt',
   'note',
   'my_deckId',
-  'oppo_deckId'
+  'oppo_deckId',
+  /**
+   * CR joined late: the fields were in the edit dialog from the start but the
+   * payload never carried them, so no edit to them could be recorded because no
+   * edit to them ever landed. They are absent from `OBSERVED_COLUMNS` on
+   * purpose - see the note there.
+   */
+  'current_cr',
+  'delta_cr'
 ] as const
 
 export type EditableColumn = (typeof EDITABLE_COLUMNS)[number]
@@ -53,6 +61,13 @@ export type EditableColumn = (typeof EDITABLE_COLUMNS)[number]
  * This is the set worth snapshotting. `note`, `my_deckId` and `oppo_deckId` are
  * excluded because no statistic reads them, and `durationTime` because it is
  * derived from the engine's own clock rather than recognised from the screen.
+ *
+ * `current_cr` / `delta_cr` are excluded too, and that one is a judgement
+ * rather than an obvious call: the engine does read them off the screen, so
+ * they are observations. But the only statistic that touches CR uses it as a
+ * range filter, and a snapshot exists to let a later statistic say "the engine
+ * saw X here" - a number nobody reads back cannot pay for consuming the one
+ * snapshot slot that the columns above genuinely need.
  */
 export const OBSERVED_COLUMNS = [
   'result',

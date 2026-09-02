@@ -81,6 +81,7 @@ export async function insertMatch(values: {
   oppo_class: string
   mode?: string | null
   my_deckId?: number | null
+  oppo_deckId?: number | null
   current_cr?: number | null
   playedAt: Date
   endedAt?: Date | null
@@ -97,6 +98,7 @@ export async function insertMatch(values: {
       oppo_class: values.oppo_class,
       mode: values.mode ?? null,
       my_deckId: values.my_deckId ?? null,
+      oppo_deckId: values.oppo_deckId ?? null,
       current_cr: values.current_cr ?? null,
       year: values.playedAt.getUTCFullYear(),
       month: values.playedAt.getUTCMonth() + 1,

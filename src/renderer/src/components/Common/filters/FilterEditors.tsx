@@ -9,18 +9,20 @@
  * Each editor is controlled - it holds a draft only where a half-typed value
  * must not reach the query (the CR numbers), and reports committed values up.
  */
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Autocomplete,
   Box,
   Checkbox,
   Chip,
+  IconButton,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
   type AutocompleteRenderGetTagProps
 } from '@mui/material'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers'
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns'
 import { zhTW as pickersZhTW } from '@mui/x-date-pickers/locales'
@@ -29,6 +31,14 @@ import { zhTW as dfZhTW } from 'date-fns/locale'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classes, classesMap } from '@renderer/map/classMap'
 import { CR_BANDS, CR_MAX_BOUND, CR_MIN_BOUND, CR_STEP, clampCr } from './crBounds'
+import {
+  deckOptionLabel,
+  selectedDeckOptions,
+  selectionFromOptions,
+  type DeckFamilyOption,
+  type DeckOption,
+  type DeckSelection
+} from './deckSelection'
 
 import type { RangeKey } from '@shared/types'
 
@@ -211,14 +221,257 @@ function renderLimitedTags<T extends { id: number; name: string }>(
   ].filter(Boolean) as React.ReactNode[]
 }
 
-const groupKeyOf = (d: DeckLite): string => {
+const groupKeyOf = (d: { categorySort?: number | null; categoryName?: string | null }): string => {
   const k = String(d.categorySort ?? 9999).padStart(4, '0')
   const name = d.categoryName ?? '未分類'
   return `${k} ${name}`
 }
 const displayGroupLabel = (key: string): string => key.replace(/^\d+\s/, '')
 
+/** 職業徽章：這份清單跨職業，徽章是真的在幫忙掃描。沒有職業的牌組畫成「—」。 */
+function DeckClassChip({ classId, muted }: { classId: string | number | null; muted: boolean }) {
+  const meta = classId ? classesMap[String(classId)] : undefined
+  return (
+    <Chip
+      size="small"
+      icon={classId ? <ClassIcon id={String(classId)} size={16} /> : undefined}
+      label={classId ? (meta?.label ?? '—') : '—'}
+      sx={{
+        bgcolor: meta?.color ? `${meta.color}50` : undefined,
+        mr: 1,
+        '& .MuiChip-icon': { ml: 0.5 },
+        opacity: muted ? 0.55 : 1
+      }}
+    />
+  )
+}
+
+/** 「已刪除」的小標籤：牌組或版本還在（有戰績），但不再是選項。 */
+function DeletedChip({ testId }: { testId?: string }) {
+  return (
+    <Chip
+      size="small"
+      variant="outlined"
+      label="已刪除"
+      data-testid={testId}
+      sx={{ ml: 1, height: 20, fontSize: 11, color: 'text.secondary' }}
+    />
+  )
+}
+
+/**
+ * 牌組篩選，兩層：每副牌一個選項（勾起來 = 整副牌，所有版本），有多個版本的
+ * 牌組多一個小箭頭，展開後縮排列出 v1、v2…各自可勾（= 只看那一版）。單一版本
+ * 的牌組沒有箭頭——它沒有第二層可以展開。
+ *
+ * 選項的資料形狀與解析都在 `deckSelection.ts`；分析器和卡片頁用的是同一個元件
+ * 與同一套解析，所以「選了什麼」在兩頁的意思一致。
+ */
 export function DeckEditor({
+  options,
+  allOptions,
+  value,
+  onOpen,
+  onChange,
+  autoFocus,
+  header,
+  label = '依牌組'
+}: {
+  /** 現在列出來的牌組（已依職業與「顯示已刪除」篩過）。 */
+  options: DeckFamilyOption[]
+  /**
+   * 全部牌組，含沒列出來的。已選的 chip 從這裡找名字：切一次職業或關掉
+   * 「顯示已刪除」不該讓選好的牌組默默從 chip 上消失。
+   */
+  allOptions: DeckFamilyOption[]
+  value: DeckSelection
+  onOpen: () => void
+  onChange: (next: DeckSelection) => void
+  autoFocus?: boolean
+  /** 擺在欄位上方的控制項——例如「顯示已刪除的牌組」。 */
+  header?: React.ReactNode
+  label?: string
+}): React.JSX.Element {
+  const [expanded, setExpanded] = useState<ReadonlySet<number>>(() => new Set())
+
+  const toggleExpanded = (familyId: number): void => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(familyId)) next.delete(familyId)
+      else next.add(familyId)
+      return next
+    })
+  }
+
+  /**
+   * 攤平成一份清單給 Autocomplete：每個家族一列，展開的家族後面接它的版本。
+   * 一個版本的家族不展開——它沒有箭頭。
+   */
+  const flat = useMemo<DeckOption[]>(() => {
+    const out: DeckOption[] = []
+    for (const family of options) {
+      out.push(family)
+      if (family.versions.length > 1 && expanded.has(family.familyId)) {
+        out.push(...family.versions)
+      }
+    }
+    return out
+  }, [expanded, options])
+
+  const selected = useMemo(() => selectedDeckOptions(value, allOptions), [allOptions, value])
+
+  const familyOf = useMemo(() => new Map(options.map((f) => [f.familyId, f])), [options])
+
+  return (
+    <Box display="flex" flexDirection="column" gap={1.25} sx={{ width: '100%' }}>
+      {header}
+      <Autocomplete
+        onOpen={onOpen}
+        multiple
+        disableCloseOnSelect
+        options={flat}
+        getOptionLabel={deckOptionLabel}
+        isOptionEqualToValue={(a, b) => a.key === b.key}
+        value={selected}
+        onChange={(_, val) => onChange(selectionFromOptions(val ?? []))}
+        // 打字時對牌組名稱比對；版本列跟著它的牌組一起留下或消失，不自己比對。
+        filterOptions={(opts, state) => {
+          const needle = state.inputValue.trim().toLowerCase()
+          if (!needle) return opts
+          const hit = (name: string): boolean => name.toLowerCase().includes(needle)
+          return opts.filter((opt) =>
+            opt.kind === 'family'
+              ? hit(opt.name)
+              : hit(familyOf.get(opt.familyId)?.name ?? opt.name)
+          )
+        }}
+        groupBy={(opt) =>
+          groupKeyOf(opt.kind === 'family' ? opt : (familyOf.get(opt.familyId) ?? {}))
+        }
+        renderGroup={(params) => (
+          <li key={params.key}>
+            <Typography sx={{ px: 1, py: 0.5, fontWeight: 700, opacity: 0.8 }}>
+              {displayGroupLabel(params.group)}
+            </Typography>
+            <ul style={{ margin: 0, paddingLeft: 8 }}>{params.children}</ul>
+          </li>
+        )}
+        renderInput={(params) => (
+          <TextField {...params} label={label} variant="outlined" autoFocus={autoFocus} />
+        )}
+        renderOption={(props, opt, { selected: isSelected }) => {
+          if (opt.kind === 'version') {
+            return (
+              <li
+                {...props}
+                key={opt.key}
+                data-testid={`deck-version-option-${opt.deckId}`}
+                data-archived={opt.archived ? 'true' : undefined}
+              >
+                {/* 縮排：版本列掛在它的牌組底下，退一格讓層級看得出來。 */}
+                <Box sx={{ width: 28, flexShrink: 0 }} />
+                <Checkbox checked={isSelected} size="small" />
+                <Chip
+                  size="small"
+                  label={opt.versionLabel}
+                  sx={{
+                    mr: 1,
+                    height: 20,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    fontVariantNumeric: 'tabular-nums',
+                    bgcolor: 'rgba(122,162,247,0.16)',
+                    opacity: opt.archived ? 0.55 : 1
+                  }}
+                />
+                <Typography
+                  noWrap
+                  variant="body2"
+                  sx={{ flex: 1, minWidth: 0, color: opt.archived ? 'text.disabled' : undefined }}
+                >
+                  只看這一版
+                </Typography>
+                {opt.archived && <DeletedChip />}
+              </li>
+            )
+          }
+
+          const expandable = opt.versions.length > 1
+          const isOpen = expanded.has(opt.familyId)
+          return (
+            <li
+              {...props}
+              key={opt.key}
+              data-testid={`deck-option-${opt.familyId}`}
+              data-archived={opt.archived ? 'true' : undefined}
+              data-expanded={expandable ? (isOpen ? 'true' : 'false') : undefined}
+            >
+              <Checkbox checked={isSelected} size="small" />
+              <DeckClassChip classId={opt.classId} muted={opt.archived} />
+              <Typography
+                noWrap
+                sx={{ flex: 1, minWidth: 0, color: opt.archived ? 'text.disabled' : undefined }}
+              >
+                {opt.name}
+              </Typography>
+              {opt.archived && <DeletedChip testId="deck-option-archived" />}
+              {/* 箭頭只在有第二層時出現。點它只展開，不勾選——擋掉列本身的 click。 */}
+              {expandable && (
+                <IconButton
+                  size="small"
+                  aria-label={isOpen ? '收起版本' : `展開 ${opt.versions.length} 個版本`}
+                  aria-expanded={isOpen}
+                  data-testid={`deck-option-expand-${opt.familyId}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    event.preventDefault()
+                    toggleExpanded(opt.familyId)
+                  }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  sx={{ ml: 0.5, p: 0.25, color: 'text.secondary' }}
+                >
+                  <ExpandMoreRoundedIcon
+                    fontSize="small"
+                    sx={{
+                      transition: 'transform .16s',
+                      transform: isOpen ? 'rotate(180deg)' : 'none'
+                    }}
+                  />
+                </IconButton>
+              )}
+            </li>
+          )
+        }}
+        renderTags={(tagValue, getTagProps) => {
+          const limit = 2
+          const extra = tagValue.length - limit
+          return [
+            ...tagValue.slice(0, limit).map((opt, idx) => {
+              const { key: _key, ...tagProps } = getTagProps({ index: idx })
+              return (
+                <Chip
+                  key={opt.key}
+                  label={deckOptionLabel(opt)}
+                  {...tagProps}
+                  sx={{ mr: 0.5, mb: 0.5, opacity: opt.archived ? 0.6 : 1 }}
+                />
+              )
+            }),
+            extra > 0 && <Chip key="extra" label={`+${extra}`} />
+          ].filter(Boolean) as React.ReactNode[]
+        }}
+        slotProps={{ listbox: { sx: { maxHeight: 420 } } }}
+        sx={{ width: '100%' }}
+      />
+    </Box>
+  )
+}
+
+/**
+ * 單層的牌組多選：對局列表用。那一頁的篩選送的是「這副牌」（主行程預設把它
+ * 展開成整個家族），沒有版本那一層要挑。
+ */
+export function SimpleDeckEditor({
   options,
   value,
   onOpen,
@@ -254,24 +507,12 @@ export function DeckEditor({
         <TextField {...params} label="依牌組" variant="outlined" autoFocus={autoFocus} />
       )}
       renderOption={(props, opt, { selected }) => (
-        <li {...props}>
+        <li {...props} data-testid={`deck-option-${opt.id}`}>
           <Checkbox checked={selected} size="small" />
-          <Chip
-            size="small"
-            // 這份清單跨職業，所以徽章在這裡是真的在幫忙掃描；沒有職業的牌組
-            // 不掛徽章，`ClassIcon` 收到 null 只會畫回原本的色塊。
-            icon={opt.classId ? <ClassIcon id={String(opt.classId)} size={16} /> : undefined}
-            label={opt.classId ? (classesMap[String(opt.classId)]?.label ?? '—') : '—'}
-            sx={{
-              bgcolor:
-                opt.classId && classesMap[String(opt.classId)]?.color
-                  ? `${classesMap[String(opt.classId)].color}50`
-                  : undefined,
-              mr: 1,
-              '& .MuiChip-icon': { ml: 0.5 }
-            }}
-          />
-          <Typography>{opt.name}</Typography>
+          <DeckClassChip classId={opt.classId} muted={false} />
+          <Typography noWrap sx={{ flex: 1, minWidth: 0 }}>
+            {opt.name}
+          </Typography>
         </li>
       )}
       renderTags={renderLimitedTags}

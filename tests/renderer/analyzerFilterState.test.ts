@@ -14,6 +14,7 @@ import {
   type AnalyzerFilters,
   type FilterVocabulary
 } from '../../src/renderer/src/components/Analyzer/filterState'
+import { groupDeckFamilies } from '../../src/renderer/src/components/DeckCards/deckVersions'
 
 const VOCAB: FilterVocabulary = {
   classIds: ['elf', 'royal', 'witch', 'dragon', 'bishop', 'nightmare', 'nemesis'],
@@ -52,6 +53,7 @@ describe('hydrateFilters', () => {
         'analyzer.startDate': '2026-05-01T00:00:00.000Z',
         'analyzer.endDate': '2026-05-31T00:00:00.000Z',
         'analyzer.deckIds': [3, 7],
+        'analyzer.familyIds': [12],
         'analyzer.tagIds': [1],
         'analyzer.crEnabled': true,
         'analyzer.crMin': 1750,
@@ -64,7 +66,7 @@ describe('hydrateFilters', () => {
     expect(restored.gameMode).toBe('twoPick')
     expect(restored.matchLimit).toBe(50)
     expect(restored.rangeKey).toBe('30d')
-    expect(restored.deckIds).toEqual([3, 7])
+    expect(restored.decks).toEqual({ familyIds: [12], deckIds: [3, 7] })
     expect(restored.tagIds).toEqual([1])
     expect(restored.crEnabled).toBe(true)
     expect(restored.crMin).toBe(1750)
@@ -100,7 +102,8 @@ describe('hydrateFilters', () => {
     expect(restored.gameMode).toBe('twoPick')
     expect(restored.rangeKey).toBe('all')
     expect(restored.matchLimit).toBe(20)
-    expect(restored.deckIds).toEqual([4])
+    // No `familyIds` key: an older build's pick, which meant the whole deck.
+    expect(restored.decks).toEqual({ familyIds: [4], deckIds: [] })
     expect(restored.tagIds).toEqual([9])
     expect(restored.crEnabled).toBe(true)
     expect(restored.crMin).toBe(1700)
@@ -128,6 +131,24 @@ describe('hydrateFilters', () => {
     expect(hydrateFilters({ 'analyzer.gameMode': 'all' }, VOCAB).gameMode).toBe('all')
   })
 
+  it('reads the retired whole-deck / single-version switch only to place old picks', () => {
+    // The build before this one stored a scope next to the ids. Set to single
+    // version, the ids were versions; otherwise they stood for whole decks.
+    expect(
+      hydrateFilters({ 'analyzer.deckIds': [5], 'analyzer.deckScope': 'deck' }, VOCAB).decks
+    ).toEqual({ familyIds: [], deckIds: [5] })
+    expect(
+      hydrateFilters({ 'analyzer.deckIds': [5], 'analyzer.deckScope': 'family' }, VOCAB).decks
+    ).toEqual({ familyIds: [5], deckIds: [] })
+    // Once `familyIds` exists the old key is ignored entirely.
+    expect(
+      hydrateFilters(
+        { 'analyzer.deckIds': [5], 'analyzer.familyIds': [], 'analyzer.deckScope': 'family' },
+        VOCAB
+      ).decks
+    ).toEqual({ familyIds: [], deckIds: [5] })
+  })
+
   it('drops values the current build no longer recognises', () => {
     const restored = hydrateFilters(
       {
@@ -144,7 +165,7 @@ describe('hydrateFilters', () => {
     expect(restored.myClass).toBe(base.myClass)
     expect(restored.gameMode).toBe(base.gameMode)
     expect(restored.rangeKey).toBe(base.rangeKey)
-    expect(restored.deckIds).toEqual([])
+    expect(restored.decks).toEqual({ familyIds: [], deckIds: [] })
     expect(restored.crEnabled).toBe(base.crEnabled)
   })
 
@@ -175,7 +196,7 @@ describe('hydrateFilters', () => {
     // tag to exist, so a brand new user never persisted a single filter.
     const restored = hydrateFilters({ 'analyzer.myClass': 'witch' }, VOCAB)
     expect(restored.myClass).toBe('witch')
-    expect(restored.deckIds).toEqual([])
+    expect(restored.decks).toEqual({ familyIds: [], deckIds: [] })
     expect(restored.tagIds).toEqual([])
   })
 })
@@ -184,7 +205,12 @@ describe('diffPersistPatch', () => {
   it('writes everything when nothing has been persisted yet', () => {
     const patch = diffPersistPatch(null, filters())
     expect(patch).not.toBeNull()
-    expect(Object.keys(patch!)).toHaveLength(12)
+    // One key per field of AnalyzerFilters; the deck pick takes two (whole
+    // decks and single versions are stored apart).
+    expect(Object.keys(patch!)).toHaveLength(13)
+    expect(patch).toHaveProperty('analyzer.deckIds', [])
+    expect(patch).toHaveProperty('analyzer.familyIds', [])
+    expect(patch).not.toHaveProperty('analyzer.deckScope')
   })
 
   it('writes nothing when the state is unchanged', () => {
@@ -199,11 +225,16 @@ describe('diffPersistPatch', () => {
   })
 
   it('compares id arrays by contents, not by identity', () => {
-    const before = filters({ deckIds: [1, 2] })
-    expect(diffPersistPatch(before, { ...before, deckIds: [1, 2] })).toBeNull()
-    expect(diffPersistPatch(before, { ...before, deckIds: [2, 1] })).toEqual({
-      'analyzer.deckIds': [2, 1]
-    })
+    const before = filters({ decks: { familyIds: [1, 2], deckIds: [] } })
+    expect(
+      diffPersistPatch(before, { ...before, decks: { familyIds: [1, 2], deckIds: [] } })
+    ).toBeNull()
+    expect(
+      diffPersistPatch(before, { ...before, decks: { familyIds: [2, 1], deckIds: [] } })
+    ).toEqual({ 'analyzer.familyIds': [2, 1] })
+    expect(
+      diffPersistPatch(before, { ...before, decks: { familyIds: [1, 2], deckIds: [9] } })
+    ).toEqual({ 'analyzer.deckIds': [9] })
   })
 })
 
@@ -214,7 +245,12 @@ describe('advancedFilterChips', () => {
 
   it('names every condition hiding behind the closed drawer', () => {
     const chips = advancedFilterChips(
-      filters({ rangeKey: '30d', deckIds: [1, 2], tagIds: [5], crEnabled: true })
+      filters({
+        rangeKey: '30d',
+        decks: { familyIds: [1, 2], deckIds: [] },
+        tagIds: [5],
+        crEnabled: true
+      })
     )
     expect(chips).toEqual([
       { key: 'range', label: '30 天內' },
@@ -224,8 +260,21 @@ describe('advancedFilterChips', () => {
     ])
   })
 
+  it('counts whole decks and single versions on the deck chip', () => {
+    const chip = (decks: AnalyzerFilters['decks']): string | undefined =>
+      advancedFilterChips(filters({ rangeKey: 'all', decks })).find((c) => c.key === 'decks')?.label
+    expect(chip({ familyIds: [], deckIds: [7] })).toBe('1 個版本')
+    expect(chip({ familyIds: [1], deckIds: [7, 8] })).toBe('1 個牌組、2 個版本')
+    expect(chip({ familyIds: [], deckIds: [] })).toBeUndefined()
+  })
+
   it('clears the chip the user actually clicked, and nothing else', () => {
-    const state = filters({ rangeKey: '30d', deckIds: [1, 2], tagIds: [5], crEnabled: true })
+    const state = filters({
+      rangeKey: '30d',
+      decks: { familyIds: [1], deckIds: [2] },
+      tagIds: [5],
+      crEnabled: true
+    })
     for (const chip of advancedFilterChips(state)) {
       const cleared = { ...state, ...clearAdvancedFilter(chip.key) }
       const keys = advancedFilterChips(cleared).map((c) => c.key)
@@ -240,7 +289,12 @@ describe('advancedFilterChips', () => {
   it('gives every condition a chip once it is enabled', () => {
     // The ＋ menu offers the keys with no chip; picking one must produce one,
     // or the menu would keep offering a condition that is already on.
-    const bare = filters({ rangeKey: 'all', deckIds: [], tagIds: [], crEnabled: false })
+    const bare = filters({
+      rangeKey: 'all',
+      decks: { familyIds: [], deckIds: [] },
+      tagIds: [],
+      crEnabled: false
+    })
     expect(advancedFilterChips(bare)).toEqual([])
 
     for (const key of ['range', 'cr'] as const) {
@@ -263,7 +317,12 @@ describe('advancedFilterChips', () => {
   })
 
   it('leaves no chip standing after clearing them all', () => {
-    const state = filters({ rangeKey: 'custom', deckIds: [1], tagIds: [2], crEnabled: true })
+    const state = filters({
+      rangeKey: 'custom',
+      decks: { familyIds: [1], deckIds: [] },
+      tagIds: [2],
+      crEnabled: true
+    })
     expect(advancedFilterChips({ ...state, ...clearAllAdvancedFilters() })).toEqual([])
   })
 })
@@ -310,6 +369,33 @@ describe('followBattlePatch', () => {
 describe('buildQueryParams', () => {
   it('caps the query at the chosen match count', () => {
     expect(buildQueryParams(filters({ matchLimit: 100 })).limit).toBe(100)
+  })
+
+  it('resolves deck picks to concrete row ids and always sends the single-version scope', () => {
+    // Family 3 has versions 3, 8, 11 (one of them deleted); family 5 is alone.
+    const families = groupDeckFamilies([
+      { id: 3, familyId: 3, archivedAt: null },
+      { id: 8, familyId: 3, archivedAt: 1 },
+      { id: 11, familyId: 3, archivedAt: null },
+      { id: 5, familyId: 5, archivedAt: null }
+    ])
+
+    const whole = buildQueryParams(filters({ decks: { familyIds: [3], deckIds: [] } }), families)
+    expect(whole.myDeckIds).toEqual([3, 8, 11])
+    expect(whole.myDeckScope).toBe('deck')
+
+    const one = buildQueryParams(filters({ decks: { familyIds: [], deckIds: [8] } }), families)
+    expect(one.myDeckIds).toEqual([8])
+
+    // A version of an already-picked deck adds nothing twice.
+    const both = buildQueryParams(
+      filters({ decks: { familyIds: [3, 5], deckIds: [11] } }),
+      families
+    )
+    expect(both.myDeckIds).toEqual([3, 8, 11, 5])
+
+    // Nothing picked -> nothing sent, which main reads as every deck.
+    expect(buildQueryParams(filters(), families).myDeckIds).toEqual([])
   })
 
   it('omits the cap when 全部 is chosen', () => {
