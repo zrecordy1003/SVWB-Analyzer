@@ -100,6 +100,19 @@ fn cursor_blocks(frame: &Frame, store: &TemplateStore, windows: &[Rect], dy: i32
     })
 }
 
+/// How far the MP block has slid on this frame, or `None` if its label is not
+/// on screen.
+///
+/// The label lives in the same bordered box as the value on the 「獲得MP」 row,
+/// so "the value is readable but the label is not" is not a state the screen
+/// has - which is what makes refusing to read safe rather than lossy.
+fn mp_block_offset(frame: &Frame, store: &TemplateStore) -> Option<i32> {
+    store
+        .best_in(frame, cal::templates::MP_GAIN, cal::MP_GAIN_ANCHOR)
+        .filter(|hit| hit.score >= threshold::MP_GAIN)
+        .map(|hit| cal::mp_block_offset(hit.y))
+}
+
 /// Read whichever numbers this result screen is showing.
 ///
 /// Returns everything empty when the screen carries no score-system label:
@@ -147,8 +160,15 @@ pub fn read_all(
             if cursor_blocks(frame, store, cal::MP_CURSOR_WINDOWS, dy) {
                 return out;
             }
-            out.delta_mp = reader.read(frame, cal::shift_roi(cal::GAINED_MP, dy));
-            out.total_mp = reader.read(frame, cal::shift_roi(cal::TOTAL_MP, dy));
+            // The MP half of the panel is anchored to its own label, because
+            // rows drawn under the MP bar move it without moving the CR half -
+            // see `cal::MP_GAIN_ANCHOR`. No label, no MP read: a window placed
+            // by guesswork lands on a neighbouring row as readily as on empty
+            // space, and digits from the wrong row parse.
+            if let Some(dy_mp) = mp_block_offset(frame, store) {
+                out.delta_mp = reader.read(frame, cal::shift_roi(cal::GAINED_MP, dy_mp));
+                out.total_mp = reader.read(frame, cal::shift_roi(cal::TOTAL_MP, dy_mp));
+            }
             out.delta_cr = reader.read(frame, cal::shift_roi(cal::DELTA_CR_MP_LAYOUT, dy));
             out.total_cr = reader.read(frame, cal::shift_roi(cal::TOTAL_CR_MP_LAYOUT, dy));
         }

@@ -30,6 +30,7 @@ const BP_WIN = 'tests/fixtures/captures/ranked-bp-1920-fullscreen/01-result-win-
 const BP_LOSE = 'tests/fixtures/captures/ranked-bp-1280-windowed-lose/01-result-lose-bp.png'
 const MP_LOSE = 'tests/fixtures/captures/ranked-gm-mp-windowed/01-result-lose-mp-cr.png'
 const MP_WIN = 'tests/fixtures/captures/ranked-gm-mp-windowed/02-result-win-mp-cr.png'
+const MP_WQHD = 'tests/fixtures/captures/ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png'
 
 /**
  * `dy` is the result-layout offset for that frame (the reward list's row count
@@ -79,7 +80,55 @@ const CASES = [
   { label: 'MP layout / gained MP (win)', file: MP_WIN, window: 'gainedMp', dy: 0, expect: '+173' },
   { label: 'MP layout / total MP (win)', file: MP_WIN, window: 'totalMp', dy: 0, expect: '41938' },
   { label: 'MP layout / delta CR (win)', file: MP_WIN, window: 'deltaCr', dy: 0, expect: '+14' },
-  { label: 'MP layout / total CR (win)', file: MP_WIN, window: 'totalCr', dy: 0, expect: '1538' }
+  { label: 'MP layout / total CR (win)', file: MP_WIN, window: 'totalCr', dy: 0, expect: '1538' },
+  // 2560x1440, and a client that draws 「指定系列」 under the MP bar. The MP half
+  // of the panel is lifted 19px by that row while the CR half stays put, so the
+  // two halves take DIFFERENT offsets - which is why the MP windows are anchored
+  // to 「獲得MP」 and not to the score-system label. The `expectNot` pair is the
+  // shipped-before behaviour: one offset for the whole panel read the gap above
+  // the label and the tail of the row above the total.
+  {
+    label: 'MP layout / gained MP (2560, MP block shifted)',
+    file: MP_WQHD,
+    window: 'gainedMp',
+    dy: -19,
+    expect: '+173'
+  },
+  {
+    label: 'MP layout / total MP (2560, MP block shifted)',
+    file: MP_WQHD,
+    window: 'totalMp',
+    dy: -19,
+    expect: '24592'
+  },
+  {
+    label: 'MP layout / gained MP at the CR offset (2560)',
+    file: MP_WQHD,
+    window: 'gainedMp',
+    dy: -2,
+    expectNot: '+173'
+  },
+  {
+    label: 'MP layout / total MP at the CR offset (2560)',
+    file: MP_WQHD,
+    window: 'totalMp',
+    dy: -2,
+    expectNot: '24592'
+  },
+  {
+    label: 'MP layout / delta CR (2560)',
+    file: MP_WQHD,
+    window: 'deltaCr',
+    dy: -2,
+    expect: '+13'
+  },
+  {
+    label: 'MP layout / total CR (2560)',
+    file: MP_WQHD,
+    window: 'totalCr',
+    dy: -2,
+    expect: '1482'
+  }
 ]
 
 /**

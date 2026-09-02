@@ -139,14 +139,43 @@ pub const CUSTOM_OTHER: Rect = Rect::new(1138, 64, 119, 93);
 /// across every fixture.
 pub const SCORE_SYSTEM_ANCHOR: Rect = Rect::new(990, 230, 250, 250);
 
+/// The 「獲得MP」 label, which anchors the MP block the way `cr` anchors the CR
+/// block below it.
+///
+/// The two blocks do NOT move together, which is why one anchor cannot serve
+/// both. On `ranked-gm-2560-fullscreen` the client draws an extra 「指定系列」
+/// row under the MP bar; the CR block and the divider above it stay put
+/// (`cr` 306 -> 304) while the whole MP block is pushed 19px UP
+/// (label 174 -> 155, the `MP nnnnn` row 210 -> 190). Reading [`GAINED_MP`] and
+/// [`TOTAL_MP`] at [`result_layout_offset`] there crops the gap above the label
+/// and the tail of the row above the total - the same class of silent
+/// mis-read the reward list once caused for BP, and the reason that one is
+/// anchored too.
+///
+/// The template holds the 「獲得MP」 glyphs only: no box border, and above all
+/// none of the value that follows them on the same row. It scores 1.000 on the
+/// fixture it was cut from, 0.913 on the 2560 fixture's client, and at most
+/// 0.508 on every other screen in `tests/fixtures/captures` - so the 0.7
+/// threshold sits in clean air on both sides.
+///
+/// Window size is the usual `template + 2 * MARGIN`, except vertically, where it
+/// must also span the 19px between the two observed layouts. The label does not
+/// drift horizontally during the count-up (1027 vs 1028 across every settled
+/// frame), unlike the BP one, so the width carries no extra slack for it.
+pub const MP_GAIN_ANCHOR: Rect = Rect::new(1007, 135, 128, 85);
+
+/// Where the 「獲得MP」 label sits on the layout [`GAINED_MP`] and [`TOTAL_MP`]
+/// were measured from.
+pub const MP_GAIN_ANCHOR_Y: i32 = 174;
+
 /// OCR windows for the MP result screen (Grand Master and above), measured from
 /// `tests/fixtures/captures/ranked-gm-mp-windowed`.
 ///
-/// These are the REFERENCE layout, i.e. the one whose label sits at
-/// [`SCORE_SYSTEM_ANCHOR_Y`]. Callers pass them through [`shift_roi`] with the
-/// offset [`result_layout_offset`] reports for the frame in hand. The MP screen
-/// has no reward list and has never been observed to shift, so that offset is 0
-/// on both MP fixtures and these keep their measured values.
+/// These are the REFERENCE layout. The two CR windows are placed against the
+/// score-system label and shifted by [`result_layout_offset`]; the two MP
+/// windows are placed against the 「獲得MP」 label and shifted by
+/// [`mp_block_offset`], because the two halves of the panel move independently -
+/// see [`MP_GAIN_ANCHOR`].
 ///
 /// The two signed windows are deliberately wider than the digits need. The
 /// originals (`gainedMp` 52px, `deltaCrMpLayout` 46px) fit a sign plus two
@@ -368,6 +397,7 @@ pub const PROBES: &[Probe] = &[
     Probe { name: "customOwn", set: templates::CUSTOM, window: CUSTOM_OWN },
     Probe { name: "customOther", set: templates::CUSTOM, window: CUSTOM_OTHER },
     Probe { name: "scoreSystemAnchor", set: templates::SCORE_SYSTEM, window: SCORE_SYSTEM_ANCHOR },
+    Probe { name: "mpGainAnchor", set: templates::MP_GAIN, window: MP_GAIN_ANCHOR },
     Probe { name: "modes2Pick", set: templates::MODES_2PICK, window: MODES_2PICK },
     Probe {
         name: "twoPickVersusOwn",
@@ -405,6 +435,7 @@ pub mod templates {
     pub const HISTORY: &str = "history";
     pub const REPLAY_CHROME: &str = "replay_chrome";
     pub const SCORE_SYSTEM: &str = "score_system";
+    pub const MP_GAIN: &str = "mp_gain";
 }
 
 /// Downscale factor a set is matched at. Absent means full resolution.
@@ -452,6 +483,10 @@ pub mod threshold {
     pub const CUSTOM: f64 = 0.7;
     pub const PLAZA: f64 = 0.7;
     pub const SCORE_SYSTEM: f64 = 0.7;
+    /// The 「獲得MP」 label. Same value as the score-system label it sits above,
+    /// and with the same margin behind it: 0.913-1.000 on the MP result screens,
+    /// at most 0.508 anywhere else.
+    pub const MP_GAIN: f64 = 0.7;
     pub const REPLAY_BANNER: f64 = 0.6;
     pub const REPLAY_CHROME: f64 = 0.7;
     /// The mouse cursor sitting on top of a number being read.
@@ -570,6 +605,18 @@ pub fn result_layout_offset(hit: &ScoreSystemHit) -> i32 {
     hit.y as i32 - hit.system.anchor_y()
 }
 
+/// How far the MP block has slid relative to the reference layout, from the
+/// 「獲得MP」 label's own position.
+///
+/// Separate from [`result_layout_offset`] because the MP and CR halves of the
+/// panel are anchored to different things: rows added under the MP bar (the
+/// 「指定系列」 line) push the MP block up while leaving the CR block where it
+/// is. Horizontal drift is ignored for the same reason as there - the values are
+/// right-aligned to a fixed column.
+pub fn mp_block_offset(label_y: u32) -> i32 {
+    label_y as i32 - MP_GAIN_ANCHOR_Y
+}
+
 /// Move a window vertically, keeping it inside the canvas.
 ///
 /// The clamp matters: a label matched near the top or bottom edge of the anchor
@@ -606,10 +653,33 @@ mod tests {
         let hit = ScoreSystemHit { system: ScoreSystem::Bp, x: 1068, y: 321, score: 1.0 };
         assert_eq!(result_layout_offset(&hit), -99);
 
-        // The MP screen carries no reward list and has never been observed to
-        // shift, so its fixtures must report exactly zero.
+        // The MP screen carries no reward list, so the CR half of it does not
+        // shift: its fixtures must report exactly zero.
         let mp = ScoreSystemHit { system: ScoreSystem::Mp, x: 1027, y: 306, score: 1.0 };
         assert_eq!(result_layout_offset(&mp), 0);
+    }
+
+    /// The MP block moves on its own. A client that draws 「指定系列」 under the
+    /// MP bar lifts the label 19px while the score-system label below it stays
+    /// within 2px, which is exactly the case one shared offset cannot express.
+    #[test]
+    fn the_mp_block_carries_its_own_offset() {
+        assert_eq!(mp_block_offset(MP_GAIN_ANCHOR_Y as u32), 0);
+        assert_eq!(mp_block_offset(155), -19);
+    }
+
+    /// Both observed layouts have to sit inside the anchor window with room to
+    /// spare, or the next row the client adds pushes the label out of it.
+    #[test]
+    fn the_anchor_window_spans_both_observed_layouts() {
+        let template_h = 26;
+        for y in [155, MP_GAIN_ANCHOR_Y as u32] {
+            assert!(y >= MP_GAIN_ANCHOR.y + 12, "{y} is too close to the top edge");
+            assert!(
+                y + template_h + 12 <= MP_GAIN_ANCHOR.y + MP_GAIN_ANCHOR.h,
+                "{y} is too close to the bottom edge"
+            );
+        }
     }
 
 

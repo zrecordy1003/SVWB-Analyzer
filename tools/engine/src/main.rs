@@ -357,15 +357,25 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
 
     println!("{} frames at {}fps", report.frames, options.fps);
     for (i, m) in report.matches.iter().enumerate() {
+        // Every number the patch can carry, including the ones that are None on
+        // most runs. A missing value is the failure mode these fixtures exist to
+        // catch - the MP windows once read nothing at all on a client that moved
+        // them, and a line that printed only `bp` showed the same thing then as
+        // it did when they worked.
         println!(
-            "  match {}: {} vs {} ({}) mode={:?} result={:?} bp={:?}",
+            "  match {}: {} vs {} ({}) mode={:?} result={:?} \
+             bp={:?} mp={:?} delta_mp={:?} cr={:?} delta_cr={:?}",
             i + 1,
             m.my_class,
             m.oppo_class,
             m.play_order,
             m.patch.mode,
             m.patch.result,
-            m.patch.bp
+            m.patch.bp,
+            m.patch.mp,
+            m.patch.delta_mp,
+            m.patch.current_cr,
+            m.patch.delta_cr
         );
     }
     // Diagnostics are printed even on success: a run that reaches the right
@@ -395,6 +405,14 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             "mode": m.patch.mode,
             "result": m.patch.result,
             "bp": m.patch.bp,
+            // The MP layout's four values. Without them a recording whose whole
+            // point is the MP result screen could only be asserted down to
+            // "ranked, won" - which is exactly what stayed true while the MP
+            // windows were reading nothing at all.
+            "mp": m.patch.mp,
+            "delta_mp": m.patch.delta_mp,
+            "cr": m.patch.current_cr,
+            "delta_cr": m.patch.delta_cr,
         });
         for (key, wanted) in want.as_object().ok_or("--expect must be a JSON object")? {
             let actual = &got[key.as_str()];

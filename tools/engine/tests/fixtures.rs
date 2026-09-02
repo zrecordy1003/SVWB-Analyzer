@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use svwb_engine::calibration::ScoreSystem;
+use svwb_engine::calibration::{self, ScoreSystem};
 use svwb_engine::frame::Frame;
 use svwb_engine::machine::Reading;
 use svwb_engine::numbers::NoNumbers;
@@ -32,10 +32,14 @@ fn store() -> &'static TemplateStore {
     })
 }
 
-fn read_fixture(relative: &str) -> Reading {
+fn frame_of(relative: &str) -> Frame {
     let path = repo_root().join("tests/fixtures/captures").join(relative);
     let decoded = image::open(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    reading::read(&Frame::from_image(&decoded), store(), &mut NoNumbers, false)
+    Frame::from_image(&decoded)
+}
+
+fn read_fixture(relative: &str) -> Reading {
+    reading::read(&frame_of(relative), store(), &mut NoNumbers, false)
 }
 
 /// Nothing on a home screen, a matchmaking battlefield or a mid-battle frame may
@@ -121,6 +125,80 @@ fn ranked_result_screens_report_their_score_system() {
         Some(ScoreSystem::Bp),
         "the fading label must still be readable"
     );
+
+    // 2560x1440, and a client that draws 「指定系列」 under the MP bar. Both are
+    // new here: the frame is scaled 2:1 onto the canvas rather than 1.5:1, and
+    // the extra row moves the MP block without moving this label.
+    let wqhd = read_fixture("ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png");
+    assert_eq!(wqhd.final_result, Some(true));
+    let wqhd_hit = wqhd.score_system.expect("the CR label must be found at 2560x1440");
+    assert_eq!(wqhd_hit.system, ScoreSystem::Mp);
+    assert!(
+        (wqhd_hit.y as i32 - ScoreSystem::Mp.anchor_y()).abs() <= 4,
+        "the CR half of the panel does not move with the MP half; it sat at {} \
+         against the reference {}",
+        wqhd_hit.y,
+        ScoreSystem::Mp.anchor_y()
+    );
+}
+
+/// The MP block is anchored to its OWN label, because it moves on its own.
+///
+/// `ranked-gm-mp-2560-fullscreen` draws a 「指定系列」 row under the MP bar,
+/// which lifts 「獲得MP」 and the `MP nnnnn` row by 19px while the CR block below
+/// stays within 2px of the reference. Reading the MP windows at the
+/// score-system offset there crops the gap above the label and the tail of the
+/// row above the total - digits that parse, from the wrong row.
+#[test]
+fn the_mp_block_is_located_by_its_own_label() {
+    let expected = [
+        ("ranked-gm-mp-windowed/01-result-lose-mp-cr.png", 174, 0),
+        ("ranked-gm-mp-windowed/02-result-win-mp-cr.png", 174, 0),
+        ("ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png", 155, -19),
+    ];
+
+    for (fixture, y, offset) in expected {
+        let hit = store()
+            .best_in(
+                &frame_of(fixture),
+                calibration::templates::MP_GAIN,
+                calibration::MP_GAIN_ANCHOR,
+            )
+            .unwrap_or_else(|| panic!("{fixture}: the 獲得MP label must be found"));
+        assert!(
+            hit.score >= 0.85,
+            "{fixture}: the label scored {:.4}, too thin against the 0.7 threshold",
+            hit.score
+        );
+        assert_eq!(hit.y, y, "{fixture}: the label's top edge feeds mp_block_offset directly");
+        assert_eq!(calibration::mp_block_offset(hit.y), offset, "{fixture}");
+    }
+}
+
+/// The anchor must not fire on screens that have no MP block at all - a false
+/// hit there would shift the MP windows onto whatever else is on the panel.
+#[test]
+fn the_mp_label_is_absent_from_every_other_screen() {
+    for fixture in [
+        "cpu-practice-1920-fullscreen/01-home.png",
+        "cpu-practice-1920-fullscreen/04-battle.png",
+        "cpu-practice-1920-fullscreen/06-result-cpu-label.png",
+        "ranked-bp-1920-fullscreen/01-result-win-bp.png",
+        "ranked-bp-1280-windowed-lose/01-result-lose-bp.png",
+        "2pick-1920-fullscreen-lose/01-result-2pick-label.png",
+        "custom-1280-windowed-lose/01-room-guest.png",
+    ] {
+        let hit = store().best_in(
+            &frame_of(fixture),
+            calibration::templates::MP_GAIN,
+            calibration::MP_GAIN_ANCHOR,
+        );
+        let score = hit.map(|h| h.score).unwrap_or(0.0);
+        assert!(
+            score < calibration::threshold::MP_GAIN,
+            "{fixture}: the 獲得MP label scored {score:.4} on a screen that has none"
+        );
+    }
 }
 
 /// The frame that motivated the hold: the WIN banner is already readable while
