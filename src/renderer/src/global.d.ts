@@ -33,6 +33,19 @@ declare global {
     }
     settings: SettingsAPI
     appInfo: { getVersion(): Promise<string> }
+    telemetry: {
+      status(): Promise<import('@shared/telemetry').TelemetryStatus>
+      /** Persists the setting and starts or stops the uploads. Resolves to the new status. */
+      setEnabled(enabled: boolean): Promise<import('@shared/telemetry').TelemetryStatus>
+      /** Exactly what an upload would send right now. Does not mint an install id. */
+      preview(): Promise<import('@shared/telemetry').TelemetryPayload>
+      uploadNow(): Promise<import('@shared/telemetry').TelemetryStatus>
+      /**
+       * Whether the one-time notice is due. Marks it shown - which is also what
+       * unblocks uploading, so calling this is what lets the first upload go.
+       */
+      noticeDue(): Promise<boolean>
+    }
     support: {
       /**
        * The milestone to show, or null. Marks it shown server-side, so a second

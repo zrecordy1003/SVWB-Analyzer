@@ -5,7 +5,9 @@ import eslintPluginReactHooks from 'eslint-plugin-react-hooks'
 import eslintPluginReactRefresh from 'eslint-plugin-react-refresh'
 
 export default tseslint.config(
-  { ignores: ['**/node_modules', '**/dist', '**/out'] },
+  // `.wrangler` is the local state and bundle output of `wrangler dev` under
+  // server/telemetry; generated, and not ours to lint.
+  { ignores: ['**/node_modules', '**/dist', '**/out', '**/.wrangler'] },
   tseslint.configs.recommended,
   eslintPluginReact.configs.flat.recommended,
   eslintPluginReact.configs.flat['jsx-runtime'],
@@ -54,6 +56,15 @@ export default tseslint.config(
     files: ['tools/**/*.cjs', 'tools/**/*.mjs'],
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/explicit-function-return-type': 'off'
+    }
+  },
+  {
+    // server/telemetry/smoke.mjs drives a running Worker over HTTP. It is plain
+    // node, run by hand and never bundled, so the return-type rule the app code
+    // wants buys nothing here.
+    files: ['server/**/*.mjs'],
+    rules: {
       '@typescript-eslint/explicit-function-return-type': 'off'
     }
   },

@@ -33,6 +33,8 @@ React + MUI renderer / HUD
 | `src/main/`                   | Electron main：視窗/托盤/更新（`windows/`）、引擎監督與數字回答（`recognition/`）、UI 資料層（`data/`、`ipc/`）。 |
 | `src/main/recognition/engine.ts` | 引擎行程的監督者：spawn、事件套用、attach/detach。                       |
 | `src/main/data/db/client.ts`  | UI 的資料存取（Kysely + better-sqlite3），含 Prisma 相容的邊界轉換。       |
+| `src/main/telemetry/`         | 匿名使用統計（opt-out，告知前不送）：對局列→計數桶的純函式、排程與上傳、IPC。見 `docs/telemetry-dau-plan.md`。 |
+| `server/telemetry/`           | 接收上述上傳的 Cloudflare Worker + D1；不屬於 app 打包，獨立部署。         |
 | `src/shared/domain.ts`        | 領域詞彙（ClassName / GameMode / PlayOrder / model 型別），24 個檔案共用。 |
 | `src/renderer/src/`           | React + MUI 介面、對局列表、統計與 HUD。                                   |
 | `resources/templates/`        | 辨識範本；遊戲 UI 改版後優先更新此處。                                     |

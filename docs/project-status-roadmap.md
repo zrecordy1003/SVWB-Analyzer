@@ -1,6 +1,6 @@
 # Project Status and Roadmap
 
-Last updated: 2026-08-29
+Last updated: 2026-09-02
 
 This document is the central project status record. It summarizes the current architecture and the
 future changes that should still be considered. More focused notes live in:
@@ -9,8 +9,9 @@ future changes that should still be considered. More focused notes live in:
 - `docs/engine-refactor-plan.md` — why the engine has this shape, and what was rejected.
 - `docs/performance-improvement-notes.md`
 - `docs/recognition-optimization-status.md`
-- `docs/telemetry-dau-plan.md`
-- `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Undecided; 8 open questions.
+- `docs/telemetry-dau-plan.md` — anonymous usage statistics: what is uploaded, when, and where.
+- `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Upload side implemented;
+  the public chart is deferred to a later release.
 
 > Rewritten 2026-08-29. The previous revision described the pre-engine architecture (a forked JS
 > analyzer, Prisma, `src/main/forkedImageAnalyzer.ts`). None of those exist any more; the sections
@@ -71,6 +72,8 @@ testable without a game, a database, or Electron.
   - `initDb.ts` — runs `svwb-engine migrate` synchronously before anything reads.
 - `ipc/` — `matches.ts`, `decks.ts`, `tags.ts`, `settings.ts`, `diagnostics.ts`, `helper.ts`.
 - `windows/` — `hud.ts`, `tray.ts`, `smartClose.ts`, `exitConfirmDialog.ts`, `exitChoiceDialog.ts`.
+- `telemetry/` — `rollup.ts` (match rows to counting buckets, pure), `telemetry.ts` (opt-out
+  state, schedule, upload, IPC), `config.ts` (the endpoint). See `docs/telemetry-dau-plan.md`.
 - `updates.ts`, `startOnBoot/`, `support/supportPrompt.ts`, `utils/broadcast.ts`.
 
 ### Renderer structure
@@ -302,19 +305,45 @@ and the capture directories, and an empty second harness only suggests coverage 
 
 ## Priority 6: Telemetry and DAU
 
-Planned, not implemented. See `docs/telemetry-dau-plan.md` for the full plan. Rules that must hold:
+Recording is implemented and the Worker is deployed (2026-09-02); the in-app chart is not. See
+`docs/telemetry-dau-plan.md` for what ships and `docs/meta-stats-plan.md` for the decisions behind
+the bucket model.
 
-- Opt-in by default; disabling must be available in Settings.
-- Never collect screenshots, OCR raw text, deck names, notes, tags, local paths, usernames, or
-  complete match records.
-- Network failure must never affect app behavior.
+What exists:
 
-Minimal events: `app_start`, `app_shutdown`, `capture_started`, `capture_failed`,
-`analyzer_started`, `match_recorded`, `deck_analysis_opened`, `deck_analysis_filter_changed`,
-`ocr_failed`.
+- `src/main/telemetry/` uploads one payload per install: version, platform, and the last 14 UTC
+  days of matches as counting buckets `(tier, mode, my class, opponent class, play order, result)`.
+  Opt-out since 1.3.0 (`settings.telemetry`, default on), and uploading is blocked until the
+  one-time toast has told the user - both conditions, so no machine sends before being told.
+  Settings shows the exact JSON and turns it off in one click.
+- `server/telemetry/` is the Cloudflare Worker + D1 that receives it. `/v1/admin/overview` gives
+  the maintainer active installs (today / 7d / 30d) and the version split; `/v1/meta` is the public
+  ranked matchup aggregate the future sidebar page and web version will read.
+- `pnpm telemetry:report` prints the maintainer view.
+- It is live at `https://telemetry.svwb-analyzer.workers.dev`, and that URL is compiled into
+  `src/main/telemetry/config.ts`. A shipped copy only ever talks to the URL it was built with, so
+  moving the endpoint means a release, and the old one has to keep answering meanwhile.
+  `server/telemetry/smoke.mjs` (`pnpm smoke`) drives a running Worker over real HTTP and D1 to
+  cover the SQL and routing the vitest suites cannot reach.
 
-Provider direction: Plausible's Events API is the likely first choice; PostHog is stronger but
-heavier; OpenTelemetry suits technical traces rather than DAU.
+What is deliberately not done yet:
+
+- **Nothing has been released with the endpoint in it yet.** Every version in the wild was built
+  with an empty `BUILT_IN_ENDPOINT` and will never send; the switch only comes alive in the next
+  package. So there is no data to look at until then, however healthy the Worker is.
+- **No sidebar page.** The plan is to ship recording first, let the aggregate accumulate, and add
+  the 「環境統計」 page in a later release once there is enough data and the numbers have been
+  sanity-checked against the provenance cross-tab (`docs/meta-stats-plan.md` P0b).
+- The event-style product analytics the original plan sketched (`deck_analysis_opened`,
+  `capture_failed`, ...) were dropped: the daily upload already answers the DAU and version
+  questions, and feature-usage events would need a different, per-event pipeline for little gain.
+
+Rules that still hold: never send before the notice has been shown; never collect screenshots, OCR
+text, deck names, notes, tags, local paths, usernames or complete match records; network failure
+must never affect app behavior. The default went from off to on on 2026-09-02 because a buried
+opt-in switch gets single-digit participation and a matchup table built from single digits is worse
+than no table; what did not move is that the user is told, in the app, before anything leaves.
+The tests in `tests/main/telemetry*.test.ts` pin the payload shape and the notice gate.
 
 ## Priority 7: AI-assisted recognition
 
@@ -351,7 +380,6 @@ Potential future work: visual regression screenshots for the HUD.
 
 ### Settings
 
-- Telemetry opt-in section, once telemetry exists.
 - Capture/debug sample controls.
 - Clear cache/debug samples action.
 
@@ -382,8 +410,9 @@ Keep these synchronized:
 - `docs/performance-improvement-notes.md`
 - `docs/recognition-optimization-plan.md`
 - `docs/recognition-optimization-status.md`
-- `docs/telemetry-dau-plan.md`
-- `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Undecided; 8 open questions.
+- `docs/telemetry-dau-plan.md` — anonymous usage statistics: what is uploaded, when, and where.
+- `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Upload side implemented;
+  the public chart is deferred to a later release.
 
 ### Code quality gates
 

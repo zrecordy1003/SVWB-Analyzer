@@ -88,6 +88,16 @@ contextBridge.exposeInMainWorld('appInfo', {
   getVersion: () => ipcRenderer.invoke('app:getVersion')
 })
 
+// Anonymous usage statistics. The switch goes through `setEnabled` rather than
+// the generic settings bridge because main owns the timers that follow it.
+contextBridge.exposeInMainWorld('telemetry', {
+  status: () => ipcRenderer.invoke('telemetry:status'),
+  setEnabled: (enabled: boolean) => ipcRenderer.invoke('telemetry:setEnabled', enabled),
+  preview: () => ipcRenderer.invoke('telemetry:preview'),
+  uploadNow: () => ipcRenderer.invoke('telemetry:uploadNow'),
+  noticeDue: () => ipcRenderer.invoke('telemetry:noticeDue')
+})
+
 contextBridge.exposeInMainWorld('hud', {
   show: () => ipcRenderer.invoke('hud:show'),
   hide: () => ipcRenderer.invoke('hud:hide'),

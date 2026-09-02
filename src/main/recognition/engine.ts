@@ -46,6 +46,7 @@ import {
   type DiagnosticKind
 } from './diagnosticsRecorder.js'
 import { getDiagnosticsDir } from '../paths.js'
+import { noteMatchFinished } from '../telemetry/telemetry.js'
 
 // Re-exported rather than redefined. The two copies of this interface had
 // already drifted apart once in spirit - adding a field here and not there is
@@ -323,6 +324,9 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
       setStatus(IDLE_STATUS)
       broadcast('matches:needRefetch')
       notifyOnce(event.patch as MatchPatch)
+      // Lets today's counts reach the server without waiting for the next
+      // launch. Debounced inside; a no-op while telemetry is off.
+      noteMatchFinished()
       break
     }
 

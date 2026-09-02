@@ -561,6 +561,12 @@ app.whenReady().then(async () => {
   recordLaunch()
   registerSupportIpc()
 
+  // Never awaited: it schedules its own first upload well after the window is
+  // up, and nothing goes out before the one-time notice has been shown there.
+  // See telemetry/telemetry.ts.
+  const { startTelemetry } = await import('./telemetry/telemetry.js')
+  startTelemetry()
+
   // These two stay here: they close over this file's analyzer accessor and the
   // last status the game poll broadcast, neither of which belongs in ipc/.
   ipcMain.handle('battle:getStatus', async () => {

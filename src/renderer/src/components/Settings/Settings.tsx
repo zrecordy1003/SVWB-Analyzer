@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react'
 import Disclaimer from '../Disclaimer'
 import UpdateSettings from '../Update/UpdateSettings'
 import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
+import TelemetrySettings from './TelemetrySettings'
 import IOSSwitch from '../Common/IOSSwitch'
 import CardImageSettings from './CardImageSettings'
 
@@ -148,6 +149,17 @@ const Settings: React.FC = () => {
           label="記錄辨識異常（僅存本機）"
         />
         <DiagnosticsSettings enabled={s.diagnostics} />
+      </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      {/* The switch lives inside TelemetrySettings and goes through
+          `window.telemetry.setEnabled`, not `handleChange`: main owns the upload
+          timers and has to hear about the change, and the generic settings
+          bridge tells it nothing. */}
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">匿名使用統計</Typography>
+        <TelemetrySettings />
       </Box>
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />

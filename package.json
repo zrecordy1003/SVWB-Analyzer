@@ -19,6 +19,7 @@
     "test:e2e": "npm run build && playwright test",
     "test:e2e:only": "playwright test",
     "smoke:portal": "node tools/svwb-api-smoke.mjs",
+    "telemetry:report": "node tools/telemetry-report.mjs",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "electron-vite build",

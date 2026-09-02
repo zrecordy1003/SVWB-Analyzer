@@ -31,3 +31,8 @@ tests/fixtures/captures/**/*.mp4
 # Playwright（e2e）產出
 test-results
 playwright-report
+
+# Local state and secrets of `wrangler dev` / `wrangler d1 --local` for
+# server/telemetry. `.dev.vars` holds the local ADMIN_TOKEN.
+.wrangler
+.dev.vars

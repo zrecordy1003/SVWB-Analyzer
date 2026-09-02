@@ -1,0 +1,17 @@
+# Cloudflare Worker for SVWB Analyzer's anonymous usage statistics.
+# See README.md in this directory for the deploy steps.
+name = "telemetry"
+main = "src/index.ts"
+compatibility_date = "2025-09-01"
+
+[observability]
+enabled = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "svwb-telemetry"
+# Printed by `wrangler d1 create svwb-telemetry` (2026-09-02, APAC).
+database_id = "ae233733-1687-40dd-8be0-7e0d03d0749c"
+migrations_dir = "migrations"
+
+# ADMIN_TOKEN is a secret, not a var: `wrangler secret put ADMIN_TOKEN`.

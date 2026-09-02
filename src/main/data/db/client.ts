@@ -159,6 +159,16 @@ export interface CardPoolSyncRow {
   syncedAt: number
 }
 
+/**
+ * Key/value state for the telemetry uploader. See
+ * `resources/migrations/012_add_telemetry_state.sql`.
+ */
+export interface TelemetryStateRow {
+  key: string
+  value: string
+  updatedAt: number
+}
+
 export interface Database {
   Match: MatchRow
   Deck: DeckRow
@@ -169,6 +179,7 @@ export interface Database {
   Card: CardRow
   CardPool: CardPoolRow
   CardPoolSync: CardPoolSyncRow
+  TelemetryState: TelemetryStateRow
 }
 
 // -------------------------------------------------------------------- the client
@@ -182,6 +193,18 @@ export function configureDbPath(path: string): void {
   _dbPath = path
 }
 
+/**
+ * The raw handle, held separately from the Kysely instance.
+ *
+ * `getDb` opens the file itself so it can set the pragmas, which means the OS
+ * handle exists from that moment - but Kysely's SQLite driver only picks the
+ * database up on its first query, and `destroy()` closes nothing before then.
+ * So a `Kysely` that was built and never queried used to leave the file open
+ * for good: harmless at app shutdown, and in tests a locked `app.db` that the
+ * next case could not delete.
+ */
+let _sqlite: SQLite.Database | null = null
+
 export function getDb(): Kysely<Database> {
   if (_db) return _db
   if (!_dbPath) {
@@ -193,6 +216,7 @@ export function getDb(): Kysely<Database> {
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
   sqlite.pragma('busy_timeout = 5000')
+  _sqlite = sqlite
   _db = new Kysely<Database>({ dialect: new SqliteDialect({ database: sqlite }) })
   return _db
 }
@@ -205,8 +229,14 @@ export async function resetDbForTests(): Promise<void> {
 
 export async function closeDb(): Promise<void> {
   const db = _db
+  const sqlite = _sqlite
   _db = null
+  _sqlite = null
   if (db) await db.destroy()
+  // Belt and braces: `destroy()` closes the handle once the driver has taken
+  // ownership of it, and does nothing at all if it never did. `close()` on an
+  // already-closed database is a no-op, so calling both is safe either way.
+  if (sqlite?.open) sqlite.close()
 }
 
 // ------------------------------------------------------------ boundary mappers

@@ -31,6 +31,7 @@ import SidebarVersion from './components/Update/SidebarVersion'
 import DeckManagerControl from './components/DeckManager/DeckManagerControl'
 import About from './components/About/About'
 import SupportPrompt from './components/Common/SupportPrompt'
+import TelemetryPrompt from './components/Common/TelemetryPrompt'
 const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerformance'))
@@ -187,6 +188,7 @@ function App(): React.JSX.Element {
       <CssBaseline />
       <UpdateProvider>
         <SupportPrompt />
+        <TelemetryPrompt onOpenSettings={() => setCurrentPage('Settings')} />
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Toolbar sx={{ position: 'relative' }}>
             <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>

@@ -36,6 +36,26 @@ export type AppSettings = {
   /** Opt-out: local-only recording of recognition anomalies. Never uploaded. */
   diagnostics: boolean
   /**
+   * Opt-out: anonymous usage statistics. **Default ON, from 1.3.0.**
+   *
+   * The only thing in this app that talks to a server we run. What it sends is
+   * defined by `src/shared/telemetry.ts` and built by
+   * `src/main/telemetry/rollup.ts`: version, platform, and per-day counts of
+   * matches by class / mode / result. Nothing a person typed. The settings page
+   * shows the exact payload, and the switch turns it off for good.
+   *
+   * It was opt-in until 1.3.0, and the reason it changed is arithmetic: a
+   * buried switch gets single-digit participation, and a matchup table built
+   * from single digits is worse than no table. What did NOT change is that
+   * nothing is sent from a machine that has not been told - `true` here is not
+   * enough on its own, the one-time notice has to have been shown as well (see
+   * `telemetryPromptShown` and the gate in `main/telemetry/telemetry.ts`).
+   *
+   * Read through `main/telemetry/telemetry.ts`, never directly: that module
+   * owns the timers that follow the value, and the notice gate.
+   */
+  telemetry: boolean
+  /**
    * Show card art in deck views. **Default ON.**
    *
    * This was opt-in at first, on the reasoning that art is not needed for
@@ -89,6 +109,22 @@ export type AppStoreSchema = {
   hudModeFilter: string
   mainWindowBounds: Electron.Rectangle | null
   support: SupportState
+  /**
+   * Whether the one-time 「已開啟匿名統計」 notice has been shown. **Uploads are
+   * blocked until it is true**, so this is not cosmetic: it is the promise that
+   * no machine ever sends anything before being told what is being sent and how
+   * to stop it. One appearance per install, like the support prompt.
+   *
+   * The key kept its old name through the 1.3.0 opt-in-to-opt-out change so
+   * that installs which had already seen the toast are not shown a second one.
+   */
+  telemetryPromptShown: boolean
+  /**
+   * Whether the 1.3.0 default flip has been applied to this install (see
+   * `settings.telemetry`). Set once, so that turning telemetry off afterwards
+   * sticks across upgrades.
+   */
+  telemetryDefaultFlipped: boolean
 }
 
 export const store = new Store<AppStoreSchema>({
@@ -102,6 +138,7 @@ export const store = new Store<AppStoreSchema>({
       autoCheckUpdates: true,
       autoDownloadUpdates: false,
       diagnostics: true,
+      telemetry: true,
       cardImages: true,
       cardLang: 'cht'
     },
@@ -116,6 +153,29 @@ export const store = new Store<AppStoreSchema>({
       optedOut: false,
       launchCount: 0,
       shown: []
-    }
+    },
+    telemetryPromptShown: false,
+    telemetryDefaultFlipped: false
   }
 })
+
+/**
+ * The 1.3.0 opt-in-to-opt-out flip, applied once per install.
+ *
+ * Changing the default above only reaches installs that have never written
+ * their settings; everyone else has a literal `"telemetry": false` on disk,
+ * put there by the schema default rather than by any decision. Nobody could
+ * have decided: no build before 1.3.0 shipped an endpoint, so the switch was
+ * disabled and the toast never appeared. That stored `false` therefore means
+ * "never asked", not "no", and this rewrites it once.
+ *
+ * The flag is what keeps it once. After this runs, an off switch is a real
+ * answer and every later upgrade leaves it alone.
+ *
+ * This does not make anything send. The notice gate in
+ * `main/telemetry/telemetry.ts` still holds until the user has been told.
+ */
+if (store.get('telemetryDefaultFlipped') !== true) {
+  store.set('settings.telemetry', true)
+  store.set('telemetryDefaultFlipped', true)
+}

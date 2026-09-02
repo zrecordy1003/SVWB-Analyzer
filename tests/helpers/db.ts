@@ -58,7 +58,15 @@ export async function createMigratedTestDb(): Promise<TestDb> {
 
 export async function removeTestDb(db?: Pick<TestDb, 'dir'>): Promise<void> {
   await resetDbForTests()
-  if (db?.dir) await fs.rm(db.dir, { recursive: true, force: true })
+  // Retries because of Windows: closing the database does not guarantee the OS
+  // has let go of `app.db`, `-wal` and `-shm` by the time the unlink runs, and
+  // the failure is an EBUSY in teardown on a case whose assertions all passed -
+  // the worst kind of red. This is a timing cushion, not a fix: a handle that is
+  // genuinely still open outlives every retry, which is how the leak in
+  // `closeDb` was found.
+  if (db?.dir) {
+    await fs.rm(db.dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
+  }
 }
 
 export function testDb(): Kysely<Database> {
