@@ -803,6 +803,17 @@ chrome 在就鎖、消失就解。但 chrome **在 VS 畫面上不存在**,所�
 視窗在整段錄影中沒有移動(標題列白帶在第 30 / 120 / 240 / 400 秒都在 y=165),
 所以固定裁切是成立的;順帶也把桌面上的 Discord 私訊與工作列排除在版控之外。
 
+兩支錄影與既有素材一樣**只留在本機**(`.gitignore` 排除
+`tests/fixtures/captures/**/*.mp4`),放在 `ranked-gm-mp-2560-fullscreen/` 與
+`ranked-1920-windowed-2560-desktop/` 兩個目錄下。原檔 1.03GB / 1.32GB,
+都降到 4fps、CRF 30 重新編碼(replay 只取 2fps),各約 104MB / 71MB;
+**畫面尺寸沒有縮** —— 縮小就等於毀掉這批素材唯一的重點。壓縮後的判定已重新驗證過,
+與原檔一致。重現指令見各目錄的 README。
+
+由 `engine:replay-2k` 與 `engine:replay-2k-windowed` 跑,兩者合起來是 `engine:replay-2k-all`。
+**刻意不放進 `engine:replay`**:這兩支各 877 / 886 幀,會把原本約 7 分鐘的回歸套件拉到約 23 分鐘。
+`engine:replay-2k` 的 `--expect` 一路斷言到四個 MP/CR 數值,也就是這次修的東西本身。
+
 正規化後的位置與既有 1276×754 視窗素材相比:`result` win 兩者都在 (516,24);
 `score_system` cr 1027,306 → 1025,304。VS 畫面 emblems 0.888–0.933、play_order 0.66–0.80,
 全部有餘裕。
