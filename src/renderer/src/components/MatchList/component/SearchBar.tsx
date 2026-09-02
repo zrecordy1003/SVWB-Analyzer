@@ -1,21 +1,6 @@
 // src/renderer/components/SearchBar/SearchBar.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Badge,
-  Box,
-  Button,
-  Chip,
-  Collapse,
-  Divider,
-  Drawer,
-  IconButton,
-  Paper,
-  Switch,
-  Typography
-} from '@mui/material'
-import TuneIcon from '@mui/icons-material/Tune'
-import CloseIcon from '@mui/icons-material/Close'
-import MilitaryTechOutlinedIcon from '@mui/icons-material/MilitaryTechOutlined'
+import React, { useEffect, useMemo, useRef } from 'react'
+import { Box, Divider, Paper } from '@mui/material'
 
 import type { GameMode } from '@shared/domain'
 import type { RangeKey } from '@shared/types'
@@ -25,7 +10,7 @@ import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedF
 import {
   ClassEditor,
   CrRangeEditor,
-  DeckEditor,
+  SimpleDeckEditor,
   RangeEditor,
   NoteEditor,
   TagEditor,
@@ -158,7 +143,6 @@ const SearchBar = ({
     crMax
   } = filters
 
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const loadedRef = useRef(false)
   const initializationStartedRef = useRef(false)
 
@@ -320,7 +304,7 @@ const SearchBar = ({
         )
       case 'decks':
         return (
-          <DeckEditor
+          <SimpleDeckEditor
             options={deckOptionsSortedFiltered}
             value={decksSafe}
             onOpen={refreshDecks}
@@ -395,20 +379,6 @@ const SearchBar = ({
             onChange={(next) => onFiltersChange({ mode: next === 'all' ? null : next })}
             height={TOOLBAR_CONTROL_HEIGHT}
           />
-
-          <Box sx={{ flex: 1, minWidth: 8 }} />
-
-          <Badge badgeContent={advancedChips.length} color="primary">
-            <Button
-              size="small"
-              variant={advancedChips.length ? 'contained' : 'outlined'}
-              startIcon={<TuneIcon />}
-              onClick={() => setAdvancedOpen(true)}
-              sx={{ height: TOOLBAR_CONTROL_HEIGHT, whiteSpace: 'nowrap' }}
-            >
-              進階篩選
-            </Button>
-          </Badge>
         </Box>
 
         {/* 進階條件列與分析器共用同一個元件，chip、＋ 選單與就地編輯的
@@ -425,144 +395,6 @@ const SearchBar = ({
           editorWidth={(key) => (key === 'decks' ? 380 : 340)}
         />
       </Paper>
-
-      {/* 進階篩選抽屜。條件即時生效，沒有「套用」按鈕 - 查詢本來就有 debounce，
-          多一顆按鈕只會多一種「以為改了其實沒按到」的狀態。 */}
-      <Drawer
-        anchor="right"
-        open={advancedOpen}
-        onClose={() => setAdvancedOpen(false)}
-        slotProps={{
-          paper: {
-            sx: {
-              width: 440,
-              maxWidth: 'calc(100vw - 32px)',
-              borderTopLeftRadius: 16,
-              borderBottomLeftRadius: 16
-            }
-          }
-        }}
-      >
-        <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-          <Box
-            sx={{
-              px: 3,
-              pt: 3,
-              pb: 2,
-              display: 'flex',
-              alignItems: 'flex-start',
-              justifyContent: 'space-between',
-              gap: 2
-            }}
-          >
-            <Box>
-              <Typography variant="h6" component="h2" fontWeight={700}>
-                進階篩選
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.25 }}>
-                職業、牌組、標籤、備註與 CR
-              </Typography>
-            </Box>
-            <IconButton
-              size="small"
-              onClick={() => setAdvancedOpen(false)}
-              aria-label="關閉進階篩選"
-            >
-              <CloseIcon />
-            </IconButton>
-          </Box>
-
-          <Box
-            sx={{
-              flex: 1,
-              overflowY: 'auto',
-              px: 3,
-              py: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 2.5
-            }}
-          >
-            {(['my', 'oppo', 'decks', 'tags', 'note'] as const).map((key) => {
-              const Icon = MATCH_FILTER_ICONS[key]
-              return (
-                <Box key={key}>
-                  <Box display="flex" alignItems="center" gap={0.75} sx={{ mb: 1 }}>
-                    <Icon fontSize="small" />
-                    <Typography variant="subtitle2" fontWeight={700}>
-                      {MATCH_FILTER_LABELS[key]}
-                    </Typography>
-                  </Box>
-                  {renderEditor(key)}
-                </Box>
-              )
-            })}
-
-            {/* CR 自己帶開關：和其他條件不同，它關著的時候也還是有一組範圍，
-                所以是開關而不是內容在決定查詢帶不帶它。 */}
-            <Box
-              sx={{
-                border: '1px solid',
-                borderColor: crEnabledSafe ? 'primary.main' : 'divider',
-                borderRadius: 2,
-                bgcolor: 'background.paper',
-                overflow: 'hidden',
-                transition: 'border-color .2s'
-              }}
-            >
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  px: 2,
-                  py: 1,
-                  cursor: 'pointer',
-                  userSelect: 'none'
-                }}
-                onClick={() => onFiltersChange({ crEnabled: !crEnabledSafe })}
-              >
-                <MilitaryTechOutlinedIcon fontSize="small" />
-                <Typography sx={{ fontWeight: 600 }}>CR 篩選</Typography>
-                {crEnabledSafe && (
-                  <Chip
-                    size="small"
-                    color="primary"
-                    variant="outlined"
-                    label={`${crMinSafe} – ${crMaxSafe}`}
-                  />
-                )}
-                <Box flex={1} />
-                <Switch
-                  size="small"
-                  checked={crEnabledSafe}
-                  onClick={(event) => event.stopPropagation()}
-                  onChange={(_, checked) => onFiltersChange({ crEnabled: checked })}
-                />
-              </Box>
-
-              <Collapse in={crEnabledSafe}>
-                <Box sx={{ px: 2, pb: 2 }}>{renderEditor('cr')}</Box>
-              </Collapse>
-            </Box>
-          </Box>
-
-          <Box sx={{ borderTop: 1, borderColor: 'divider', px: 3, py: 2 }}>
-            <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
-              <Button
-                size="small"
-                disabled={advancedChips.length === 0}
-                onClick={() => onFiltersChange(clearAllMatchFilters())}
-              >
-                清除全部條件
-              </Button>
-              <Button variant="contained" size="small" onClick={() => setAdvancedOpen(false)}>
-                完成
-              </Button>
-            </Box>
-          </Box>
-        </Box>
-      </Drawer>
     </Box>
   )
 }

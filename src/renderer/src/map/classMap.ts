@@ -96,13 +96,10 @@ export const modes: ModeOption[] = [
 ]
 
 /**
- * 這些模式的牌是抽出來的，沒有「牌組」可言，所以整個 UI 都不給它們牌組欄位：
- * 卡片不留那一行，編輯視窗不給選，存檔時也會把殘留的牌組清掉。
+ * 沒有牌組的模式判斷住在 `shared/domain.ts`——主行程寫入時要做同一個判斷。
+ * 這裡轉出去，是為了讓既有的 `from '@renderer/map/classMap'` 不必全部改掉。
  */
-const MODES_WITHOUT_DECK = new Set<string>(['twoPick'])
-
-export const isDecklessMode = (mode: string | null | undefined): boolean =>
-  !!mode && MODES_WITHOUT_DECK.has(mode)
+export { isDecklessMode } from '@shared/domain'
 
 export const classesMap = Object.fromEntries(classes.map((c) => [c.id, c] as [string, typeof c]))
 

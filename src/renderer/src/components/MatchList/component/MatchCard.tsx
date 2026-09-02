@@ -33,10 +33,35 @@ const VISIBLE_TAGS = 2
 const VS_COLUMN_WIDTH = 28
 
 /**
+ * 模式那一格的固定寬度。
+ *
+ * 撐得下最長的模式名（「週末廣場賽」，13px／850 字重約 68px）再留一點餘裕。
+ * 這是「不讓後面的東西跳」而不是「把模式排整齊」——模式自己靠左，多出來的
+ * 空白落在它和時間之間。
+ */
+const MODE_COLUMN_WIDTH = 74
+
+/**
  * 牌組名一律截在這個寬度：12.5px 的中文字約五個字。牌組名長短差很多，放任它們
  * 各自佔滿就沒有一條可以往下掃的邊界；截斷後完整名稱仍留在 title 上。
  */
 const DECK_NAME_MAX_WIDTH = 68
+
+/**
+ * 沒有牌組時那一行放的是「未設定」加一個下拉箭頭，而它比截斷後的牌組名還寬。
+ *
+ * 這個數字曾經被算進 `MY_SIDE_WIDTH` 卻算得太緊：三個 12.5px 的中文字、16px 的
+ * 箭頭、加上觸發區自己的左右內距，實測會超過牌組名那 68px，於是「未設定」被
+ * 截成「未設…」——一個固定的三字標籤被省略號吃掉，是這裡最沒有意義的截斷，
+ * 因為省略號本身就佔掉省下來的寬度，還讓人以為後面另有內容。
+ *
+ * 所以改成獨立的常數，並且取兩者較大的那個當欄寬。多出來的空白只會出現在
+ * 已經填了牌組的那幾列（它們的名字仍截在 68px），代價比截字小得多。
+ */
+const DECK_PLACEHOLDER_WIDTH = 80
+
+/** 牌組欄的實際寬度：要同時容得下截斷的牌組名與「未設定」下拉。 */
+const DECK_COLUMN_WIDTH = Math.max(DECK_NAME_MAX_WIDTH, DECK_PLACEHOLDER_WIDTH)
 
 /**
  * The class emblem, and the gap between it and the two lines of text.
@@ -58,7 +83,7 @@ const CLASS_MARK_GAP = 8
  * caret, and the longest class name - so the gap stays as small as it can be,
  * plus the emblem that now leads both lines.
  */
-const MY_SIDE_WIDTH = DECK_NAME_MAX_WIDTH + CLASS_MARK + CLASS_MARK_GAP
+const MY_SIDE_WIDTH = DECK_COLUMN_WIDTH + CLASS_MARK + CLASS_MARK_GAP
 
 type Props = {
   match: MatchRow
@@ -318,7 +343,12 @@ const MatchCard: React.FC<Props> = ({ match: m, deckOptions, onEdit, onDelete, o
             </Box>
 
             <Box display="flex" alignItems="center" gap={1.25} minWidth={0} height={22}>
-              <ModeLabel mode={m.mode} />
+              {/* 模式佔固定寬度，時間才會每一列都從同一個 x 開始。模式名長度差
+                  很多（「2Pick」對「週末廣場賽」），跟著內容走的話後面整條 meta
+                  列會隨每一列左右跳，而這條列是拿來往下掃的。 */}
+              <Box sx={{ width: MODE_COLUMN_WIDTH, flexShrink: 0 }}>
+                <ModeLabel mode={m.mode} />
+              </Box>
               <PlayedAtLabel playedAt={m.playedAt} />
               <Box
                 sx={{

@@ -146,7 +146,7 @@ const BattleStatus = (): React.JSX.Element => {
       return (
         <Box
           position={'absolute'}
-          sx={{ transform: 'translateX(145px) translateY(8px)', zIndex: 10 }}
+          sx={{ transform: 'translateX(109px) translateY(8px)', zIndex: 10 }}
         >
           {/* <Typography variant="caption" color="text.secondary">
             順序
@@ -190,7 +190,7 @@ const BattleStatus = (): React.JSX.Element => {
                 display={'flex'}
                 justifyContent={'center'}
                 alignItems={'center'}
-                width={'200px'}
+                width={'150px'}
                 height={'50px'}
                 bgcolor={battleState.ownClass ? classesMap[battleState.ownClass]?.bgColor : 'null'}
                 sx={{
@@ -201,7 +201,7 @@ const BattleStatus = (): React.JSX.Element => {
                 {/* 這兩塊是整個畫面上職業最該被一眼認出來的地方，也是唯一一次
                     只會出現一兩個徽章的地方，所以尺寸放到 34 - 深色底上不靠底板
                     就夠亮。斜切的 clipPath 會吃掉右緣，所以徽章和字一起靠左推。 */}
-                <Box display="flex" alignItems="center" gap={1} marginRight={'20px'}>
+                <Box display="flex" alignItems="center" gap={1} marginRight={'15px'}>
                   <ClassIcon id={battleState.ownClass} size={34} />
                   <Typography variant="h6" sx={classTextSx(battleState.ownClass)}>
                     {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
@@ -215,18 +215,18 @@ const BattleStatus = (): React.JSX.Element => {
                 display={'flex'}
                 justifyContent={'center'}
                 alignItems={'center'}
-                width={'200px'}
+                width={'150px'}
                 height={'50px'}
                 bgcolor={
                   battleState.enemyClass ? classesMap[battleState.enemyClass]?.bgColor : 'null'
                 }
                 sx={{
                   clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0% 100%)',
-                  ml: '-40px',
+                  ml: '-30px',
                   borderRadius: '5px'
                 }}
               >
-                <Box display="flex" alignItems="center" gap={1} marginLeft={'20px'}>
+                <Box display="flex" alignItems="center" gap={1} marginLeft={'15px'}>
                   <ClassIcon id={battleState.enemyClass} size={34} />
                   <Typography variant="h6" sx={classTextSx(battleState.enemyClass)}>
                     {battleState.enemyClass

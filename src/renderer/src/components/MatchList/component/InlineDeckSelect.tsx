@@ -74,10 +74,20 @@ const InlineDeckSelect: React.FC<Props> = ({ klass, options, onSelect }) => {
           }
         }}
       >
+        {/* 這個標籤是固定的三個字，所以刻意不用 `noWrap`：省略號要能省下寬度，
+            前提是被省掉的部分比省略號本身寬，而「未設…」並沒有省到什麼，只是
+            讓一個本來讀得完的字被吃掉。欄寬已經按它算過（見 MatchCard 的
+            `DECK_PLACEHOLDER_WIDTH`），這裡就讓它整個顯示出來。 */}
         <Typography
           variant="body2"
-          noWrap
-          sx={{ fontSize: 12.5, lineHeight: 1.35, fontStyle: 'italic', color: 'inherit' }}
+          sx={{
+            fontSize: 12.5,
+            lineHeight: 1.35,
+            fontStyle: 'italic',
+            color: 'inherit',
+            whiteSpace: 'nowrap',
+            flexShrink: 0
+          }}
         >
           {NO_DECK_LABEL}
         </Typography>

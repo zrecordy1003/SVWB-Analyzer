@@ -1,16 +1,54 @@
 // src/renderer/components/matches/MatchList.tsx
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, Box, Snackbar, Typography } from '@mui/material'
+import { Alert, Box, Button, Snackbar, Typography } from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
 
 import SearchBar, {
   type Filters as SearchFilters,
   type OnFiltersChange
 } from './component/SearchBar'
-import MatchEditDialog from './component/MatchEditDialog'
+import MatchFormDrawer from './component/MatchFormDrawer'
 import ConfirmDialog from '../Common/ConfirmDialog'
 import VirtualMatchList from './component/VirtualMatchList'
 import { useDecksTags } from '../../hooks/useDecksTags'
 import { useInfiniteMatches } from './hooks/useInfiniteMatches'
+
+/**
+ * 新增的紀錄會不會出現在目前這份清單裡。
+ *
+ * 只看時間。時間是唯一有預設值的條件（預設「今天」），所以也是唯一會在使用者
+ * 什麼都沒設定的情況下把剛補的舊紀錄藏起來的東西——而那正是這個功能最主要的
+ * 用途。職業、模式、牌組那些是使用者自己挑的，被篩掉不會意外。
+ *
+ * 不自動改動篩選條件：那是使用者的設定，替他改掉比讓他自己去改更難理解。
+ */
+function withinActiveRange(filters: SearchFilters, playedAt: Date): boolean {
+  const { rangeKey, startDate, endDate } = filters
+  if (rangeKey === 'all') return true
+
+  if (rangeKey === 'custom') {
+    if (startDate && playedAt < startOfDay(startDate)) return false
+    if (endDate && playedAt > endOfDay(endDate)) return false
+    return true
+  }
+
+  const days = rangeKey === 'today' ? 1 : rangeKey === '7d' ? 7 : 30
+  const from = startOfDay(new Date())
+  from.setDate(from.getDate() - (days - 1))
+  return playedAt >= from && playedAt <= endOfDay(new Date())
+}
+
+const startOfDay = (d: Date): Date => {
+  const copy = new Date(d)
+  copy.setHours(0, 0, 0, 0)
+  return copy
+}
+
+const endOfDay = (d: Date): Date => {
+  const copy = new Date(d)
+  copy.setHours(23, 59, 59, 999)
+  return copy
+}
 
 function useDebounced<T>(value: T, delay = 200): T {
   const [v, setV] = useState(value)
@@ -72,8 +110,10 @@ const MatchList = (): React.JSX.Element => {
     reload
   } = useInfiniteMatches(debouncedFilters, queryEnabled)
 
-  // 編輯 / 刪除
+  // 編輯 / 新增 / 刪除
   const [editId, setEditId] = useState<number | null>(null)
+  const [creating, setCreating] = useState(false)
+  const [createdNote, setCreatedNote] = useState<string | null>(null)
   const [deckError, setDeckError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: number | null }>({
     open: false,
@@ -151,13 +191,26 @@ const MatchList = (): React.JSX.Element => {
         onInitialized={() => setFiltersInitialized(true)}
       />
 
-      <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
-        <Typography variant="caption" color="text.secondary">
-          已載入 {rows.length} / 共 {totalCount} 筆
-        </Typography>
-        <Typography variant="caption" color="text.secondary">
-          右鍵：編輯
-        </Typography>
+      <Box display="flex" alignItems="center" justifyContent="space-between" gap={1} mb={1}>
+        {/* 動作在左、狀態在右：這一條是清單的頂邊，而讀一份清單是從左上角開始的
+            ——那個位置該放「我可以做什麼」，不是「有幾筆」。補一筆漏掉的、或把
+            工具啟用前的舊資料填進來，加的東西就出現在下面。 */}
+        <Button
+          size="small"
+          startIcon={<AddIcon fontSize="small" />}
+          onClick={() => setCreating(true)}
+          sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, ml: -0.5 }}
+        >
+          新增紀錄
+        </Button>
+        <Box display="flex" alignItems="center" gap={1.5}>
+          {/* 筆數只講「符合條件的有幾筆」。原本還報了已載入幾筆，但那是無限捲動
+              自己的進度，不是使用者問的問題——捲到底就會一樣，在那之前也沒有哪個
+              決定取決於它。 */}
+          <Typography variant="caption" color="text.secondary">
+            {totalCount} 筆
+          </Typography>
+        </Box>
       </Box>
 
       <Box flex={1} minHeight={0}>
@@ -176,8 +229,8 @@ const MatchList = (): React.JSX.Element => {
         />
       </Box>
 
-      {/* 編輯對話框 */}
-      <MatchEditDialog
+      {/* 編輯：右側抽屜，清單留在旁邊看得到 */}
+      <MatchFormDrawer
         open={!!editId}
         matchId={editId}
         onClose={closeEdit}
@@ -191,6 +244,24 @@ const MatchList = (): React.JSX.Element => {
         onDeleted={() => editId && removeRow(editId)}
       />
 
+      {/* 新增：同一個抽屜，開在 create 模式 */}
+      <MatchFormDrawer
+        open={creating}
+        matchId={null}
+        create
+        onClose={() => setCreating(false)}
+        onCreated={(created) => {
+          // 不做樂觀插入：新紀錄的時間可能落在這份清單的任何位置（甚至在還沒
+          // 載入的那幾頁裡），塞在最前面會讓它看起來排錯。重查一次比較誠實。
+          reload()
+          setCreatedNote(
+            withinActiveRange(filters, new Date(created.playedAt))
+              ? '已新增一筆紀錄'
+              : '已新增，但它不在目前的時間篩選範圍內——把範圍往前調才看得到'
+          )
+        }}
+      />
+
       {/* 刪除確認 */}
       <ConfirmDialog
         open={confirmDelete.open}
@@ -198,6 +269,17 @@ const MatchList = (): React.JSX.Element => {
         message="此操作無法復原。"
         onClose={handleConfirmDelete}
       />
+
+      <Snackbar
+        open={!!createdNote}
+        autoHideDuration={6000}
+        onClose={() => setCreatedNote(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setCreatedNote(null)}>
+          {createdNote}
+        </Alert>
+      </Snackbar>
 
       <Snackbar
         open={!!deckError}

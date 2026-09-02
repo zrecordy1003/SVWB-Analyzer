@@ -136,11 +136,22 @@ describe('resolveClassIcon', () => {
     // revalidation - the point is that an <img> never waits on one - so the
     // fresh bytes land a tick later.
     expect(await resolveClassIcon('witch', { root })).toBe(file)
-    await vi.waitFor(async () => {
-      expect(await fs.readFile(file!, 'utf8')).toContain('#111111')
-    })
+    // The 1s default is not enough when the whole suite is running in parallel:
+    // this waits on a write-then-rename by a promise nobody awaits, so the wait
+    // is bounded by how busy the machine is rather than by anything this test
+    // controls. It failed intermittently in a full run and never on its own.
+    //
+    // The case timeout has to clear the wait, or the wait never gets to fail on
+    // its own terms: at the 5s default the two were equal and the whole case
+    // timed out first, which is the same red for a different reason.
+    await vi.waitFor(
+      async () => {
+        expect(await fs.readFile(file!, 'utf8')).toContain('#111111')
+      },
+      { timeout: 5000, interval: 25 }
+    )
     expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
+  }, 15000)
 
   it('leaves a fresh copy alone', async () => {
     const fetchMock = vi.fn(async () => svg())

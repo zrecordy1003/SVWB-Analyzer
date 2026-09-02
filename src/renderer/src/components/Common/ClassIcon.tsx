@@ -29,6 +29,15 @@
  * small coloured square the app used before emblems existed - deliberately
  * small rather than a `size`-filling block, so that switching images off leaves
  * a UI that looks like the old one instead of a grid of colour chips.
+ *
+ * **`onLoad` alone is not enough to know it arrived.** The handler serves the
+ * emblems with `max-age=86400`, so the second and later `<img>` for a class in
+ * a session are answered from Chromium's cache - and an image that is already
+ * complete when React attaches the handler has had its `load` event and will
+ * not fire another. That is why the ref below checks `complete` as well: a
+ * class the user had already looked at (the dropdown's own selected value, the
+ * emblem repeated down a list) would otherwise sit at opacity 0 forever behind
+ * the fallback square, which is exactly the bug this pairing fixes.
  */
 import { Box } from '@mui/material'
 import React from 'react'
@@ -56,13 +65,32 @@ export default function ClassIcon({
   dim?: boolean
 }): React.JSX.Element {
   const colour = tone ?? classTone(id)
-  const [loaded, setLoaded] = React.useState(false)
 
   // A null id is "all classes" or "unclassified" - there is no emblem to ask
   // for, and asking would spend a protocol round trip to be told so.
   const name = id ? String(id) : null
 
-  React.useEffect(() => setLoaded(false), [name])
+  /**
+   * Which class's real emblem is on screen, rather than a bare boolean.
+   *
+   * Keyed by name so a change of class cannot leave the previous emblem
+   * showing for a frame: `loaded` goes false the moment `name` changes,
+   * during the same render, with no effect needed to reset it.
+   */
+  const [shown, setShown] = React.useState<string | null>(null)
+  const loaded = name !== null && shown === name
+
+  const settle = React.useCallback(
+    (img: HTMLImageElement | null): void => {
+      // Ref callbacks run after the props - `src` included - are on the node,
+      // and re-run on every `name` change because this identity depends on it.
+      // A fresh fetch is not complete yet and is left to `onLoad`; a cached one
+      // already is, and this is its only chance to be noticed.
+      if (!img || !img.complete) return
+      setShown(isRealEmblem(img) ? name : null)
+    },
+    [name]
+  )
 
   const swatch = Math.max(6, Math.round(size * SWATCH_FRACTION))
 
@@ -89,6 +117,7 @@ export default function ClassIcon({
       {name && (
         <Box
           component="img"
+          ref={settle}
           src={`svwb-card://class/${name}.svg`}
           alt=""
           // Decoration: the class NAME is beside it everywhere this is used, so
@@ -96,7 +125,7 @@ export default function ClassIcon({
           aria-hidden
           draggable={false}
           onLoad={(e: React.SyntheticEvent<HTMLImageElement>) =>
-            setLoaded(isRealEmblem(e.currentTarget))
+            setShown(isRealEmblem(e.currentTarget) ? name : null)
           }
           sx={{
             position: 'absolute',

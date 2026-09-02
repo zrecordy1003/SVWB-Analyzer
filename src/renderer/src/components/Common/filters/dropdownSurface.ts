@@ -31,3 +31,28 @@ export const DROPDOWN_ITEM_SX: SxProps<Theme> = {
   my: 0.25,
   transition: 'background-color .15s'
 }
+
+/**
+ * The trigger these dropdowns hang off: a soft filled pill, not a form field.
+ *
+ * `ClassSelect` and `ModeSelect` each carry this same block inline, and it is
+ * what the whole app's controls look like - the search box, the segmented
+ * controls, the range buttons. Named here so a new control can look like the
+ * existing ones without being a fourth copy of it, and so a form built out of
+ * MUI's outlined-with-floating-label defaults (which nothing else in the app
+ * uses) is an obvious mismatch rather than a plausible choice.
+ *
+ * Apply to a `Select` directly, or to a `TextField` as
+ * `{ '& .MuiOutlinedInput-root': CONTROL_SX }`.
+ */
+export const CONTROL_SX = {
+  height: 36,
+  borderRadius: 2,
+  bgcolor: 'action.hover',
+  transition: 'background-color .15s',
+  '&:hover': { bgcolor: 'action.selected' },
+  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
+  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.disabled' },
+  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderWidth: 1 },
+  '& .MuiSelect-icon': { transition: 'transform .2s', color: 'text.secondary' }
+} as const

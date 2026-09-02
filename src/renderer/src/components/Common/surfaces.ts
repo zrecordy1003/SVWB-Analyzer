@@ -62,7 +62,7 @@ export const BAR_SX: Surface = {
  * Drawn as a pseudo-element rather than a border so it does not take part in
  * layout: swapping a border for this one does not shift anything by a pixel.
  */
-const hairline = (direction: 'bottom' | 'right'): Surface => {
+const hairline = (direction: 'bottom' | 'top' | 'right'): Surface => {
   const vertical = direction === 'right'
   return {
     position: 'relative',
@@ -72,13 +72,15 @@ const hairline = (direction: 'bottom' | 'right'): Surface => {
       pointerEvents: 'none',
       ...(vertical
         ? { top: 0, bottom: 0, right: 0, width: '1px' }
-        : { left: 0, right: 0, bottom: 0, height: '1px' }),
+        : { left: 0, right: 0, [direction]: 0, height: '1px' }),
       background: `linear-gradient(${vertical ? '180deg' : '90deg'}, transparent 0%, rgba(255,255,255,0.11) 10%, rgba(255,255,255,0.11) 90%, transparent 100%)`
     }
   }
 }
 
 export const HAIRLINE_BOTTOM = hairline('bottom')
+/** For a footer bar, which is separated from the body above rather than below it. */
+export const HAIRLINE_TOP = hairline('top')
 export const HAIRLINE_RIGHT = hairline('right')
 
 /**
@@ -91,4 +93,40 @@ export const CARD_CELL_SX: Surface = {
   backgroundColor: 'rgba(0,0,0,0.35)',
   border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: 1.5
+}
+
+/**
+ * A right-hand drawer.
+ *
+ * Named here rather than copied into each drawer because there are now three of
+ * them, and a drawer that is a few percent off the others reads as a different
+ * app rather than as a different panel. The geometry is a drawer's: the right
+ * edge is against the window, so it takes neither a border nor a corner radius
+ * there, and the top highlight has a taller sheet to fall down.
+ *
+ * The colour is NOT `SURFACE_SX`'s. That one is `#1b2233`, cool by design so a
+ * dialog reads as nearer the viewer than the blue-cool canvas - and a dialog is
+ * a few hundred pixels of it. A drawer is a full-height slab down the side of
+ * the window, and at that size the same tint is simply the bluest thing on
+ * screen. So a drawer is neutral: the value `DeckManagerControl` has always
+ * used, still clearly lighter than the canvas behind it.
+ */
+export const DRAWER_SURFACE_SX: Surface = {
+  backgroundColor: '#1b1e24',
+  backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 180px)',
+  borderLeft: '1px solid rgba(255,255,255,0.09)',
+  borderTopLeftRadius: 16,
+  borderBottomLeftRadius: 16,
+  boxShadow: '0 28px 72px -12px rgba(0,0,0,0.85)',
+  overflow: 'hidden'
+}
+
+/**
+ * What a modal dims the page with.
+ *
+ * MUI's default is a flat 50% black, which on this cool near-black canvas turns
+ * the page behind grey-brown. This keeps the page's own hue and only darkens it.
+ */
+export const BACKDROP_SX: Surface = {
+  backgroundColor: 'rgba(7, 9, 13, 0.46)'
 }

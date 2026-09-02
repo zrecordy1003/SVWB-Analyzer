@@ -5,6 +5,10 @@
  * 靠底色深淺；那適合多選或可以全部不選的情況。這裡要表達的是「同一份資料的
  * 幾種看法，永遠剛好選中一種」- 一條凹槽加一塊浮片說的就是這件事，而且浮片
  * 滑過去的那一下也把「換了哪一段」講清楚了。
+ *
+ * 有一個例外：`value` 對不到任何一段時，浮片整塊不畫。這不是「可以全部不選」，
+ * 而是「這題還沒答」——手動新增紀錄的先後攻就是這種必填欄位，而預設把浮片停在
+ * 第一段等於幫使用者答了一題他還沒看過的問題。
  */
 import React from 'react'
 import { Box, ButtonBase, Typography } from '@mui/material'
@@ -31,10 +35,8 @@ export function SegmentedControl<T extends string>({
   minSegmentWidth?: number
   'aria-label'?: string
 }): React.JSX.Element {
-  const index = Math.max(
-    0,
-    options.findIndex((option) => option.id === value)
-  )
+  const index = options.findIndex((option) => option.id === value)
+  const answered = index >= 0
   const segmentWidth = 100 / Math.max(1, options.length)
 
   return (
@@ -54,25 +56,27 @@ export function SegmentedControl<T extends string>({
     >
       {/* 浮片。用 transform 移動而不是換每段的底色：位置本身就是動畫，
           瀏覽器也只需要合成一層。 */}
-      <Box
-        aria-hidden
-        sx={{
-          position: 'absolute',
-          top: '3px',
-          bottom: '3px',
-          left: '3px',
-          width: `calc(${segmentWidth}% - 3px)`,
-          transform: `translateX(${index * 100}%)`,
-          transition: 'transform .22s cubic-bezier(.32,.72,0,1)',
-          '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
-          borderRadius: 1.5,
-          bgcolor: 'rgba(255,255,255,0.12)',
-          boxShadow: '0 1px 3px rgba(0,0,0,0.35)'
-        }}
-      />
+      {answered && (
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            top: '3px',
+            bottom: '3px',
+            left: '3px',
+            width: `calc(${segmentWidth}% - 3px)`,
+            transform: `translateX(${index * 100}%)`,
+            transition: 'transform .22s cubic-bezier(.32,.72,0,1)',
+            '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+            borderRadius: 1.5,
+            bgcolor: 'rgba(255,255,255,0.12)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.35)'
+          }}
+        />
+      )}
 
       {options.map((option) => {
-        const selected = option.id === value
+        const selected = answered && option.id === value
         return (
           <ButtonBase
             key={option.id}
