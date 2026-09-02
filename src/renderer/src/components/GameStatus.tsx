@@ -19,6 +19,20 @@ type ResolutionStatus = {
   hint?: string
 }
 
+/**
+ * 每一幀都會先正規化成 1280×720 再比對，所以真正的條件是「16:9」與
+ * 「不小於 1280×720」，而不是某兩組特定數字 —— 2560×1440 之類的畫面同樣可用
+ * （見 `tools/vision-native/CALIBRATION.md`）。原本只認 1280×720 與 1920×1080，
+ * 2K 使用者因此永遠看到「解析度不支援」的警告。
+ */
+const MIN_WIDTH = 1280
+
+/**
+ * 視窗模式回報的是整個視窗，含標題列與邊框；遊戲畫面是底下那塊 16:9 的
+ * 工作區。實測標題列 1920×1080 視窗為 30px、1276×754 視窗為 36px。
+ */
+const WINDOW_CHROME_ALLOWANCE = 60
+
 const computeResolutionStatus = (bounds?: {
   width?: number
   height?: number
@@ -27,21 +41,24 @@ const computeResolutionStatus = (bounds?: {
   const height = bounds?.height
   if (!width || !height) return { ok: false, label: '未知', hint: '無法偵測解析度' }
 
-  const closeTo = (v: number, target: number, tolerance: number) =>
-    Math.abs(v - target) <= tolerance
-  const is720 = closeTo(width, 1280, 40) && closeTo(height, 720, 60)
-  const is1080 = closeTo(width, 1920, 40) && closeTo(height, 1080, 60)
-  const ratio = width / height
-  const near169 = Math.abs(ratio - 16 / 9) < 0.03
-
-  if (is720 || is1080) {
-    return { ok: true, label: is720 ? '1280×720' : '1920×1080', width, height }
+  const label = `${width}×${height}`
+  // 視窗高度必須是「16:9 的工作區」再加上最多一條標題列。負的容許值只留給
+  // 捨入誤差：比 16:9 還矮代表畫面本身不是 16:9。
+  const extra = height - Math.round((width * 9) / 16)
+  if (extra < -8 || extra > WINDOW_CHROME_ALLOWANCE) {
+    return {
+      ok: false,
+      label,
+      width,
+      height,
+      hint: '建議使用 16:9 解析度（例如 1280×720、1920×1080、2560×1440）'
+    }
+  }
+  if (width < MIN_WIDTH) {
+    return { ok: false, label, width, height, hint: '低於 1280×720，辨識準確度會下降' }
   }
 
-  const label = `${width}×${height}`
-  const hint = near169 ? '請調整為 1280×720 或 1920×1080' : '建議使用 16:9（1280×720 或 1920×1080）'
-
-  return { ok: false, label, width, height, hint }
+  return { ok: true, label, width, height }
 }
 
 const GameStatus: React.FC<Props> = ({ open }: Props) => {
@@ -128,7 +145,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
 
         {running && !resolution.ok && !isMinimized && (
           <Tooltip
-            title={resolution.hint || '建議解析度為 1280×720 或 1920×1080'}
+            title={resolution.hint || '建議使用 16:9 解析度，且不低於 1280×720'}
             placement="right"
             slotProps={{ ...TooltipStyles }}
             slots={{
@@ -174,7 +191,9 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
         <Box display="flex" alignItems="center" color="coral">
           <WarningIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
-            <Typography>解析度 {resolution.label}，建議改為 1280×720 或 1920×1080</Typography>
+            <Typography>
+              解析度 {resolution.label}，{resolution.hint}
+            </Typography>
           </Fade>
         </Box>
       )}
