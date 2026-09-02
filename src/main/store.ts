@@ -69,6 +69,10 @@ export type AppSettings = {
    * still makes the whole feature a no-op without touching a component, because
    * the `svwb-card://` handler answers with a transparent pixel. Keep it that
    * way. See docs/deck-import-plan.md, decision D-6.
+   *
+   * There is no longer a switch in Settings, and a stored `false` is normalised
+   * to `true` at startup - see the note below `store`. The mechanism is intact;
+   * only the user-facing way into it is gone.
    */
   cardImages: boolean
   /**
@@ -178,4 +182,24 @@ export const store = new Store<AppStoreSchema>({
 if (store.get('telemetryDefaultFlipped') !== true) {
   store.set('settings.telemetry', true)
   store.set('telemetryDefaultFlipped', true)
+}
+
+/**
+ * Card art is on, full stop.
+ *
+ * The 「卡片圖像」 switch that used to own `settings.cardImages` was removed from
+ * Settings, which left anyone who had turned it off with no way back: no art,
+ * no class emblems, and nothing in the UI to explain why. A stored `false` is
+ * therefore a value nobody can act on any more, so it is normalised away here -
+ * once, at startup, before the protocol handler or any window reads it.
+ *
+ * The key itself stays. It is the kill switch the guidelines make necessary
+ * (see docs/deck-import-plan.md, 「合規要求」): every path that answers with a
+ * transparent pixel or falls back to a colour swatch is still wired up and
+ * still tested. What is gone is the ability to be stuck in that state by
+ * accident. If permission is ever withdrawn, put the switch back in Settings -
+ * do not go looking for the handler.
+ */
+if (store.get('settings')?.cardImages !== true) {
+  store.set('settings.cardImages', true)
 }

@@ -5,7 +5,6 @@ import UpdateSettings from '../Update/UpdateSettings'
 import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
 import TelemetrySettings from './TelemetrySettings'
 import IOSSwitch from '../Common/IOSSwitch'
-import CardImageSettings from './CardImageSettings'
 
 type OnCloseBehavior = 'minimize' | 'exit'
 type ThemeType = 'system' | 'light' | 'dark'
@@ -25,7 +24,12 @@ interface AppSettingsInner {
   theme: ThemeType
   /** Opt-out: local-only recording of recognition anomalies. */
   diagnostics: boolean
-  /** Default on; turning it off makes the whole card-art path a no-op. */
+  /**
+   * Default on and no longer exposed in the UI - the 「卡片圖像」 switch that used
+   * to own it is gone. Kept in the shape so the stored value still round-trips
+   * for anyone who turned it off before, and so main's card-art path keeps
+   * reading the same key.
+   */
   cardImages: boolean
   cardLang: PortalLang
 }
@@ -57,6 +61,11 @@ const DEFAULT_SETTINGS: AppSettings = {
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   const s = settings.settings
+  // 存的值和 DEFAULT_SETTINGS 不一定一樣，讀檔前先用預設值畫面、讀完再整個換過
+  // 去會讓開關從預設值滑到實際值，看起來像是使用者一進頁面它自己動了一下。
+  // 這幾顆開關（自動檢查/下載更新）在還沒讀到實際值以前先不掛載，等讀到了
+  // 就直接以正確的 checked 狀態掛上去，不會有滑動動畫。
+  const [loaded, setLoaded] = useState(false)
 
   // 載入設定
   useEffect(() => {
@@ -71,6 +80,7 @@ const Settings: React.FC = () => {
       .catch((err) => {
         console.error('Failed to load settings:', err)
       })
+      .finally(() => setLoaded(true))
   }, [])
 
   // 只要有更動就存檔（或是每個 Switch/Select 都呼叫 set）
@@ -137,44 +147,25 @@ const Settings: React.FC = () => {
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />
 
-      <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">辨識診斷</Typography>
-        <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.diagnostics}
-              onChange={(_, checked) => handleChange('diagnostics', checked)}
-            />
-          }
-          label="記錄辨識異常（僅存本機）"
-        />
-        <DiagnosticsSettings enabled={s.diagnostics} />
-      </Box>
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-
       {/* The switch lives inside TelemetrySettings and goes through
           `window.telemetry.setEnabled`, not `handleChange`: main owns the upload
           timers and has to hear about the change, and the generic settings
           bridge tells it nothing. */}
       <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">匿名使用統計</Typography>
+        <Typography variant="h5">數據統計</Typography>
         <TelemetrySettings />
       </Box>
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
 
       {/* There used to be a 「資料來源」 section here, reporting how many matches
           carried provenance and how many the user had edited. It was accurate
           and nobody wanted it: it explained an internal measurement rather than
           answering a question a player has. Recording still happens - see
-          `main/data/provenance.ts` - it just has no settings surface. */}
+          `main/data/provenance.ts` - it just has no settings surface.
 
-      <CardImageSettings
-        cardImages={s.cardImages}
-        cardLang={s.cardLang}
-        onChange={(key, value) => handleChange(key, value as never)}
-      />
+          The 「卡片語言」 section that followed it is gone the same way: the
+          language selector and cache-clear button now have no settings
+          surface. `cardLang` still exists in AppSettingsInner and still
+          defaults to 'cht' - it simply has no UI any more. */}
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />
 
@@ -257,25 +248,29 @@ const Settings: React.FC = () => {
       <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
         <Typography variant="h5">更新</Typography>
         <UpdateSettings />
-        <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.autoCheckUpdates}
-              onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
+        {loaded && (
+          <>
+            <FormControlLabel
+              control={
+                <IOSSwitch
+                  checked={s.autoCheckUpdates}
+                  onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
+                />
+              }
+              label="自動檢查更新"
             />
-          }
-          label="自動檢查更新"
-        />
-        <FormControlLabel
-          disabled={!s.autoCheckUpdates}
-          control={
-            <IOSSwitch
-              checked={s.autoDownloadUpdates}
-              onChange={(_, checked) => handleChange('autoDownloadUpdates', checked)}
+            <FormControlLabel
+              disabled={!s.autoCheckUpdates}
+              control={
+                <IOSSwitch
+                  checked={s.autoDownloadUpdates}
+                  onChange={(_, checked) => handleChange('autoDownloadUpdates', checked)}
+                />
+              }
+              label="自動下載更新"
             />
-          }
-          label="自動下載更新"
-        />
+          </>
+        )}
         {/* <FormControlLabel
           control={
             <IOSSwitch
@@ -286,6 +281,17 @@ const Settings: React.FC = () => {
           label="自動安裝更新"
         /> */}
       </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">辨識診斷</Typography>
+        <DiagnosticsSettings
+          enabled={s.diagnostics}
+          onToggle={(checked) => handleChange('diagnostics', checked)}
+        />
+      </Box>
+
       <Box component={'footer'} sx={{ mt: 10 }}>
         <Disclaimer />
       </Box>

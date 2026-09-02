@@ -1,8 +1,19 @@
-import { Alert, Box, Button, CircularProgress, Snackbar, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  CircularProgress,
+  FormControlLabel,
+  Snackbar,
+  Tooltip
+} from '@mui/material'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import IosShareIcon from '@mui/icons-material/IosShare'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import React, { useCallback, useEffect, useState } from 'react'
+import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
+import IOSSwitch from '../Common/IOSSwitch'
 
 type Summary = {
   eventCount: number
@@ -17,6 +28,11 @@ const formatBytes = (bytes: number): string => {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+type Props = {
+  enabled: boolean
+  onToggle: (checked: boolean) => void
+}
+
 /**
  * Shows what the analyzer has recorded about its own recognition failures, and
  * lets the user hand it over.
@@ -24,7 +40,7 @@ const formatBytes = (bytes: number): string => {
  * The counters are the point: they make failures the user never noticed
  * visible, such as a template score drifting to just under its threshold.
  */
-const DiagnosticsSettings: React.FC<{ enabled: boolean }> = ({ enabled }) => {
+const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [busy, setBusy] = useState(false)
   const [toast, setToast] = useState<{ text: string; severity: 'success' | 'info' } | null>(null)
@@ -72,36 +88,44 @@ const DiagnosticsSettings: React.FC<{ enabled: boolean }> = ({ enabled }) => {
 
   const nothingRecorded = !summary || (summary.eventCount === 0 && summary.frameCount === 0)
 
+  const statusLine = enabled
+    ? summary === null
+      ? '讀取中…'
+      : nothingRecorded
+        ? '目前沒有記錄到異常。'
+        : `已記錄 ${summary.eventCount} 筆事件、${summary.frameCount} 張畫面（約 ${formatBytes(summary.bytes)}）${
+            summary.latestAt ? `，最近一筆：${new Date(summary.latestAt).toLocaleString()}` : ''
+          }`
+    : '目前已關閉，不會產生任何紀錄。'
+
   return (
     <Box display="flex" flexDirection="column" gap={1.5}>
-      <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 560 }}>
-        辨識失敗大多不會有明顯症狀 —— 例如比對分數悄悄掉到門檻邊緣、OCR
-        讀出無效內容、或結算畫面無法歸因到任何模式。開啟後，程式會把這些「自己也不確定」的情況
-        記錄在本機，方便你回報問題時一併提供。
-        <Box component="span" sx={{ display: 'block', mt: 0.5, fontWeight: 600 }}>
-          紀錄只存在你的電腦上，不會自動上傳。
-        </Box>
-      </Typography>
-
-      {enabled ? (
-        <Typography variant="body2">
-          {summary === null ? (
-            '讀取中…'
-          ) : nothingRecorded ? (
-            '目前沒有記錄到異常。'
-          ) : (
-            <>
-              已記錄 <strong>{summary.eventCount}</strong> 筆事件、
-              <strong>{summary.frameCount}</strong> 張畫面（約 {formatBytes(summary.bytes)}）
-              {summary.latestAt ? `，最近一筆：${new Date(summary.latestAt).toLocaleString()}` : ''}
-            </>
-          )}
-        </Typography>
-      ) : (
-        <Typography variant="body2" color="text.secondary">
-          目前已關閉，不會產生任何紀錄。
-        </Typography>
-      )}
+      <FormControlLabel
+        control={<IOSSwitch checked={enabled} onChange={(_, checked) => onToggle(checked)} />}
+        label={
+          <Box display="flex" alignItems="center" gap={0.5}>
+            <span>記錄辨識異常（僅存本機）</span>
+            <Tooltip
+              title={
+                <Box display="flex" flexDirection="column" gap={0.5}>
+                  <span>
+                    辨識失敗大多不會有明顯症狀——例如比對分數悄悄掉到門檻邊緣、OCR
+                    讀出無效內容、或結算畫面無法歸因到任何模式。開啟後，程式會把這些「自己也不確定」的情況記錄在本機，方便你回報問題時一併提供。紀錄只存在你的電腦上，不會自動上傳。
+                  </span>
+                  <span>{statusLine}</span>
+                </Box>
+              }
+              placement="top"
+              slotProps={{ tooltip: { sx: { ...TOOLTIP_SURFACE_SX, maxWidth: 360 } } }}
+            >
+              <HelpOutlineIcon
+                fontSize="small"
+                sx={{ display: 'block', color: 'text.secondary', cursor: 'default' }}
+              />
+            </Tooltip>
+          </Box>
+        }
+      />
 
       <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
         <Button
