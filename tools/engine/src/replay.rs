@@ -170,51 +170,66 @@ pub fn run(
             // Unlike live, a replay has no cost pressure to skip number reads
             // - but the gate is kept identical so a replay exercises the same
             // code path the shipped analyzer takes.
-            let wants_numbers = machine.phase().is_open();
+            let wants_numbers = machine.phase().wants_numbers();
             let reading = reading::read(&frame, store, reader, wants_numbers);
             let now = origin + Duration::from_secs_f64(frame_index as f64 / options.fps);
             frame_index += 1;
             report.frames += 1;
 
             for change in machine.tick(&reading, now) {
-                match change {
-                    Change::MatchStarted { versus, .. } => {
-                        open = Some((
-                            format!("{:?}", versus.my_class).to_lowercase(),
-                            format!("{:?}", versus.oppo_class).to_lowercase(),
-                            format!("{:?}", versus.play_order).to_lowercase(),
-                        ));
-                    }
-                    Change::MatchFinished { patch, .. } => {
-                        // A finish without a start would mean the machine
-                        // invented a match; it cannot, but reporting it as such
-                        // is better than silently dropping the row.
-                        let (my_class, oppo_class, play_order) =
-                            open.take().unwrap_or_default();
-                        report.matches.push(RecordedMatch {
-                            my_class,
-                            oppo_class,
-                            play_order,
-                            patch,
-                        });
-                    }
-                    // Abandoned matches are exactly what a replay recording must
-                    // produce none of, so they are deliberately NOT reported as
-                    // matches.
-                    Change::MatchAbandoned { .. } => {
-                        open = None;
-                    }
-                    Change::Noted { kind, label, .. } => {
-                        report.notes.push((kind.to_string(), label));
-                    }
-                    _ => {}
-                }
+                record(change, &mut report, &mut open);
             }
         }
 
         segment_start += options.segment;
     }
 
+    // The recording running out is the same event as the capture stopping, and
+    // must be handled the same way - see `live::run`'s `Exhausted` arm.
+    //
+    // This is not a tidiness argument. A match waiting for its final screen is
+    // now waiting on evidence rather than on a clock, so nothing closes it when
+    // the frames simply stop: `custom-1280-windowed-lose` went from one match to
+    // ZERO the moment the fifteen-second timeout stopped doing this job by
+    // accident.
+    for change in machine.close_open_match() {
+        record(change, &mut report, &mut open);
+    }
+
     let _ = std::fs::remove_dir_all(&work);
     Ok(report)
+}
+
+/// Fold one decision into the report. Shared by the frame loop and the flush at
+/// the end of the recording, which must agree on what a match looks like.
+fn record(
+    change: Change,
+    report: &mut ReplayReport,
+    open: &mut Option<(String, String, String)>,
+) {
+    match change {
+        Change::MatchStarted { versus, .. } => {
+            *open = Some((
+                format!("{:?}", versus.my_class).to_lowercase(),
+                format!("{:?}", versus.oppo_class).to_lowercase(),
+                format!("{:?}", versus.play_order).to_lowercase(),
+            ));
+        }
+        Change::MatchFinished { patch, .. } => {
+            // A finish without a start would mean the machine invented a match;
+            // it cannot, but reporting it as such is better than silently
+            // dropping the row.
+            let (my_class, oppo_class, play_order) = open.take().unwrap_or_default();
+            report.matches.push(RecordedMatch { my_class, oppo_class, play_order, patch });
+        }
+        // Abandoned matches are exactly what a replay recording must produce
+        // none of, so they are deliberately NOT reported as matches.
+        Change::MatchAbandoned { .. } => {
+            *open = None;
+        }
+        Change::Noted { kind, label, .. } => {
+            report.notes.push((kind.to_string(), label));
+        }
+        _ => {}
+    }
 }

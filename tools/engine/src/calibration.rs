@@ -525,13 +525,50 @@ pub mod timing {
     /// over 87 consecutive hits), so four ticks is slack, not coverage.
     pub const REPLAY_CHROME_GRACE: Duration = Duration::from_secs(2);
 
-    /// How long a match stays open after the end-of-battle splash, waiting for
-    /// the final result screen that decides its mode.
+    /// How long a screen that follows the battle is still believed.
     ///
-    /// The first overlay is shown before the final screen, where a practice
-    /// match exposes its CPU deck label. Without this the mode would default
-    /// early and a CPU match would be filed as something else.
-    pub const FINAL_SCREEN_GRACE: Duration = Duration::from_secs(15);
+    /// The wait for the final screen has no end (see `FINAL_SCREEN_BACKSTOP`),
+    /// but our willingness to DECIDE things during it must, and these are not
+    /// the same duration. Two different screens live in that wait:
+    ///
+    /// - A custom room goes straight back to its own panel, and 室長 is on it.
+    ///   Measured on `custom-1280-windowed-lose`, whose mode is read here and
+    ///   nowhere else - the recording runs for four more minutes and never shows
+    ///   a result screen at all. A practice match's CPU deck label behaves the
+    ///   same way.
+    /// - A ranked or 2Pick match shows FULL-SCREEN reward panels instead, which
+    ///   hold until they are clicked and put unrelated art under every
+    ///   calibrated window.
+    ///
+    /// Nothing distinguishes the two while they are up, so time does it. Fifteen
+    /// seconds is the original grace, kept at its measured value because the
+    /// evidence it was measured against - a post-battle label appearing within
+    /// it - has not changed. What changed is what happens AFTER it: the match
+    /// used to close, and now it only stops believing what it sees.
+    pub const POST_BATTLE_TRUST: Duration = Duration::from_secs(15);
+
+    /// The last resort for a match whose final result screen never arrived.
+    ///
+    /// This is NOT a grace period, and it is the one duration here that was not
+    /// measured - it cannot be. Between the end-of-battle splash and the final
+    /// screen the game shows FULL-SCREEN reward panels which wait for a click,
+    /// so how long that gap runs is the player's choice and no recording can
+    /// bound it. Nothing calibrated is on screen through it either: the reward
+    /// panels cover the result banner, so there is not even a probe to say the
+    /// player is still sitting there.
+    ///
+    /// The wait therefore ends on EVIDENCE, not on a clock - the final screen
+    /// arriving, the next match's versus screen, or a replay starting (see
+    /// `Machine::close_on_missing_final_screen` for the full list). Fifteen
+    /// seconds used to end it instead, and closed a match that was still on its
+    /// way with `mode: unknown`, no numbers, and a `final-screen-never-seen`
+    /// flag - the player only had to read their rewards.
+    ///
+    /// What is left for this constant is the case where the evidence never
+    /// comes: the player quit to the title screen, or the capture died. Ten
+    /// minutes, so that no one reaches it by reading a reward screen, and the
+    /// row still closes rather than staying open for the rest of the session.
+    pub const FINAL_SCREEN_BACKSTOP: Duration = Duration::from_secs(600);
 
     /// How long a finished match stays open for number reads to retry.
     ///

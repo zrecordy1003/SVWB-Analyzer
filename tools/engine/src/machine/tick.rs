@@ -72,10 +72,27 @@ impl Machine {
             let until = current.map_or(until, |held| held.max(until));
 
             if current.is_none() {
-                if let Some(r#ref) = self.phase.match_id() {
-                    changes.push(Change::MatchAbandoned { r#ref });
+                match self.phase {
+                    // A match that is already RESOLVING is not what the replay
+                    // is showing. Its outcome was read off the end-of-battle
+                    // splash and persisted before any replay existed, and a
+                    // replay cannot have produced that splash - the chrome
+                    // suppresses every tick of playback, so this phase can only
+                    // have been reached from a real battle.
+                    //
+                    // Discarding it would be a plain loss, and one the player
+                    // walks into: the wait for the final screen is now unbounded,
+                    // so "finish a match, go and watch the replay" is an ordinary
+                    // thing to do inside it. That used to be impossible only
+                    // because the match was force-closed fifteen seconds in.
+                    Phase::Resolving { match_id, .. } => self.finish(match_id, changes),
+                    _ => {
+                        if let Some(r#ref) = self.phase.match_id() {
+                            changes.push(Change::MatchAbandoned { r#ref });
+                        }
+                        self.clear_match_state();
+                    }
                 }
-                self.clear_match_state();
                 changes.push(Change::ReplaySuppression { active: true });
             }
             self.phase = Phase::ReplaySuppressed { until };
@@ -149,10 +166,26 @@ impl Machine {
             return;
         }
 
+        // Stop believing the screen once the blind wait outlives its measured
+        // window. This guard is what lets the wait be unbounded at all: a player
+        // who leaves a reward screen up for ten minutes would otherwise give the
+        // plaza probe - which has no verified positive sample - twelve hundred
+        // chances to brand the match, and the score-system anchor as many again.
+        //
+        // Not a blanket ban, and the custom recording is why. `POST_BATTLE_TRUST`
+        // covers the screens the game raises by itself right after a battle, and
+        // for a custom room or a practice match that screen carries the ONLY
+        // evidence of the mode there will ever be - `custom-1280-windowed-lose`
+        // runs four more minutes and never shows a result screen at all. Banning
+        // the whole wait turned that recording's mode into `unknown`.
+        if !self.phase.trusts_probes_at(now) {
+            return;
+        }
+
         let Some(r#ref) = self.phase.match_id() else {
             return;
         };
-        let on_result_screen = matches!(self.phase, Phase::Resolving { .. });
+        let on_result_screen = self.phase.on_result_screen();
 
         // Set by the plaza branch below. Kept separate from the `Noted` it
         // pushes because the note reports that the probe fired, while the flag
@@ -243,7 +276,41 @@ impl Machine {
         changes.push(Change::MatchUpdated { r#ref, patch });
     }
 
+    /// The next match beginning is the end of the last one's wait.
+    ///
+    /// Without this, an unbounded wait does not merely delay a row - it EATS the
+    /// next match. `start_match` only fires from `Idle`, so every versus screen
+    /// that arrives while something is still resolving is dropped on the floor,
+    /// silently, along with the whole game that follows it. A fifteen-second cap
+    /// hid that: nothing was still resolving by the time the player found
+    /// another opponent.
+    ///
+    /// Debounced, unlike the ordinary start path, and deliberately so - see
+    /// `Machine::versus_preempt`.
+    fn preempt_for_next_match(&mut self, reading: &Reading, changes: &mut Vec<Change>) {
+        let Phase::Resolving { match_id, .. } = self.phase else {
+            // In battle the versus screen is simply still up - it lingers about
+            // ten seconds after the match opens - so this must never accumulate
+            // outside a wait.
+            self.versus_preempt.reset();
+            return;
+        };
+
+        if !self.versus_preempt.observe(reading.versus.map(|_| UNPOSITIONED)) {
+            return;
+        }
+
+        changes.push(Change::Noted {
+            kind: "closed-by-next-match",
+            label: "versus".into(),
+            detail: None,
+        });
+        self.flag("closed-by-next-match");
+        self.finish(match_id, changes);
+    }
+
     fn start_match(&mut self, reading: &Reading, now: Instant, changes: &mut Vec<Change>) {
+        self.preempt_for_next_match(reading, changes);
         if !self.phase.accepts_new_match() {
             return;
         }
@@ -282,10 +349,32 @@ impl Machine {
         let patch = MatchPatch { result: Some(result), ..Default::default() };
         self.merge(&patch);
         changes.push(Change::MatchUpdated { r#ref: match_id, patch });
+
+        // Half-finished evidence from the battle must not be completed by the
+        // result screen. A debounce is reset by SEEING the signal absent, and
+        // once the blind wait stops believing probes it observes nothing at all
+        // - so without this, a single mid-battle plaza hit (hits: 1) could sit
+        // through however many minutes of reward screens and then be finished
+        // off by one hit on the result screen, landing a two-frame decision that
+        // never had two frames.
+        //
+        // Clearing them here is the stronger statement anyway: these are all
+        // post-battle probes, so a hit during the battle was a false positive by
+        // definition - which is exactly the doctrine `resolve_mode` already
+        // applies to the plaza label. What has already been DECIDED is untouched;
+        // this is only the evidence still being gathered.
+        self.cpu.reset();
+        self.plaza.reset();
+        self.custom.reset();
+        self.ranked.reset();
+
         self.phase = Phase::Resolving {
             match_id,
             result,
-            awaiting: Awaiting::FinalScreen { deadline: now + timing::FINAL_SCREEN_GRACE },
+            awaiting: Awaiting::FinalScreen {
+                believe_until: now + timing::POST_BATTLE_TRUST,
+                backstop: now + timing::FINAL_SCREEN_BACKSTOP,
+            },
         };
     }
 
@@ -391,15 +480,25 @@ impl Machine {
         }
     }
 
-    /// Do not leave a match open forever if the game never shows the final
-    /// screen - an interrupted capture, or the player leaving early.
+    /// The fuse on a wait that is otherwise ended by evidence.
+    ///
+    /// Three things end the wait properly, and all three are the game telling us
+    /// something: the final screen arriving (`observe_final_screen`), the next
+    /// match's versus screen (`preempt_for_next_match`), or a replay starting
+    /// (`update_replay_suppression`). A fourth ends it from outside - the
+    /// capture stopping (`close_open_match`).
+    ///
+    /// This is what is left: the player quit to the title screen, or the capture
+    /// died without saying so. Ten minutes rather than fifteen seconds, because
+    /// the wait spans full-screen reward panels that hold until they are
+    /// clicked - see `timing::FINAL_SCREEN_BACKSTOP`.
     fn close_on_missing_final_screen(&mut self, now: Instant, changes: &mut Vec<Change>) {
-        let Phase::Resolving { match_id, awaiting: Awaiting::FinalScreen { deadline }, .. } =
+        let Phase::Resolving { match_id, awaiting: Awaiting::FinalScreen { backstop, .. }, .. } =
             self.phase
         else {
             return;
         };
-        if now >= deadline {
+        if now >= backstop {
             changes.push(Change::Noted {
                 kind: "final-screen-never-seen",
                 label: "closed-by-timeout".into(),
@@ -410,6 +509,37 @@ impl Machine {
             self.flag("final-screen-never-seen");
             self.finish(match_id, changes);
         }
+    }
+
+    /// Close a match that is waiting for a screen no one is watching for any
+    /// more. Not a tick: the caller is the capture stopping, not a frame.
+    ///
+    /// Only a RESOLVING match is closed. Its outcome is already known - the
+    /// splash gave it - so the row is complete enough to keep, and the wait it
+    /// is in has no deadline worth trusting to close it later. A match still
+    /// `InBattle` is left exactly as it was before any of this: it has no
+    /// result, and inventing one because the capture stopped would be worse than
+    /// the row the host already has.
+    ///
+    /// This exists because the fifteen-second cap used to double as the flush. A
+    /// player who finishes their last game, reads the rewards and then closes
+    /// the tracker would otherwise leave that match waiting for a final screen
+    /// that no one is looking at.
+    pub fn close_open_match(&mut self) -> Vec<Change> {
+        let mut changes = Vec::new();
+        let Phase::Resolving { match_id, .. } = self.phase else {
+            return changes;
+        };
+        changes.push(Change::Noted {
+            kind: "closed-by-capture-stop",
+            label: "resolving".into(),
+            detail: None,
+        });
+        // Flagged before finishing: `finish` clones what the machine holds, so a
+        // flag added after it would never reach the row.
+        self.flag("closed-by-capture-stop");
+        self.finish(match_id, &mut changes);
+        changes
     }
 
     /// Which numbers this result screen owes, from its score-system label.

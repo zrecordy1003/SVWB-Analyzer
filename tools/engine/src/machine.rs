@@ -294,6 +294,18 @@ pub struct Machine {
     ranked: Debounce,
     two_pick_versus: Debounce,
 
+    /// The versus screen, but only for the purpose of CUTTING SHORT a match
+    /// that is still resolving.
+    ///
+    /// The ordinary start path takes a versus reading on the first frame and
+    /// always has - it already needs three probes to agree, and a phantom match
+    /// would have been noticed long ago. This one is asked a riskier question:
+    /// "has the player moved on, so finish the last match now". It is asked
+    /// throughout a wait with no upper bound, and answering it wrongly closes a
+    /// match early AND opens one that does not exist. The versus screen is up
+    /// for about ten seconds, so a second frame costs nothing.
+    versus_preempt: Debounce,
+
     /// Which block this result screen owes, once its label has been read.
     owed: Option<NumberBlock>,
     /// One consensus per field. Rebuilt per match, because the agreement rule
@@ -326,6 +338,7 @@ impl Machine {
             // second frame costs 500ms of a twenty-tick window and rules out the
             // single-frame false positive.
             two_pick_versus: Debounce::consecutive(REQUIRED_HITS),
+            versus_preempt: Debounce::consecutive(REQUIRED_HITS),
             owed: None,
             bp: static_value(),
             delta_mp: static_value(),
@@ -359,6 +372,7 @@ impl Machine {
         self.custom.reset();
         self.ranked.reset();
         self.two_pick_versus.reset();
+        self.versus_preempt.reset();
         self.owed = None;
         self.bp = static_value();
         self.delta_mp = static_value();

@@ -61,10 +61,22 @@ pub enum Awaiting {
     /// The end-of-battle splash was seen; the final result screen has not been.
     ///
     /// The outcome is already known and persisted - it is read off the splash -
-    /// but mode and numbers live on the screen that follows. If the game never
-    /// shows it (an interrupted capture, an early exit), `deadline` closes the
-    /// match rather than leaving it open forever.
-    FinalScreen { deadline: Instant },
+    /// but mode and numbers live on the screen that follows.
+    ///
+    /// This wait is BLIND, and that is what makes it different from the other
+    /// one. The game fills the gap with full-screen reward panels that wait for
+    /// a click: they cover the result banner, no calibrated probe matches them,
+    /// and the player decides how long they stay. So there is nothing to read
+    /// and no honest deadline to read it by - `backstop` is a fuse for a capture
+    /// that died, not a budget for the screen to arrive in, and the wait is
+    /// meant to end on evidence long before it.
+    ///
+    /// Two clocks, because the wait and the believing are different questions.
+    /// `believe_until` is short and measured - a custom room or a practice match
+    /// puts its own label up within it, and that is the only place either mode
+    /// is ever read. Past it the screen is assumed to be reward art and nothing
+    /// it seems to say is acted on; see [`Phase::trusts_probes_at`].
+    FinalScreen { believe_until: Instant, backstop: Instant },
 
     /// The final result screen is up and the match is held open so number
     /// reading can retry.
@@ -88,8 +100,8 @@ pub enum Awaiting {
 impl Awaiting {
     pub fn deadline(self) -> Instant {
         match self {
-            Awaiting::FinalScreen { deadline }
-            | Awaiting::Numbers { deadline, .. } => deadline,
+            Awaiting::FinalScreen { backstop, .. } => backstop,
+            Awaiting::Numbers { deadline, .. } => deadline,
         }
     }
 
@@ -169,6 +181,61 @@ impl Phase {
                 | Phase::Resolving { awaiting: Awaiting::FinalScreen { .. }, .. }
         )
     }
+
+    /// Whether the final result screen has actually been SEEN.
+    ///
+    /// `Resolving` is not the same question and used to be asked in its place.
+    /// The difference did not matter while the blind wait was capped at fifteen
+    /// seconds; now that it runs for as long as the player leaves a reward
+    /// screen up, it decides whether a probe fires thirty times against the
+    /// result screen or twelve hundred times against reward art.
+    ///
+    /// Every result-screen probe is a calibrated window at a fixed position.
+    /// During the blind wait those positions hold whatever the reward panel
+    /// draws there, so a hit means nothing - the plaza probe has no verified
+    /// positive sample to begin with, and the score-system anchor already
+    /// false-positives on the app's own HUD. This is the guard that keeps a long
+    /// wait from becoming a long exposure.
+    pub fn on_result_screen(self) -> bool {
+        matches!(self, Phase::Resolving { awaiting: Awaiting::Numbers { .. }, .. })
+    }
+
+    /// Whether this phase is waiting blind for the final screen.
+    pub fn is_blind_wait(self) -> bool {
+        matches!(self, Phase::Resolving { awaiting: Awaiting::FinalScreen { .. }, .. })
+    }
+
+    /// Whether a probe firing now is worth acting on.
+    ///
+    /// Only ever false during the blind wait, and only after its measured
+    /// window has passed. Inside that window the screen is one the game put up
+    /// on its own - a custom room's panel, a practice match's deck label - and
+    /// reading it is how those two modes are identified at all. Past it the
+    /// player is sitting on a reward screen of their own accord, for as long as
+    /// they like, with unrelated art under every calibrated window.
+    ///
+    /// The distinction matters because the wait no longer ends. Fifteen seconds
+    /// of a probe that false-positives now and then is the exposure this
+    /// codebase already accepted and measured against; ten minutes of it is not
+    /// the same bet, and nothing about the extra time makes the answer better.
+    pub fn trusts_probes_at(self, now: Instant) -> bool {
+        match self {
+            Phase::Resolving { awaiting: Awaiting::FinalScreen { believe_until, .. }, .. } => {
+                now < believe_until
+            }
+            _ => true,
+        }
+    }
+
+    /// Whether digits are worth reading - the one expensive probe.
+    ///
+    /// Excludes the blind wait: the numbers live on the final result screen, so
+    /// by definition none are on screen before it arrives. Without this, a
+    /// player who leaves a reward screen up for ten minutes costs twelve hundred
+    /// round trips to Tesseract for a screen that has no digits on it.
+    pub fn wants_numbers(self) -> bool {
+        self.is_open() && !self.is_blind_wait()
+    }
 }
 
 #[cfg(test)]
@@ -188,7 +255,10 @@ mod tests {
         Phase::Resolving {
             match_id: MatchRef(1),
             result: true,
-            awaiting: Awaiting::FinalScreen { deadline: now + Duration::from_secs(15) },
+            awaiting: Awaiting::FinalScreen {
+                believe_until: now + Duration::from_secs(15),
+                backstop: now + Duration::from_secs(600),
+            },
         }
     }
 
@@ -248,6 +318,33 @@ mod tests {
         assert_eq!(awaiting_final(now).match_id(), Some(MatchRef(1)));
         assert_eq!(awaiting_numbers(now).match_id(), Some(MatchRef(1)));
         assert_eq!(Phase::ReplaySuppressed { until: now }.match_id(), None);
+    }
+
+    /// "A match is open" and "the result screen is up" are different questions.
+    ///
+    /// They were the same one while the blind wait lasted fifteen seconds. It
+    /// now lasts as long as the player leaves a reward screen up, and every
+    /// result-screen probe would spend that time firing at reward art.
+    #[test]
+    fn the_blind_wait_is_not_the_result_screen() {
+        let now = t0();
+        assert!(!awaiting_final(now).on_result_screen(), "the reward panels are not it");
+        assert!(awaiting_numbers(now).on_result_screen());
+        assert!(!in_battle().on_result_screen());
+
+        // The wait is unbounded; the believing is not. A custom room raises its
+        // own panel immediately and is read inside the window; a reward screen
+        // left up for minutes is not read at all.
+        assert!(awaiting_final(now).trusts_probes_at(now));
+        assert!(awaiting_final(now).trusts_probes_at(now + Duration::from_secs(14)));
+        assert!(!awaiting_final(now).trusts_probes_at(now + Duration::from_secs(15)));
+        assert!(in_battle().trusts_probes_at(now + Duration::from_secs(600)), "always in battle");
+
+        // ...and there are no digits to read until it does arrive.
+        assert!(!awaiting_final(now).wants_numbers());
+        assert!(awaiting_numbers(now).wants_numbers());
+        assert!(in_battle().wants_numbers());
+        assert!(!Phase::default().wants_numbers(), "nothing to attach a number to");
     }
 
     /// A hint that outlived its window must not be applied to whatever match

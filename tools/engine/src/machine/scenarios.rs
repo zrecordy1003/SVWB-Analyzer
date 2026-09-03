@@ -51,6 +51,10 @@ fn finished(changes: &[Change]) -> Option<&Change> {
     changes.iter().find(|c| matches!(c, Change::MatchFinished { .. }))
 }
 
+fn flagged(patch: &crate::protocol::MatchPatch, flag: &str) -> bool {
+    patch.recog_flags.iter().flatten().any(|held| held == flag)
+}
+
 fn noted(changes: &[Change], kind: &str) -> bool {
     changes.iter().any(|c| matches!(c, Change::Noted { kind: k, .. } if *k == kind))
 }
@@ -221,8 +225,10 @@ fn an_undetected_mode_closes_as_unknown_not_unranked() {
     m.tick(&on_versus_screen(), t);
     m.tick(&Reading { battle_end_splash: Some(true), ..Default::default() }, t + timing::TICK);
 
-    // The final screen never appears.
-    let after = t + timing::FINAL_SCREEN_GRACE + timing::TICK * 2;
+    // The final screen never appears and nothing else ever ends the wait - the
+    // player quit to the title screen, or the capture died. Only the backstop is
+    // left, and it must still close the row.
+    let after = t + timing::FINAL_SCREEN_BACKSTOP + timing::TICK * 2;
     let changes = m.tick(&Reading::default(), after);
 
     let Some(Change::MatchFinished { patch, .. }) = finished(&changes) else {
@@ -232,6 +238,287 @@ fn an_undetected_mode_closes_as_unknown_not_unranked() {
     assert_ne!(patch.mode, Some(GameMode::Unranked));
     assert!(noted(&changes, "mode-guessed"), "the guess is worth counting");
     assert!(noted(&changes, "final-screen-never-seen"));
+}
+
+/// The reward screens hold until the player clicks, and the match must survive
+/// however long that takes.
+///
+/// Between the end-of-battle splash and the final result screen the game shows
+/// FULL-SCREEN reward panels. They cover the result banner, so no probe reads
+/// anything at all, and they wait for a click - a player who goes to make coffee
+/// leaves them up for as long as they like. A fifteen-second grace closed the
+/// match somewhere in the middle of that, with no mode, no numbers and a
+/// `final-screen-never-seen` flag, for a match that was still perfectly on its
+/// way.
+///
+/// Five minutes here is not a measurement of anything. It is well past any
+/// deadline that could honestly be written down, which is the point.
+#[test]
+fn a_reward_screen_left_up_for_minutes_does_not_lose_the_match() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(false), ..Default::default() }, t + timing::TICK);
+
+    // Nothing readable, for a very long time.
+    let mut now = t + timing::TICK * 2;
+    let clicks_at = now + Duration::from_secs(300);
+    while now < clicks_at {
+        let changes = m.tick(&Reading::default(), now);
+        assert!(finished(&changes).is_none(), "closed while the player was reading rewards");
+        now += timing::TICK * 20;
+    }
+
+    // ...and then they click, and the result screen comes up as normal.
+    let mut closed = None;
+    for _ in 0..10 {
+        if let Some(Change::MatchFinished { patch, .. }) = finished(&m.tick(&bp_result(31), now)) {
+            closed = Some(patch.clone());
+            break;
+        }
+        now += timing::TICK;
+    }
+
+    let patch = closed.expect("the result screen must still be read five minutes later");
+    assert_eq!(patch.mode, Some(GameMode::Ranked));
+    assert_eq!(patch.bp, Some(31));
+    assert_eq!(patch.result, Some(false));
+    assert!(
+        !flagged(&patch, "final-screen-never-seen"),
+        "nothing went wrong here - the player just read their rewards"
+    );
+}
+
+/// Waiting longer must not mean deciding more.
+///
+/// The wait is unbounded now, and the probes it runs past are windows at fixed
+/// positions with reward art underneath them. The plaza probe has no verified
+/// positive sample and the score-system anchor already false-positives on the
+/// app's own HUD, so a wait that kept believing them would trade "sometimes
+/// loses the mode" for "sometimes invents one" - the worse of the two, because a
+/// wrong mode does not look like a failure to the user.
+///
+/// `POST_BATTLE_TRUST` is where the believing stops. Before it, the screen is
+/// one the game raised by itself and is read normally - that is what
+/// `a_custom_room_is_still_identified_after_the_battle` covers.
+#[test]
+fn nothing_is_decided_once_the_wait_outlives_its_trusted_window() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(true), ..Default::default() }, t + timing::TICK);
+
+    // Reward art under every calibrated window, for two hundred frames, all of
+    // them past the window in which a post-battle screen is believed.
+    let noise = Reading {
+        plaza: Some((Located { x: 888, y: 285 }, 0.78)),
+        score_system: Some(score_system(ScoreSystem::Bp)),
+        cpu_anywhere: true,
+        custom_room: true,
+        ..Default::default()
+    };
+    let mut now = t + timing::TICK + timing::POST_BATTLE_TRUST;
+    for _ in 0..200 {
+        let changes = m.tick(&noise, now);
+        assert!(
+            !changes.iter().any(|c| matches!(c, Change::MatchUpdated { patch, .. } if patch.mode.is_some())),
+            "a probe fired against a reward screen and branded the match"
+        );
+        assert!(finished(&changes).is_none());
+        now += timing::TICK;
+    }
+}
+
+/// A custom room raises its own panel the moment the battle ends, and 室長 on it
+/// is the only evidence that match was ever a custom room.
+///
+/// This is `custom-1280-windowed-lose`, which has no result screen at all - the
+/// recording runs four more minutes without one. The mode is read here or not at
+/// all, which is why the blind wait cannot simply refuse to believe everything:
+/// a first draft of that guard turned this recording's mode into `unknown`.
+#[test]
+fn a_custom_room_is_still_identified_after_the_battle() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(false), ..Default::default() }, t + timing::TICK);
+
+    let room = Reading { custom_room: true, ..Default::default() };
+    let mut now = t + timing::TICK * 2;
+    let mut decided = false;
+    for _ in 0..4 {
+        let changes = m.tick(&room, now);
+        decided |= changes.iter().any(|c| matches!(
+            c,
+            Change::MatchUpdated { patch, .. } if patch.mode == Some(GameMode::Custom)
+        ));
+        now += timing::TICK;
+    }
+    assert!(decided, "the room panel right after the battle must still be read");
+
+    // ...and the match still closes with it, even though no result screen ever
+    // arrives to end the wait.
+    let closed = m.close_open_match();
+    let Some(Change::MatchFinished { patch, .. }) = finished(&closed) else {
+        panic!("the recording ending must close the row");
+    };
+    assert_eq!(patch.mode, Some(GameMode::Custom));
+    assert_eq!(patch.result, Some(false));
+}
+
+/// A half-finished mid-battle hit must not be completed by the result screen.
+///
+/// A debounce is reset by seeing its signal ABSENT, and the blind wait observes
+/// nothing at all - so one stray plaza hit during the battle would otherwise sit
+/// at `hits: 1` through however long the reward screens take, and the first hit
+/// on the result screen would carry it over the line. Two frames, minutes apart,
+/// either side of a screen change: exactly what the debounce exists to reject.
+#[test]
+fn a_stray_hit_from_the_battle_does_not_survive_into_the_result_screen() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+
+    let at = Located { x: 888, y: 285 };
+    // One hit mid-battle, then the battle ends.
+    m.tick(&Reading { plaza: Some((at, 0.78)), ..Default::default() }, t + timing::TICK);
+    m.tick(
+        &Reading { battle_end_splash: Some(false), ..Default::default() },
+        t + timing::TICK * 2,
+    );
+
+    // The reward screen holds, then the result screen arrives with one more hit.
+    let mut now = t + timing::TICK * 3 + Duration::from_secs(120);
+    let changes = m.tick(
+        &Reading { final_result: Some(false), plaza: Some((at, 0.78)), ..Default::default() },
+        now,
+    );
+    assert!(
+        !changes.iter().any(|c| matches!(
+            c,
+            Change::MatchUpdated { patch, .. } if patch.mode == Some(GameMode::WeekendPlaza)
+        )),
+        "a hit from before the battle ended was counted towards a decision after it"
+    );
+
+    // Hits on the result screen itself are a different matter - two frames of
+    // the same screen is what the debounce asks for, and it still gets them.
+    //
+    // Three ticks, not two: the first frame of the result screen is the one that
+    // ENDS the blind wait, and `resolve_mode` runs before `observe_final_screen`
+    // in a tick, so the probes only start counting on the tick after it. The
+    // same off-by-one as `the_versus_2pick_label_clears_the_default_deck`, and
+    // affordable for the same reason - the hold is twelve seconds of frames.
+    let mut decided = false;
+    for _ in 0..2 {
+        now += timing::TICK;
+        let changes = m.tick(
+            &Reading { final_result: Some(false), plaza: Some((at, 0.78)), ..Default::default() },
+            now,
+        );
+        decided |= changes.iter().any(|c| matches!(
+            c,
+            Change::MatchUpdated { patch, .. } if patch.mode == Some(GameMode::WeekendPlaza)
+        ));
+    }
+    assert!(decided, "two frames of the actual result screen must still decide");
+}
+
+/// An unbounded wait must not eat the next match.
+///
+/// `start_match` only fires from `Idle`, so anything still resolving swallows
+/// the versus screen that follows it - and with it the entire game. A
+/// fifteen-second cap hid this: nothing was still open by the time the player
+/// found another opponent. Removing the cap makes the next match the thing that
+/// ends the last one's wait.
+#[test]
+fn the_next_match_closes_the_one_still_waiting() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(true), ..Default::default() }, t + timing::TICK);
+
+    // The player skips the result screen entirely and queues up again.
+    let mut now = t + timing::TICK * 2;
+    for _ in 0..4 {
+        m.tick(&Reading::default(), now);
+        now += timing::TICK;
+    }
+
+    let first = m.tick(&on_versus_screen(), now);
+    assert!(finished(&first).is_none(), "one frame is not a new match");
+    assert!(!started(&first));
+
+    let second = m.tick(&on_versus_screen(), now + timing::TICK);
+    let Some(Change::MatchFinished { patch, .. }) = finished(&second) else {
+        panic!("the waiting match must close rather than swallow the next one");
+    };
+    assert_eq!(patch.result, Some(true), "the outcome the splash gave is still kept");
+    assert!(started(&second), "and the new match must open on the same tick");
+    assert!(matches!(m.phase(), Phase::InBattle { .. }));
+}
+
+/// Going to watch a replay after a match must not throw that match away.
+///
+/// Suppression discards an open match, and it is right to: a replay shows the
+/// same versus screen and battlefield, so anything open when one starts cannot
+/// be trusted. A match that is RESOLVING is the exception - its outcome came
+/// off the end-of-battle splash before any replay existed. This only became
+/// reachable when the wait stopped being capped at fifteen seconds; now
+/// "finish a game, go and look at the replay" happens inside it.
+#[test]
+fn a_replay_after_the_battle_finishes_the_match_rather_than_discarding_it() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(true), ..Default::default() }, t + timing::TICK);
+
+    let replay = Reading { replay_banner: true, ..Default::default() };
+    let changes = m.tick(&replay, t + timing::TICK * 2);
+
+    let Some(Change::MatchFinished { patch, .. }) = finished(&changes) else {
+        panic!("a resolved match must be kept, not abandoned");
+    };
+    assert_eq!(patch.result, Some(true));
+    assert!(!changes.iter().any(|c| matches!(c, Change::MatchAbandoned { .. })));
+    assert!(matches!(m.phase(), Phase::ReplaySuppressed { .. }));
+}
+
+/// The capture stopping is the fourth way the wait can end.
+///
+/// The player finishes their last game, reads the rewards and closes the
+/// tracker. No final screen, no next match, no replay - and no frames coming
+/// either, so the backstop will never fire because nothing is ticking.
+#[test]
+fn stopping_the_capture_closes_a_match_that_is_still_waiting() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(false), ..Default::default() }, t + timing::TICK);
+
+    let changes = m.close_open_match();
+    let Some(Change::MatchFinished { patch, .. }) = finished(&changes) else {
+        panic!("the row must be closed rather than left open");
+    };
+    assert_eq!(patch.result, Some(false), "the outcome is still worth keeping");
+    assert!(
+        flagged(patch, "closed-by-capture-stop"),
+        "and the row must say why it is missing the rest"
+    );
+    assert!(matches!(m.phase(), Phase::Idle { .. }));
+}
+
+/// A match still IN BATTLE is left alone. It has no outcome, and inventing a
+/// closed row because the capture stopped is worse than the open one the host
+/// already has.
+#[test]
+fn stopping_the_capture_mid_battle_closes_nothing() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+
+    assert!(m.close_open_match().is_empty());
+    assert!(matches!(m.phase(), Phase::InBattle { .. }));
 }
 
 /// The CPU deck label is visible during deck selection, before the row exists.

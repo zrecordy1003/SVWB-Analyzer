@@ -89,11 +89,21 @@ where
 
     loop {
         match channel.poll_command() {
-            Inbox::Command(Command::Stop) => return Ok(()),
+            Inbox::Command(Command::Stop) => {
+                flush_open_match(&mut machine, channel, &mut status, options, &mut rows)?;
+                return Ok(());
+            }
             // stdin closed: there is no one left to answer a number read or
             // receive an event, so continuing would only spin against a dead
             // pipe. Exiting also lets the host restart us cleanly.
-            Inbox::HostGone => return Ok(()),
+            //
+            // The flush still goes out: the pipe is one-way dead, and a match
+            // waiting on a final screen has an outcome worth writing to the
+            // store even if nobody reads the event.
+            Inbox::HostGone => {
+                flush_open_match(&mut machine, channel, &mut status, options, &mut rows)?;
+                return Ok(());
+            }
             // Retargeting is the source's business; a source with a fixed
             // target refuses, and the refusal goes back as a non-fatal failure
             // rather than being swallowed - the host optimistically reports
@@ -116,6 +126,10 @@ where
                 }
             }
             Inbox::Command(Command::Detach) => {
+                // No more frames are coming, so a match still waiting for its
+                // final screen will never see one. Close it here rather than
+                // leaving the row open for the rest of the session.
+                flush_open_match(&mut machine, channel, &mut status, options, &mut rows)?;
                 let _ = source.control(SourceControl::Detach);
                 if attached_to.take().is_some() {
                     channel.emit(&Event::CaptureChanged {
@@ -136,7 +150,10 @@ where
                 std::thread::sleep(NOT_READY_BACKOFF);
                 continue;
             }
-            Err(FrameError::Exhausted) => return Ok(()),
+            Err(FrameError::Exhausted) => {
+                flush_open_match(&mut machine, channel, &mut status, options, &mut rows)?;
+                return Ok(());
+            }
             Err(FrameError::Decode(why)) => {
                 // A frame that will not decode is almost always the capture tool
                 // caught mid-write. Report it and carry on rather than exiting -
@@ -147,8 +164,9 @@ where
             }
         };
 
-        // Only ask for digits while a match is open; see `reading::read`.
-        let wants_numbers = machine.phase().is_open();
+        // Only ask for digits when there could be digits; see `reading::read`
+        // and `Phase::wants_numbers`.
+        let wants_numbers = machine.phase().wants_numbers();
         frames_this_session += 1;
         let reading = reading::read(&timed.frame, store, channel, wants_numbers);
         // Emitted before the tick so a score that is about to stop clearing its
@@ -165,7 +183,7 @@ where
             }
         }
         for change in machine.tick(&reading, timed.at) {
-            apply(change, channel, &mut status, options, &mut rows, &timed.frame, timed.at)?;
+            apply(change, channel, &mut status, options, &mut rows, Some(&timed.frame), timed.at)?;
         }
         // ~20 MB of buffers. Dropped before the sleep, not after, so the idle
         // gap is not spent holding them.
@@ -201,17 +219,38 @@ fn persist<W: std::io::Write>(
     Ok(())
 }
 
+/// Close an open match because the capture is going away rather than because
+/// the game said anything. See [`Machine::close_open_match`].
+fn flush_open_match<W: std::io::Write>(
+    machine: &mut Machine,
+    channel: &mut HostChannel<W>,
+    status: &mut BattleStatus,
+    options: &mut LiveOptions,
+    rows: &mut HashMap<MatchRef, i64>,
+) -> std::io::Result<()> {
+    let now = Instant::now();
+    for change in machine.close_open_match() {
+        // No frame: there is no tick under way, and the diagnostic that reports
+        // this is about the capture stopping, not about anything on screen.
+        apply(change, channel, status, options, rows, None, now)?;
+    }
+    Ok(())
+}
+
 /// Translate one decision into the events the host acts on.
 ///
 /// Kept as a total match rather than a catch-all: a new [`Change`] must not be
 /// able to reach the host as silence.
+///
+/// `frame` is optional because not every change comes from a frame - a flush at
+/// shutdown has no tick behind it, and only the diagnostics branch wants pixels.
 fn apply<W: std::io::Write>(
     change: Change,
     channel: &mut HostChannel<W>,
     status: &mut BattleStatus,
     options: &mut LiveOptions,
     rows: &mut HashMap<MatchRef, i64>,
-    frame: &crate::frame::Frame,
+    frame: Option<&crate::frame::Frame>,
     now: Instant,
 ) -> std::io::Result<()> {
     match change {
@@ -303,7 +342,8 @@ fn apply<W: std::io::Write>(
             let saved = options
                 .diagnostics
                 .as_mut()
-                .and_then(|recorder| recorder.capture(kind, frame, now));
+                .zip(frame)
+                .and_then(|(recorder, frame)| recorder.capture(kind, frame, now));
             let detail = match (detail, saved) {
                 (Some(serde_json::Value::Object(mut map)), Some(file)) => {
                     map.insert("frame".into(), serde_json::Value::String(file));
@@ -350,7 +390,7 @@ mod tests {
         let frame = blank_frame();
         let now = Instant::now();
         for change in changes {
-            apply(change, &mut channel_out, &mut status, &mut options, &mut rows, &frame, now)
+            apply(change, &mut channel_out, &mut status, &mut options, &mut rows, Some(&frame), now)
                 .expect("writing to a Vec cannot fail");
         }
         String::from_utf8(channel_out.into_inner())
