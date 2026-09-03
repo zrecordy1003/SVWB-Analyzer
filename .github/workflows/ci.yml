@@ -73,6 +73,22 @@ jobs:
         with:
           lfs: true
 
+      # `tests/main/dbUpgrade.test.ts` reads the PREVIOUS release's migrations
+      # straight out of git (`git show v1.2.0:resources/migrations/...`) so the
+      # upgrade path it exercises cannot drift from what actually shipped.
+      # actions/checkout fetches a single commit and no tags, so that test
+      # failed here with `fatal: Not a valid object name v1.2.0` while passing
+      # locally, where the tags exist.
+      #
+      # A shallow fetch of the tags only - not `fetch-depth: 0`. Each tag
+      # brings its own commit and that commit's trees, which is all `ls-tree`
+      # and `show` need, without the rest of the history.
+      #
+      # Deliberately NOT solved by having the test skip when the tag is
+      # missing: an invisible skip in CI is how a gate stops being one.
+      - name: Fetch the release tags
+        run: git fetch --depth=1 origin "+refs/tags/*:refs/tags/*"
+
       - uses: pnpm/action-setup@v4
         with:
           version: 11.10.0
@@ -159,7 +175,25 @@ jobs:
   # read back through the real IPC - and that is the half of this repo `cargo
   # test` cannot reach.
   e2e:
-    runs-on: windows-latest
+    # Pinned, unlike the other two jobs, and the reason is the install below.
+    #
+    # This is the only job that runs the postinstall scripts, so it is the only
+    # one that rebuilds the native modules - and `windows-latest` now ships
+    # Visual Studio 18, which node-gyp 9.4.1 (pulled in by
+    # `extract-file-icon`'s install script) does not recognise:
+    #
+    #   gyp ERR! find VS unknown version "undefined" found at
+    #     "C:\Program Files\Microsoft Visual Studio\18\Enterprise"
+    #   gyp ERR! find VS could not find a version of Visual Studio 2017 or newer
+    #
+    # windows-2022 carries VS 17, which it does recognise. That also matches
+    # the toolchain the release build is actually made with, so a green e2e
+    # here says something about the artifact the user ships.
+    #
+    # Revisit when this image is retired: the durable fix is a node-gyp new
+    # enough to know VS 18, which means moving off `extract-file-icon` or
+    # overriding its build dependency.
+    runs-on: windows-2022
     timeout-minutes: 25
 
     steps:

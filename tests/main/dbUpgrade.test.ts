@@ -55,8 +55,33 @@ const SCHEMA_MIGRATIONS_DDL = `CREATE TABLE IF NOT EXISTS schema_migrations (
 /** `007_add_match_list_filter_indexes.sql` -> 7. */
 const versionOf = (name: string): number => Number(name.slice(0, name.indexOf('_')))
 
-/** The migration files as they were at `FROM_TAG`, in order. */
+/**
+ * The migration files as they were at `FROM_TAG`, in order.
+ *
+ * This needs the tag to be IN the checkout, which is not free: actions/checkout
+ * fetches one commit and no tags, so the first CI run of this test failed with
+ * a bare `fatal: Not a valid object name v1.2.0`. ci.yml's rust job now fetches
+ * the tags (shallow) before `pnpm test`.
+ *
+ * The absence is turned into a message rather than a skip on purpose. A test
+ * that quietly passes when it cannot find its input is worse than one that
+ * fails, and this is the only check standing between an existing user and an
+ * app that will not start.
+ */
 function migrationsAtTag(): { name: string; sql: string }[] {
+  try {
+    execFileSync('git', ['rev-parse', '--verify', `${FROM_TAG}^{commit}`], {
+      cwd: ROOT,
+      stdio: 'ignore'
+    })
+  } catch {
+    throw new Error(
+      `${FROM_TAG} is not in this checkout, so the upgrade path cannot be tested ` +
+        `against what shipped.\nFetch them: git fetch --depth=1 <remote> ` +
+        `"+refs/tags/*:refs/tags/*"  (this clone's remote is not necessarily ` +
+        `named origin - CI's is, because actions/checkout creates it)`
+    )
+  }
   const listing = execFileSync(
     'git',
     ['ls-tree', '--name-only', FROM_TAG, 'resources/migrations/'],
