@@ -16,6 +16,7 @@ import {
   CLASS_ICON_NAMES,
   classIconCacheStats,
   classIconFilePath,
+  classIconRevalidationsSettledForTests,
   clearClassIconCache,
   parseClassIconUrl,
   portalClassIconUrl,
@@ -136,22 +137,15 @@ describe('resolveClassIcon', () => {
     // revalidation - the point is that an <img> never waits on one - so the
     // fresh bytes land a tick later.
     expect(await resolveClassIcon('witch', { root })).toBe(file)
-    // The 1s default is not enough when the whole suite is running in parallel:
-    // this waits on a write-then-rename by a promise nobody awaits, so the wait
-    // is bounded by how busy the machine is rather than by anything this test
-    // controls. It failed intermittently in a full run and never on its own.
-    //
-    // The case timeout has to clear the wait, or the wait never gets to fail on
-    // its own terms: at the 5s default the two were equal and the whole case
-    // timed out first, which is the same red for a different reason.
-    await vi.waitFor(
-      async () => {
-        expect(await fs.readFile(file!, 'utf8')).toContain('#111111')
-      },
-      { timeout: 5000, interval: 25 }
-    )
+    // Awaited, not polled. The revalidation is a promise no caller holds, so
+    // this used to wait for the bytes to appear on disk with a timeout - and
+    // the length of that wait was set by how busy the machine was, not by
+    // anything here. It went red in a full parallel run twice and never on its
+    // own, and widening the timeout the first time only made it rarer.
+    await classIconRevalidationsSettledForTests()
+    expect(await fs.readFile(file!, 'utf8')).toContain('#111111')
     expect(fetchMock).toHaveBeenCalledTimes(1)
-  }, 15000)
+  })
 
   it('leaves a fresh copy alone', async () => {
     const fetchMock = vi.fn(async () => svg())
@@ -173,7 +167,10 @@ describe('resolveClassIcon', () => {
     })
     setClassIconFetchForTests(fetchMock)
     expect(await resolveClassIcon('dragon', { root })).toBe(file)
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    // Same seam, same reason - this one was waiting on the call count of a
+    // fetch started by that unheld promise.
+    await classIconRevalidationsSettledForTests()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(await fs.readFile(file!, 'utf8')).toContain('#a05a12')
   })
 

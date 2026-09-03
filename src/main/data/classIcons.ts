@@ -154,6 +154,36 @@ export function setClassIconFetchForTests(fn: FetchLike | null): void {
   inFlight.clear()
 }
 
+/**
+ * Await every revalidation currently in flight.
+ *
+ * The stale path in `resolveClassIcon` deliberately hands back the copy on disk
+ * WITHOUT waiting on the fetch it just started - that is what keeps an `<img>`
+ * from blocking on a revalidation it does not need. The cost is a promise no
+ * caller holds, and a test that wants to assert on the fresh bytes had no way
+ * to know when they had landed: it polled the filesystem, so the length of the
+ * wait was set by how busy the machine was rather than by anything the test
+ * controlled. That test failed intermittently in a full parallel run and never
+ * on its own, twice, and the first attempt at a fix only widened the timeout.
+ *
+ * `download` awaits its own write-then-rename before resolving, so once these
+ * promises have settled the bytes are on disk. `allSettled`, not `all`: a
+ * revalidation that throws is a case the tests assert on, and it must not
+ * become this function's rejection.
+ *
+ * Exported for tests only, and there is nothing for production to call it
+ * from - nothing in the app wants to wait for a revalidation, which is the
+ * whole design.
+ */
+export async function classIconRevalidationsSettledForTests(): Promise<void> {
+  // A loop rather than one pass: `inFlight.delete` happens in the pending
+  // promise's own `finally`, and a resolve started while we were awaiting
+  // would otherwise be missed.
+  while (inFlight.size > 0) {
+    await Promise.allSettled([...inFlight.values()])
+  }
+}
+
 async function iconFetch(url: string): Promise<Response> {
   if (injectedFetch) return injectedFetch(url)
   const { net } = await import('electron')

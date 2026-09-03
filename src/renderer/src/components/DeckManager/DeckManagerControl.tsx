@@ -1105,10 +1105,6 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                 })}
             </Box>
           </Box>
-
-          <Box sx={{ borderTop: 1, borderColor: 'divider', px: 3, py: 1.5 }}>
-            <Button onClick={() => setOpen(false)}>關閉</Button>
-          </Box>
         </Box>
       </Drawer>
 
