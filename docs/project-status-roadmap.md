@@ -198,21 +198,43 @@ replay step reports a skip. It is a local-only check today.
 To make it a real gate: commit the recordings through Git LFS (the repo already uses LFS for
 `*.dll` and `*.gz`), then drop the skip branch in `.github/workflows/ci.yml`.
 
-### The Electron host layer has no UNIT tests
+### The Electron host layer has no UNIT tests — done, with a judgement
 
-The E2E suite now covers the host from the outside, and runs in CI - window creation, the preload
-bridge, the protocol handler, the update flow, the versioning rules through real IPC. It caught a
-renderer-breaking chunk cycle on its first run after the bundle work, which the build reported as
-success. What it does not do is exercise the two stateful paths directly:
+The E2E suite covers the host from the outside and runs in CI. What it could
+not reach was the stateful interior, because nearly every branch needs a real
+game window and a real `hwnd`. Both halves are now addressed, and the second
+one differently from the first.
 
-- `src/main/index.ts`'s poll loop holds six pieces of mutable state in one closure and decides
-  capture attach/detach, analyzer lifecycle, idle shutdown and notification debouncing. No unit
-  tests, and E2E cannot reach most of its branches without a running game.
-- `src/main/recognition/engine.ts`'s spawn/restart/re-attach path. Same.
+**The poll loop.** `src/main/gamePoll.ts` is a pure
+`decidePoll(state, observation) -> { state, actions }`, the same shape
+`tools/engine/src/machine.rs` has, with the clock, the OS and the windows on
+the caller's side - so a thirty-minute timeout is a number in a test.
+`tests/main/gamePoll.test.ts` has 20 cases. The extraction was
+behaviour-preserving and they passed on the first run; two things it pinned
+that had only been implicit are that the capture attach is re-issued on EVERY
+capturable tick (the recovery mechanism after an engine restart - nothing else
+signals that it came back) and that `idleNoticeSent` debounced a notification
+that is commented out, so it is gone.
 
-Neither needs jsdom. Extracting the poll into a pure `decide(prevState, observation) -> actions`
-would make it testable with the vitest setup that already exists, and is now the highest
-value-per-hour item on this list.
+It also found a real inconsistency, fixed in the commit after: the idle rule
+stopped the analyzer and left `capturing` true, so the renderer's indicator and
+the HUD's `game:status.capturing` claimed capture was live for the whole idle
+period. Ten lines to see once the decision was a value; invisible in six
+interleaved `let`s.
+
+**The engine supervisor, and why it got less.** `engine.ts` is 395 lines and
+almost none of it is a decision: `startEngine` is configure/spawn/stream
+wiring, and `handle` is a dispatcher whose every case is a `broadcast(...)` or
+a `setStatus(IDLE_STATUS)`, because the engine has finished the work before it
+emits. The one part with content is the `statusChanged` field mapping, which
+has an incident behind it - this event speaks the HUD's names while
+`matchStarted` speaks the database's, and crossing them once left the opponent
+blank mid-battle. That is `battleStatusEvent.ts` with five cases.
+
+What remains untested there is the guards around I/O: the double-start check,
+`send()`'s writability test, the attach/detach no-ops after the process is
+gone. Reaching them means mocking `child_process`, and they are guards rather
+than logic. Recorded as a decision, not carried as debt.
 
 ### Packaged app smoke test
 
