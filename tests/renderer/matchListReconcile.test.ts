@@ -1,40 +1,27 @@
 import { describe, expect, it } from 'vitest'
 
 import { reconcileRecent } from '../../src/renderer/src/components/MatchList/hooks/useInfiniteMatches'
-import type { MatchRow } from '../../src/renderer/src/components/MatchList/types'
 
 const CHUNK = 3
 
-/** Only the fields the reconciliation reads; the rest never leaves the row. */
-function row(id: number, playedAt: string, result: boolean | null = null): MatchRow {
-  return {
-    id,
-    result,
-    play_order: 'first',
-    my_class: 'witch',
-    oppo_class: 'elf',
-    my_deckId: null,
-    oppo_deckId: null,
-    mode: null,
-    bp: null,
-    mp: null,
-    delta_mp: null,
-    current_cr: null,
-    delta_cr: null,
-    durationTime: null,
-    playedAt: new Date(playedAt),
-    endedAt: null,
-    year: null,
-    month: null,
-    day: null,
-    note: null,
-    updatedAt: null,
-    tags: [],
-    tagCount: 0
-  } as MatchRow
+/**
+ * Only the fields the reconciliation reads.
+ *
+ * This used to build a whole match row and finish with `as MatchRow`, and the
+ * cast had been wrong since migration 008 added the provenance columns - the
+ * object was missing six required fields. It survived because `tests/` was not
+ * type-checked; `tsconfig.tests.json` now catches exactly this.
+ *
+ * `reconcileRecent` is generic over `{ id, playedAt }` for the same reason, so
+ * this is the honest shape rather than a narrower cast.
+ */
+type Row = { id: number; playedAt: Date; result: boolean | null }
+
+function row(id: number, playedAt: string, result: boolean | null = null): Row {
+  return { id, playedAt: new Date(playedAt), result }
 }
 
-const ids = (rows: MatchRow[]): number[] => rows.map((r) => r.id)
+const ids = (rows: Row[]): number[] => rows.map((r) => r.id)
 
 describe('reconcileRecent', () => {
   it('replaces a held row with its updated version', () => {

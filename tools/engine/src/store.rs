@@ -4,12 +4,39 @@
 //! machine decides, and the decision lands in the database without crossing a
 //! process boundary. The host keeps reading the same file for the UI (WAL lets
 //! readers run against a writer), and keeps writing USER edits - deck names,
-//! tags, notes - which touch different columns than anything here.
+//! tags, notes.
 //!
-//! # Compatibility is the contract
+//! # Who writes what, stated correctly
 //!
-//! Every value written here must be indistinguishable from what the Prisma
-//! client used to write, because the UI still reads through Prisma:
+//! This header used to say the two sides "touch different columns". They do
+//! not, and a contract that is wrong is worse than one that is absent, so here
+//! is the real division:
+//!
+//!   - The engine owns every observation column on `Match` - classes, play
+//!     order, mode, result, the numbers, the provenance columns.
+//!   - The UI owns the user's own data: `note`, the tag join, `Deck` and
+//!     everything hanging off it, and `my_deckId` when a person assigns one.
+//!   - **Both write `updatedAt`**, and that is deliberate rather than
+//!     overlooked: it is what the UI's optimistic lock compares against, so a
+//!     write here has to move it or a stale edit would silently win.
+//!   - **The engine also clears `my_deckId`** (`clear_my_deck`), which is a
+//!     user-edited column. It happens when a mode turns out to be one with no
+//!     deck - 2Pick - so the row cannot keep a deck the user picked for a
+//!     match that did not have one.
+//!
+//! Adding a column: `resources/migrations/*.sql` is the source of truth, and
+//! it is mirrored here and in `src/main/data/db/client.ts`. Both mirrors are
+//! now asserted against the shipped migrations - Rust by the tests below,
+//! TypeScript by `tests/main/dbSchemaMirror.test.ts` - so a column that lands
+//! on one side only fails a test rather than surfacing as an `undefined` in
+//! whichever screen reads it first.
+//!
+//! # Storage conventions
+//!
+//! These were established by Prisma, which no longer exists in this project -
+//! Kysely replaced it on the UI side. They are kept because a shipped database
+//! already holds values in these shapes, not because anything still requires
+//! them:
 //!
 //!   - `DateTime` columns are **epoch milliseconds as INTEGER** (verified
 //!     against a real user database, not the Prisma docs).

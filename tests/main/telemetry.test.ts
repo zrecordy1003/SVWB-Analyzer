@@ -7,7 +7,15 @@ import type { TelemetryPayload, TelemetryStatus } from '../../src/shared/telemet
 import { createMigratedTestDb, insertMatch, removeTestDb, type TestDb } from '../helpers/db'
 
 const electronMock = vi.hoisted(() => ({
-  handlers: new Map<string, (...args: any[]) => unknown>()
+  handlers: new Map<string, (...args: any[]) => unknown>(),
+  /**
+   * Whether the window an IPC call arrived from is on screen.
+   *
+   * `telemetry:noticeDue` refuses to mark the notice as shown when it is not,
+   * because `--hidden` starts the app into the tray with a renderer running
+   * behind it. Default true: every other test here is about an ordinary window.
+   */
+  senderVisible: true
 }))
 
 vi.mock('electron', () => ({
@@ -15,6 +23,9 @@ vi.mock('electron', () => ({
     handle: vi.fn((channel: string, handler: (...args: any[]) => unknown) => {
       electronMock.handlers.set(channel, handler)
     })
+  },
+  BrowserWindow: {
+    fromWebContents: () => ({ isVisible: () => electronMock.senderVisible })
   },
   app: { getVersion: () => '9.9.9', getLocale: () => 'zh-TW' },
   net: { fetch: vi.fn() }
@@ -46,7 +57,7 @@ let respond: () => Response | Promise<Response>
 async function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   const handler = electronMock.handlers.get(channel)
   expect(handler, `Missing IPC handler: ${channel}`).toBeTypeOf('function')
-  return (await handler!({}, ...args)) as T
+  return (await handler!({ sender: {} }, ...args)) as T
 }
 
 const okResponse = (): Response =>
@@ -272,5 +283,33 @@ describe('telemetry upload', () => {
     // Not marked shown either: marking it here would let a later build with an
     // endpoint upload without ever having told anyone.
     expect(storeMock.values.get('telemetryPromptShown')).toBeUndefined()
+  })
+
+  /**
+   * The `--hidden` case. The login item starts the app into the tray with a
+   * renderer running behind it, and the notice's mark is the only thing
+   * standing between an install and its first upload - so a notice handed to a
+   * window nobody can see must not count, and must not be consumed either.
+   *
+   * The first attempt at this guard lived in the renderer and asked
+   * `document.hidden`, which reads `false` inside a `show: false` window. It
+   * was inert. This is the assertion that would have caught that.
+   */
+  it('will not mark the notice shown from a window that is not on screen', async () => {
+    electronMock.senderVisible = false
+    await invoke('telemetry:setEnabled', true)
+
+    expect(await invoke<boolean>('telemetry:noticeDue')).toBe(false)
+    expect(storeMock.values.get('telemetryPromptShown')).toBeUndefined()
+
+    // ...and with the gate still shut, nothing is sent however much the
+    // schedule fires.
+    await telemetry.uploadNow({ force: true })
+    expect(sent).toHaveLength(0)
+
+    // Nothing was consumed: the window is shown, and the notice is still due.
+    electronMock.senderVisible = true
+    expect(await invoke<boolean>('telemetry:noticeDue')).toBe(true)
+    expect(storeMock.values.get('telemetryPromptShown')).toBe(true)
   })
 })

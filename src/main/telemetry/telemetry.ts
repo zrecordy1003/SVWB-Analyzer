@@ -32,7 +32,7 @@
  * do not wait for the next launch. The server replaces the whole window on
  * every upload, so none of these need to know about the others.
  */
-import { app, ipcMain, net } from 'electron'
+import { app, BrowserWindow, ipcMain, net } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { getDb, nowMs } from '../data/db/client.js'
 import { store } from '../store.js'
@@ -374,10 +374,31 @@ export function registerTelemetryIpc(): void {
    * nothing to announce, and marking it shown would let a later build with an
    * endpoint upload without ever having said anything.
    */
-  ipcMain.handle('telemetry:noticeDue', () => {
+  ipcMain.handle('telemetry:noticeDue', (event) => {
     if (!isTelemetryEnabled()) return false
     if (noticeShown()) return false
     if (deps.endpoint() === null) return false
+    /**
+     * Not due to a window nobody can see.
+     *
+     * `--hidden` (see `startedHidden` in index.ts) starts the app into the
+     * tray with a renderer running behind it, and marking the notice shown
+     * from there would tick the only box standing between this install and its
+     * first upload for a notice that was never on screen.
+     *
+     * The check is HERE rather than in the renderer, and the first attempt at
+     * it was not. `TelemetryPrompt` asked `document.hidden` first, which reads
+     * as `false` inside a `show: false` window - Electron does not tie
+     * document visibility to whether the window has been shown - so the guard
+     * was inert and an e2e test is what said so. Asking the window itself, in
+     * the same handler that does the marking, cannot be wrong about it and
+     * cannot be bypassed by a renderer that forgets to ask.
+     *
+     * Refusing does not consume anything: the prompt asks again when the
+     * window is shown (`window:shown`), and the next launch asks again anyway.
+     */
+    const senderWindow = BrowserWindow.fromWebContents(event.sender)
+    if (!senderWindow || !senderWindow.isVisible()) return false
     store.set('telemetryPromptShown', true)
     return true
   })

@@ -39,6 +39,11 @@ export type SvwbFixtures = {
    * an update flow happening underneath them.
    */
   updateScenario: UpdateScenario | undefined
+  /**
+   * Extra command-line arguments for this launch, e.g. `['--hidden']` to
+   * reproduce what the login item does.
+   */
+  extraArgs: string[]
   app: ElectronApplication
   /** The main window, once it exists. Never the splash. */
   window: Page
@@ -59,8 +64,9 @@ async function mainWindowOf(app: ElectronApplication, timeoutMs = 30_000): Promi
 
 export const test = base.extend<SvwbFixtures>({
   updateScenario: [undefined, { option: true }],
+  extraArgs: [[], { option: true }],
 
-  app: async ({ updateScenario }, use, testInfo) => {
+  app: async ({ updateScenario, extraArgs }, use, testInfo) => {
     const userDataDir = mkdtempSync(join(tmpdir(), 'svwb-e2e-'))
     const env: Record<string, string> = { ...process.env } as Record<string, string>
     if (updateScenario) env.SVWB_UPDATE_SIM = updateScenario
@@ -81,9 +87,7 @@ export const test = base.extend<SvwbFixtures>({
     const app = await electron.launch({
       // A packaged app IS the executable, so it takes no entry argument; the
       // unpackaged one needs `.` to find `package.json`'s `main`.
-      args: executablePath
-        ? [`--user-data-dir=${userDataDir}`]
-        : ['.', `--user-data-dir=${userDataDir}`],
+      args: [...(executablePath ? [] : ['.']), `--user-data-dir=${userDataDir}`, ...extraArgs],
       ...(executablePath ? { executablePath } : {}),
       cwd: PROJECT_ROOT,
       env,

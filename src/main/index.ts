@@ -25,9 +25,39 @@ import { registerCardImageProtocol, registerCardImageScheme } from './protocol/c
 // (tools/svwb-vision.node), so no OpenCV SDK paths or runtime DLLs are needed.
 
 // --- 單例鎖 ---
+/**
+ * Launched by the login item, which asks for no window.
+ *
+ * `startOnBoot.ts` has always registered the login item with
+ * `args: ['--hidden', '--auto-launch']`, and nothing ever read them: every
+ * launch showed the splash and then the main window, so "start with Windows"
+ * put a window in front of the user at every single login.
+ *
+ * It is read here rather than where the windows are created because two
+ * separate decisions hang off it, and because it must be read from THIS
+ * process's argv: a later launch arrives at the `second-instance` handler
+ * below, where it means "the user opened the app again" and must show the
+ * window whatever this run started as.
+ */
+const startedHidden = process.argv.includes('--hidden')
+
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
   app.quit()
+} else {
+  /**
+   * The user launched the app again while it was already running.
+   *
+   * The lock was taken and the second process quit, but nothing told the first
+   * one - so double-clicking the shortcut did nothing at all, silently. That
+   * was a latent annoyance while every launch showed a window; with `--hidden`
+   * it became the whole problem, because after a login the app sits in the
+   * tray and the shortcut was the obvious way back in.
+   *
+   * `revealMainWindow` rather than the flag: whatever this run started as, a
+   * second launch is an explicit request for the window.
+   */
+  app.on('second-instance', () => revealMainWindow())
 }
 
 // Has to happen at module scope: privileged scheme registration is only read
@@ -83,6 +113,22 @@ async function ensureAnalyzer(): Promise<void> {
 //     dbReady = true
 //   }
 // }
+
+/**
+ * Put the main window in front of the user, from wherever it was.
+ *
+ * Three calls, and all three are needed: `restore` for a minimised window,
+ * `show` for one that was never shown or was hidden to the tray, and `focus`
+ * because `show` on Windows does not always raise an existing window above
+ * whatever is in front of it.
+ */
+function revealMainWindow(): boolean {
+  if (!mainWindow || mainWindow.isDestroyed()) return false
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+  return true
+}
 
 // --- 視窗建立 ---
 function createSplash(): void {
@@ -168,6 +214,17 @@ function createWindow(): void {
     }
   })
 
+  /**
+   * Anything that waits for the window to become visible hangs off this.
+   *
+   * `document.visibilityState` cannot answer it: inside a window created with
+   * `show: false` it still reads `visible`, which is what made the first
+   * version of the telemetry notice guard inert. So the window says it
+   * instead, and it covers every route that reveals it - the startup show,
+   * `revealMainWindow`, the tray, the HUD's history link.
+   */
+  mainWindow.on('show', () => broadcast('window:shown'))
+
   mainWindow.on('moved', () => store.set('mainWindowBounds', mainWindow!.getBounds()))
   mainWindow.on('resized', () => store.set('mainWindowBounds', mainWindow!.getBounds()))
 
@@ -175,13 +232,14 @@ function createWindow(): void {
 
   ipcMain.once('renderer:ready', () => {
     const elapsed = Date.now() - splashShownAt
-    const wait = Math.max(0, MIN_SPLASH_MS - elapsed)
+    // Nothing to wait for when there is no splash to give a minimum life to.
+    const wait = startedHidden ? 0 : Math.max(0, MIN_SPLASH_MS - elapsed)
     setTimeout(async () => {
       if (splash && !splash.isDestroyed()) {
         splash.close()
         splash = null
       }
-      mainWindow!.show()
+      if (!startedHidden) mainWindow!.show()
       // 首繪後才做初始化
       // 背景準備
       // await ensureDbReady()
@@ -595,11 +653,8 @@ app.whenReady().then(async () => {
   // The HUD's "完整對戰歷史" link. Registered here rather than in windows/hud.ts
   // because this file is the only holder of the main window.
   ipcMain.handle('hud:openMatchHistory', () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return false
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.show()
-    mainWindow.focus()
-    mainWindow.webContents.send('app:navigate', 'MatchList')
+    if (!revealMainWindow()) return false
+    mainWindow!.webContents.send('app:navigate', 'MatchList')
     return true
   })
 
@@ -633,7 +688,12 @@ app.whenReady().then(async () => {
   ipcMain.on('stop-capture', () => detachCapture())
 
   // 建立視窗
-  createSplash()
+  //
+  // No splash on a hidden launch: it is a window, and the whole point of
+  // `--hidden` is that a login does not put one on screen. The main window is
+  // still created - the tray, the HUD and the engine all need a renderer - it
+  // just never gets shown.
+  if (!startedHidden) createSplash()
   createWindow()
 
   app.on('activate', () => {

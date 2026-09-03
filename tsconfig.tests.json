@@ -1,0 +1,52 @@
+{
+  // The test suite, which nothing type-checked until now.
+  //
+  // `tsconfig.node.json` covers `src/main` and `src/preload`; `tsconfig.web.json`
+  // covers `src/renderer/src`. Neither includes `tests/`, so every test file was
+  // transpiled by vitest and by Playwright without a single type check - a test
+  // could pass an object of the wrong shape to an IPC handler, or assert on a
+  // field that no longer exists, and nothing would say so.
+  //
+  // Its own project rather than a widened `include` on either of the others,
+  // because the suite spans both worlds: `tests/main` reaches into Electron main
+  // code, `tests/renderer` imports renderer modules that import React, and
+  // `tests/e2e` drives Playwright. One project can hold all of that; the two
+  // existing ones cannot, since each is deliberately narrowed to one runtime.
+  //
+  // What is deliberately NOT here: `server/telemetry/src/index.ts`. It is written
+  // against the Workers runtime (`D1Database`, `ExecutionContext`, `caches`),
+  // whose global types contradict Node's, and no test imports it - only the pure
+  // `aggregate.ts` and `validate.ts`, which TypeScript pulls in by following the
+  // imports. The Worker keeps its own `typecheck` script and its own CI workflow.
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": [
+    "tests/**/*.ts",
+    "tests/**/*.tsx",
+    // `window.electron`, `window.settings`, `window.telemetry` and friends are
+    // declared here. Renderer modules under test reach for them, so without it
+    // every `window.electron` in the graph is an error about a property that
+    // does exist.
+    "src/renderer/src/global.d.ts"
+  ],
+  "compilerOptions": {
+    "composite": false,
+    "noEmit": true,
+    "types": ["electron-vite/node", "node"],
+    // The renderer helpers under test import React, so the DOM has to exist
+    // here even though nothing in this project runs in a browser.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    // `bundler`, not `node16`. vitest and Playwright both resolve like a
+    // bundler, so the test files import without file extensions; telling
+    // TypeScript otherwise produces 93 TS2835s about imports that work
+    // perfectly at runtime. This describes how these files are actually
+    // loaded rather than asking them to describe themselves differently.
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@renderer/*": ["src/renderer/src/*"],
+      "@shared/*": ["src/shared/*"]
+    }
+  }
+}

@@ -62,7 +62,11 @@ test.describe('with nothing to update', () => {
     // version - the empty slot, the block's own padding, the drawer's - has to
     // stay small enough that the version still looks anchored to the edge.
     const box = (await version.boundingBox())!
-    const viewportHeight = await window.evaluate(() => window.innerHeight)
+    // `globalThis`, not `window`: inside `evaluate` this runs in the page, but
+    // the enclosing `window` here is Playwright's Page fixture, and reading a
+    // browser property off it only looked right because nothing type-checked
+    // this file. Same value at runtime, no shadowing.
+    const viewportHeight = await window.evaluate(() => globalThis.innerHeight)
     const gap = viewportHeight - (box.y + box.height)
     expect(gap, `version sits ${Math.round(gap)}px above the bottom`).toBeLessThan(45)
 

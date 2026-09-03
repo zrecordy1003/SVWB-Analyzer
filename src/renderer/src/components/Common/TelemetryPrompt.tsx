@@ -28,9 +28,24 @@ type Props = {
 const TelemetryPrompt = ({ onOpenSettings }: Props): React.JSX.Element => {
   const [open, setOpen] = useState(false)
 
+  /**
+   * Ask after a delay, and ask again when the window is shown.
+   *
+   * Whether the notice may be marked as shown is main's decision, not this
+   * component's - `telemetry:noticeDue` refuses, without consuming anything,
+   * while the window it was asked from is invisible. That matters because
+   * `--hidden` starts the app into the tray with this renderer running behind
+   * it.
+   *
+   * Which is why the second ask exists. `document.visibilityState` reads
+   * `visible` even in a window that has never been shown, so there is no
+   * signal here to wait on; `window:shown` comes from the window itself.
+   */
   useEffect(() => {
     let cancelled = false
-    const timer = window.setTimeout(() => {
+    let timer: number | undefined
+
+    const ask = (): void => {
       window.telemetry
         .noticeDue()
         .then((due) => {
@@ -39,10 +54,28 @@ const TelemetryPrompt = ({ onOpenSettings }: Props): React.JSX.Element => {
         .catch(() => {
           /* A failed check simply means no notice - and no upload either. */
         })
-    }, APPEAR_DELAY_MS)
+    }
+
+    const arm = (): void => {
+      if (cancelled || timer !== undefined) return
+      timer = window.setTimeout(() => {
+        timer = undefined
+        if (!cancelled) ask()
+      }, APPEAR_DELAY_MS)
+    }
+
+    // Shown after the first ask was refused: ask straight away, the delay was
+    // for settling after launch and launch is long over.
+    const unsubscribe = window.electron?.ipcRenderer.on('window:shown', () => {
+      if (!cancelled) ask()
+    })
+
+    arm()
+
     return () => {
       cancelled = true
-      window.clearTimeout(timer)
+      unsubscribe?.()
+      if (timer !== undefined) window.clearTimeout(timer)
     }
   }, [])
 

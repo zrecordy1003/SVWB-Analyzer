@@ -192,6 +192,120 @@ export interface Database {
   TelemetryState: TelemetryStateRow
 }
 
+// ------------------------------------------------------- the schema, as values
+
+/**
+ * Every column this file claims each table has, as VALUES rather than types.
+ *
+ * `resources/migrations/*.sql` is the schema's single source of truth, and it
+ * was hand-mirrored in two places: `tools/engine/src/store.rs` for the engine's
+ * writes, and the `Row` interfaces above for the UI's reads. The Rust side has
+ * a cargo test against the shipped migrations. This side had a comment saying
+ * to keep them in sync, which is not a mechanism - a column could land in a
+ * migration and in Rust and simply never appear here, and nothing would say so
+ * until a query returned undefined at runtime.
+ *
+ * The chain is closed in two hops. The `satisfies` below refuses a name that is
+ * not a real key of its Row type, and `NoUncheckedColumn` refuses a Row key
+ * that is missing from this table - both at compile time, in the typecheck that
+ * already runs. `tests/main/dbSchemaMirror.test.ts` then compares these arrays
+ * against `PRAGMA table_info` on a database brought up through the real
+ * migrations. So migrations, this list, and the interfaces must all agree.
+ *
+ * Order does not matter; membership does. Add a column here when you add it to
+ * a migration, or the test will tell you.
+ */
+export const TABLE_COLUMNS = {
+  Match: [
+    'id',
+    'result',
+    'play_order',
+    'my_class',
+    'oppo_class',
+    'my_deckId',
+    'oppo_deckId',
+    'mode',
+    'bp',
+    'mp',
+    'delta_mp',
+    'current_cr',
+    'delta_cr',
+    'durationTime',
+    'playedAt',
+    'endedAt',
+    'year',
+    'month',
+    'day',
+    'note',
+    'updatedAt',
+    'source',
+    'observed',
+    'edited_fields',
+    'mode_confidence',
+    'engine_version',
+    'recog_flags'
+  ],
+  Deck: [
+    'id',
+    'name',
+    'class',
+    'createdAt',
+    'updatedAt',
+    'isDefault',
+    'categoryId',
+    'sourceKind',
+    'sourceRef',
+    'fingerprint',
+    'battleFormat',
+    'keyCardId',
+    'importedAt',
+    'rawJson',
+    'familyId',
+    'archivedAt'
+  ],
+  DeckCategory: ['id', 'name', 'sort', 'createdAt', 'updatedAt'],
+  Tag: ['id', 'name', 'createdAt', 'updatedAt'],
+  MatchTag: ['matchId', 'tagId'],
+  DeckCard: ['deckId', 'cardId', 'count'],
+  Card: [
+    'cardId',
+    'name',
+    'cost',
+    'type',
+    'class',
+    'rarity',
+    'atk',
+    'life',
+    'skillText',
+    'tribes',
+    'deckEnabledNum',
+    'imageHash',
+    'bannerHash',
+    'isToken',
+    'lang',
+    'updatedAt'
+  ],
+  CardPool: ['battleFormat', 'cardId', 'sortIndex'],
+  CardPoolSync: ['classId', 'battleFormat', 'lang', 'cardCount', 'syncedAt'],
+  TelemetryState: ['key', 'value', 'updatedAt']
+} as const satisfies { [T in keyof Database]: readonly (keyof Database[T])[] }
+
+/**
+ * Any Row key missing from `TABLE_COLUMNS`, as a type.
+ *
+ * `satisfies` only checks the names that ARE listed. This is the other
+ * direction: it collapses to `never` when every key of every Row type appears
+ * in its table's array, and to the offending column names when one does not -
+ * which makes the assignment below fail to compile, naming the column.
+ */
+type NoUncheckedColumn = {
+  [T in keyof Database]: Exclude<keyof Database[T], (typeof TABLE_COLUMNS)[T][number]>
+}[keyof Database]
+
+/** Fails to compile if a `Row` interface declares a column this file does not list. */
+const _everyColumnIsListed: NoUncheckedColumn extends never ? true : NoUncheckedColumn = true
+void _everyColumnIsListed
+
 // -------------------------------------------------------------------- the client
 
 let _db: Kysely<Database> | null = null

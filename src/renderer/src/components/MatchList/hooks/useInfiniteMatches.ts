@@ -82,12 +82,18 @@ async function fetchListPage(
  * through would cost far more than it buys.
  *
  * Exported as a pure function so the reconciliation is testable without a DOM.
+ *
+ * Generic over the two fields it actually reads rather than taking `MatchRow`,
+ * because a test should not have to build a whole match row - provenance
+ * columns and all - to check an ordering rule. The test used to do it with an
+ * `as MatchRow` on an object missing six required fields, which type-checked
+ * only because nothing type-checked `tests/`.
  */
-export function reconcileRecent(
-  prev: MatchRow[],
-  topChunk: MatchRow[],
+export function reconcileRecent<T extends { id: number; playedAt: Date | string | number }>(
+  prev: T[],
+  topChunk: T[],
   chunkSize: number
-): MatchRow[] {
+): T[] {
   const incoming = new Set(topChunk.map((r) => r.id))
   // A short chunk means the query returned everything it has, so the window is
   // the whole list and nothing outside it survives.
