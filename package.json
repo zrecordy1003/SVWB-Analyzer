@@ -16,8 +16,9 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run build && playwright test",
-    "test:e2e:only": "playwright test",
+    "test:e2e": "playwright test",
+    "test:e2e:only": "playwright test --no-deps --project=e2e",
+    "test:e2e:ci": "playwright test --grep-invert @network",
     "smoke:portal": "node tools/svwb-api-smoke.mjs",
     "telemetry:report": "node tools/telemetry-report.mjs",
     "start": "electron-vite preview",
@@ -172,7 +173,6 @@
     "react-dom": "^19.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.2.6",
-    "vite-plugin-compression": "^0.5.1",
     "vitest": "^3.2.7"
   }
 }

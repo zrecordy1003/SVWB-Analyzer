@@ -6,15 +6,15 @@
  * `firstWindow()` returns the **splash**, not the app - the splash is created
  * first and lives for about a second. Windows have to be picked by URL.
  *
- * The app must already be built. This drives `out/`, the same bundle
- * `pnpm start` runs, so a stale build silently tests stale code; the check
- * below turns that into a sentence instead of a mystery.
+ * The app must already be built. That is now the `setup` project's job
+ * (`build.setup.ts`), not a check in here; this file used to compare mtimes
+ * between `out/` and `src/` and could only ever guess.
  *
  * And every run gets its own `--user-data-dir`. Without it the single-instance
  * lock makes the second launch exit(0) with no window, and worse, the test
  * would be reading and migrating the developer's real match database.
  */
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -28,7 +28,6 @@ import {
 // The package is `"type": "module"`, so these files load as ESM and there is no
 // `__dirname` to lean on.
 const PROJECT_ROOT = fileURLToPath(new URL('../..', import.meta.url))
-const BUILT_MAIN = join(PROJECT_ROOT, 'out', 'main', 'index.js')
 
 /** Scenarios the dev update simulator understands. See `main/updates.ts`. */
 export type UpdateScenario = 'available' | 'big' | 'none' | 'error' | 'download-error' | 'real'
@@ -43,41 +42,6 @@ export type SvwbFixtures = {
   app: ElectronApplication
   /** The main window, once it exists. Never the splash. */
   window: Page
-}
-
-/** Newest mtime anywhere under `dir`, in ms. */
-function newestMtime(dir: string): number {
-  let newest = 0
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name)
-    const mtime = entry.isDirectory() ? newestMtime(full) : statSync(full).mtimeMs
-    if (mtime > newest) newest = mtime
-  }
-  return newest
-}
-
-/**
- * Refuse to run against a build older than the source.
- *
- * This is the harness's one genuinely dangerous failure mode, and it is silent:
- * the app under test is whatever is in `out/`, so an un-rebuilt change makes
- * every test pass against the old code. It cost a false green the first time it
- * happened - a deliberately reintroduced bug that the suite cheerfully failed
- * to notice. Better to stop with a sentence.
- */
-function assertBuildIsFresh(): void {
-  if (!existsSync(BUILT_MAIN)) {
-    throw new Error(`No build at ${BUILT_MAIN}. Run \`pnpm build\` first (or \`pnpm test:e2e\`).`)
-  }
-  const built = newestMtime(join(PROJECT_ROOT, 'out'))
-  const source = newestMtime(join(PROJECT_ROOT, 'src'))
-  if (source > built) {
-    const behind = Math.round((source - built) / 1000)
-    throw new Error(
-      `out/ is ${behind}s older than src/ - these tests would run against stale code. ` +
-        `Run \`pnpm build\` (or use \`pnpm test:e2e\`, which builds first).`
-    )
-  }
 }
 
 async function mainWindowOf(app: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
@@ -96,27 +60,88 @@ async function mainWindowOf(app: ElectronApplication, timeoutMs = 30_000): Promi
 export const test = base.extend<SvwbFixtures>({
   updateScenario: [undefined, { option: true }],
 
-  app: async ({ updateScenario }, use) => {
-    assertBuildIsFresh()
-
+  app: async ({ updateScenario }, use, testInfo) => {
     const userDataDir = mkdtempSync(join(tmpdir(), 'svwb-e2e-'))
     const env: Record<string, string> = { ...process.env } as Record<string, string>
     if (updateScenario) env.SVWB_UPDATE_SIM = updateScenario
     else delete env.SVWB_UPDATE_SIM
 
+    /**
+     * Point this at an installed or `--dir`-unpacked executable to run the
+     * suite against a real package instead of `out/`.
+     *
+     * The two are not the same app. `out/` is what `pnpm start` runs and it
+     * resolves resources relative to the source tree; a package resolves them
+     * under `process.resourcesPath`, which is where the engine binary, the
+     * migrations, the templates and `eng.traineddata.gz` either are present or
+     * are not. Every failure mode in that list is invisible to a test that
+     * drives `out/`, which is why this seam exists - see `packaged.spec.ts`.
+     */
+    const executablePath = process.env.SVWB_E2E_EXECUTABLE
     const app = await electron.launch({
-      args: ['.', `--user-data-dir=${userDataDir}`],
+      // A packaged app IS the executable, so it takes no entry argument; the
+      // unpackaged one needs `.` to find `package.json`'s `main`.
+      args: executablePath
+        ? [`--user-data-dir=${userDataDir}`]
+        : ['.', `--user-data-dir=${userDataDir}`],
+      ...(executablePath ? { executablePath } : {}),
       cwd: PROJECT_ROOT,
       env,
       timeout: 60_000
     })
 
+    /**
+     * Tracing has to be driven by hand here.
+     *
+     * `use: { trace: 'on-first-retry' }` does nothing for these tests: that
+     * option is applied by the fixtures that create a browser context, and
+     * this one does not - it gets its context from an already-running Electron
+     * app. Without this block a CI failure is one red line from the list
+     * reporter, which is the whole reason a real flake in the launch path used
+     * to take a local reproduction to understand.
+     *
+     * Started for every test and kept only for the ones that fail: a trace is
+     * a few MB, and keeping the green ones would bury the interesting one.
+     */
+    await app.context().tracing.start({ screenshots: true, snapshots: true, sources: true })
+
     // Main-process logs are where this app says what it is doing ([Engine],
     // [DB], [Update]). Surfacing them costs nothing and turns a failed wait
     // into a readable transcript.
-    if (process.env.E2E_VERBOSE) app.on('console', (m) => console.log('   ·', m.text()))
+    const mainProcessLog: string[] = []
+    app.on('console', (m) => {
+      mainProcessLog.push(m.text())
+      if (process.env.E2E_VERBOSE) console.log('   ·', m.text())
+    })
 
     await use(app)
+
+    const failed = testInfo.status !== testInfo.expectedStatus
+    if (failed) {
+      await app
+        .context()
+        .tracing.stop({ path: testInfo.outputPath('trace.zip') })
+        .catch(() => {})
+      await testInfo
+        .attach('trace', { path: testInfo.outputPath('trace.zip'), contentType: 'application/zip' })
+        .catch(() => {})
+      // The main process's own account of the run. Attached rather than
+      // printed: on a suite-wide failure the console becomes unreadable, and
+      // this is the transcript you want next to the trace anyway.
+      if (mainProcessLog.length) {
+        await testInfo
+          .attach('main-process.log', {
+            body: mainProcessLog.join('\n'),
+            contentType: 'text/plain'
+          })
+          .catch(() => {})
+      }
+    } else {
+      await app
+        .context()
+        .tracing.stop()
+        .catch(() => {})
+    }
 
     await app.close()
     rmSync(userDataDir, { recursive: true, force: true })

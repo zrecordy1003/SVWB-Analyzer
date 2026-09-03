@@ -40,12 +40,15 @@ export default function DeckCodeDialog({
   open,
   deckId,
   deckName,
-  onClose
+  onClose,
+  zIndex
 }: {
   open: boolean
   deckId: number | null
   deckName: string
   onClose: () => void
+  /** 疊在已經浮著的東西上面時要抬高——例如從牌組管理的抽屜裡打開。 */
+  zIndex?: number
 }) {
   const [loading, setLoading] = React.useState(false)
   const [code, setCode] = React.useState<string | null>(null)
@@ -129,6 +132,7 @@ export default function DeckCodeDialog({
       title="牌組代碼"
       subtitle={deckName}
       icon={<QrCode2RoundedIcon fontSize="small" />}
+      zIndex={zIndex}
     >
       {error && (
         <Alert severity="error" sx={{ borderRadius: 2 }}>

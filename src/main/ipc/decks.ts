@@ -396,7 +396,24 @@ async function upsertDeckWithCards(
   params: {
     replaceDeckId: number | null
     cls: ClassName
+    /**
+     * The row's other columns. MUST NOT contain `isDefault` - see below.
+     */
     fields: Record<string, unknown>
+    /**
+     * "Make this the default for its class."
+     *
+     * This flag is the ONLY input for that column, and it is deliberately
+     * one-way: true sets it, absent leaves whatever the row already had.
+     * Clearing a default is `decks:update`'s job, not a side effect of saving
+     * a card list.
+     *
+     * It used to arrive twice - here as the intent, and again inside `fields`
+     * as a value the callers built with `input.isDefault ? 1 : 0`. A save that
+     * simply did not mention the flag - which is every save the deck editor
+     * makes - therefore wrote a hard 0 over it, and editing your default deck
+     * quietly stopped it being the default. One input, derived per branch.
+     */
     isDefault?: boolean
     cards: { cardId: number; count: number }[]
     now: number
@@ -425,7 +442,12 @@ async function upsertDeckWithCards(
   if (params.replaceDeckId === null) {
     const inserted = await tx
       .insertInto('Deck')
-      .values({ ...params.fields, class: params.cls, createdAt: params.now } as never)
+      .values({
+        ...params.fields,
+        class: params.cls,
+        createdAt: params.now,
+        isDefault: params.isDefault ? 1 : 0
+      } as never)
       .returningAll()
       .executeTakeFirstOrThrow()
     // AUTOINCREMENT means the row cannot know its own id before insert, so
@@ -456,7 +478,7 @@ async function upsertDeckWithCards(
     // correction), so overwriting it destroys no history.
     const deckRow = await tx
       .updateTable('Deck')
-      .set(params.fields)
+      .set(params.isDefault ? { ...params.fields, isDefault: 1 } : params.fields)
       .where('id', '=', current.id)
       .returningAll()
       .executeTakeFirstOrThrow()
@@ -485,7 +507,7 @@ async function upsertDeckWithCards(
     typeof params.fields.fingerprint === 'string' ? params.fields.fingerprint : null
   if (newFingerprint !== null && newFingerprint === current.fingerprint) {
     const mutable: Record<string, unknown> = { updatedAt: params.now }
-    if (typeof params.fields.isDefault === 'number') mutable.isDefault = params.fields.isDefault
+    if (params.isDefault) mutable.isDefault = 1
     await tx.updateTable('Deck').set(mutable).where('id', '=', current.id).execute()
     await applyFamilyMutables(tx, {
       familyId,
@@ -687,21 +709,37 @@ export function registerDecksIpc(): void {
           rows = allRows.filter((row) => currentByFamily.get(row.familyId ?? row.id) === row.id)
         }
 
-        // One query for every deck's cards rather than one per deck. A deck is
-        // ~16 rows and a collection is tens of decks, so grouping in JS is far
-        // cheaper than the round trips a per-deck query would cost.
-        const facts = await db
-          .selectFrom('DeckCard')
-          .leftJoin('Card', 'Card.cardId', 'DeckCard.cardId')
-          .select([
-            'DeckCard.deckId',
-            'DeckCard.count',
-            'Card.type',
-            'Card.cost',
-            'Card.rarity',
-            'Card.bannerHash'
-          ])
-          .execute()
+        // One query for the cards of the decks being RETURNED, rather than one
+        // per deck - and rather than the whole table, which is what this used
+        // to read.
+        //
+        // Grouping in JS still beats a query per deck: a deck is ~16 rows and a
+        // collection is tens of decks. What changed is the denominator.
+        // Versioning forks a new Deck row plus its ~40 DeckCard rows on every
+        // edit of a played deck, and archived versions are never removed, so
+        // "every DeckCard row" grows without bound while the answer only ever
+        // needs the current versions. On the default scope that is a small
+        // fraction of the table, and the cost of this handler stops tracking
+        // how long the user has owned the app.
+        //
+        // Ordering matters: `rows` is the post-scope-filter set, so this read
+        // has to come after that filter rather than beside `allRows`.
+        const deckIds = rows.map((row) => row.id)
+        const facts = deckIds.length
+          ? await db
+              .selectFrom('DeckCard')
+              .leftJoin('Card', 'Card.cardId', 'DeckCard.cardId')
+              .select([
+                'DeckCard.deckId',
+                'DeckCard.count',
+                'Card.type',
+                'Card.cost',
+                'Card.rarity',
+                'Card.bannerHash'
+              ])
+              .where('DeckCard.deckId', 'in', deckIds)
+              .execute()
+          : []
 
         const byDeck = new Map<number, DeckCardFacts[]>()
         for (const fact of facts) {
@@ -1349,7 +1387,6 @@ export function registerDecksIpc(): void {
           const deckFields = {
             name,
             categoryId,
-            isDefault: input.isDefault ? 1 : 0,
             sourceKind: preview.source.kind,
             sourceRef: preview.hash,
             fingerprint: preview.fingerprint,
@@ -1481,7 +1518,6 @@ export function registerDecksIpc(): void {
             fields: {
               name,
               categoryId,
-              isDefault: input.isDefault ? 1 : 0,
               sourceKind: 'local',
               // No hash: this deck has never been to the portal. It gets one
               // only if the user asks for a code, which is stage D.

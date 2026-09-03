@@ -54,6 +54,19 @@ function setVisibility(visible: boolean): void {
   else hudWin.hide()
 }
 
+/**
+ * Whether a focus change could still move the HUD.
+ *
+ * The 16ms focus ticker in `index.ts` asks this so it can stop calling
+ * `syncHudWithGame` when there is nothing the answer could change: no HUD
+ * window, or one that is already off screen. It deliberately does not know
+ * whether the game is running - that belongs to the poll - so the caller ands
+ * the two halves together.
+ */
+export function hudCouldMove(): boolean {
+  return !!hudWin && !hudWin.isDestroyed() && hudWin.isVisible()
+}
+
 /** Tray entry and global shortcut. Goes through the override, so the follow-game
  * rule cannot undo it on the very next tick. */
 export function toggleHudVisibility(): void {

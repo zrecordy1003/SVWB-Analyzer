@@ -27,20 +27,20 @@ React + MUI renderer / HUD
 
 ## 主要目錄
 
-| 路徑                          | 職責                                                                       |
-| ----------------------------- | -------------------------------------------------------------------------- |
-| `tools/engine/`               | 感知引擎：擷取、辨識、狀態機、對局持久化、migration owner。可獨立執行。   |
-| `src/main/`                   | Electron main：視窗/托盤/更新（`windows/`）、引擎監督與數字回答（`recognition/`）、UI 資料層（`data/`、`ipc/`）。 |
-| `src/main/recognition/engine.ts` | 引擎行程的監督者：spawn、事件套用、attach/detach。                       |
-| `src/main/data/db/client.ts`  | UI 的資料存取（Kysely + better-sqlite3），含 Prisma 相容的邊界轉換。       |
-| `src/main/telemetry/`         | 匿名使用統計（opt-out，告知前不送）：對局列→計數桶的純函式、排程與上傳、IPC。見 `docs/telemetry-dau-plan.md`。 |
-| `server/telemetry/`           | 接收上述上傳的 Cloudflare Worker + D1；不屬於 app 打包，獨立部署。         |
-| `src/shared/domain.ts`        | 領域詞彙（ClassName / GameMode / PlayOrder / model 型別），24 個檔案共用。 |
-| `src/renderer/src/`           | React + MUI 介面、對局列表、統計與 HUD。                                   |
-| `resources/templates/`        | 辨識範本；遊戲 UI 改版後優先更新此處。                                     |
-| `resources/migrations/`       | SQLite schema 的唯一真相，由 `svwb-engine migrate` 套用。                  |
-| `tools/vision-node-addon/`    | 檢查工具（OCR oracle、引擎 parity、診斷記帳測試）。addon 本體僅供 parity 比對。 |
-| `tools/capture/`              | 舊獨立截圖器，保留為回退點；正式路徑已由引擎內建 capture 取代。            |
+| 路徑                             | 職責                                                                                                              |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `tools/engine/`                  | 感知引擎：擷取、辨識、狀態機、對局持久化、migration owner。可獨立執行。                                           |
+| `src/main/`                      | Electron main：視窗/托盤/更新（`windows/`）、引擎監督與數字回答（`recognition/`）、UI 資料層（`data/`、`ipc/`）。 |
+| `src/main/recognition/engine.ts` | 引擎行程的監督者：spawn、事件套用、attach/detach。                                                                |
+| `src/main/data/db/client.ts`     | UI 的資料存取（Kysely + better-sqlite3），含 Prisma 相容的邊界轉換。                                              |
+| `src/main/telemetry/`            | 匿名使用統計（opt-out，告知前不送）：對局列→計數桶的純函式、排程與上傳、IPC。見 `docs/telemetry-dau-plan.md`。    |
+| `server/telemetry/`              | 接收上述上傳的 Cloudflare Worker + D1；不屬於 app 打包，獨立部署。                                                |
+| `src/shared/domain.ts`           | 領域詞彙（ClassName / GameMode / PlayOrder / model 型別），24 個檔案共用。                                        |
+| `src/renderer/src/`              | React + MUI 介面、對局列表、統計與 HUD。                                                                          |
+| `resources/templates/`           | 辨識範本；遊戲 UI 改版後優先更新此處。                                                                            |
+| `resources/migrations/`          | SQLite schema 的唯一真相，由 `svwb-engine migrate` 套用。                                                         |
+| `tools/vision-node-addon/`       | 檢查工具（OCR oracle、引擎 parity、診斷記帳測試）。addon 本體僅供 parity 比對。                                   |
+| `tools/capture/`                 | 舊獨立截圖器，保留為回退點；正式路徑已由引擎內建 capture 取代。                                                   |
 
 ## 視窗、擷取與分析
 
@@ -72,6 +72,9 @@ React + MUI renderer / HUD
   store 對出貨 migrations 的驗證、34 張 fixture 的整合斷言。
 - `pnpm engine:replay`：五份錄影跑**出貨的**狀態機端到端，含 BP 值斷言（數字經 host tesseract）。
 - `pnpm test`（vitest）：UI 資料層對真實 schema 的 IPC 契約（回傳形狀是契約的一部分）。
+- `pnpm test:e2e`（Playwright 驅動真實 Electron）：啟動畫面、HUD 視窗、`svwb-card://` 協定的完整
+  往返、更新流程、牌組版本化規則經真實 preload 橋讀回。每個測試一份獨立 profile；建置是它依賴的
+  `setup` project，所以不可能對著舊的 `out/` 跑。指向打包產物請設 `SVWB_E2E_EXECUTABLE`。
 - `pnpm vision:verify`：上述 cargo 測試 + clippy + OCR oracle + 引擎/addon parity。
 
 ## 範本更新原則

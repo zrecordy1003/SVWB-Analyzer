@@ -7,20 +7,15 @@ function ensureDir(dir: string): string {
   return dir
 }
 
-export function getCaptureDir(): string {
-  return ensureDir(path.join(app.getPath('userData'), 'capture'))
-}
-
+// No `getCaptureDir` / `getCaptureImagePath` / `getCaptureTmpImagePath` here
+// any more. They addressed `userData/capture/svwb.png`, the intermediate the
+// old JS pipeline wrote each frame to; the engine has held frames in memory
+// since the refactor and nothing has written that file in a long time. The
+// only remaining effect was that `ensureDir` created an empty `capture/`
+// directory in every user's profile on every launch, on the way to deleting
+// two files that were not there.
 export function getRuntimeToolsDir(): string {
   return ensureDir(path.join(app.getPath('userData'), 'tools'))
-}
-
-export function getCaptureImagePath(): string {
-  return path.join(getCaptureDir(), 'svwb.png')
-}
-
-export function getCaptureTmpImagePath(): string {
-  return path.join(getCaptureDir(), 'svwb.png.tmp.png')
 }
 
 export function getTesseractCacheDir(): string {

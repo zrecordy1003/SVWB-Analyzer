@@ -2,12 +2,10 @@ import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor } from '
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import fs from 'fs'
 import { store } from './store.js'
 
 // 輕依賴先載（重依賴延遲到用到才 import）
 import { isGameWindowFocused, isShadowverseRunning } from './recognition/svwbDetector.js'
-import { getCaptureImagePath, getCaptureTmpImagePath } from './paths.js'
 import { attachCapture, detachCapture } from './recognition/engine.js'
 
 // DB 與更新延後：只載入 helper，初始化放到事件之後
@@ -15,7 +13,7 @@ import { initDatabase } from './data/db/initDb.js'
 import { setupAutoUpdates } from './updates.js'
 import { getBattleStatus, type BattleStatus } from './recognition/engine.js'
 import type { GameStatus } from '../shared/types.js'
-import { createHudWindow, isHudDragging, syncHudWithGame } from './windows/hud.js'
+import { createHudWindow, hudCouldMove, isHudDragging, syncHudWithGame } from './windows/hud.js'
 // import { attachCloseGuard } from './closeGuard.js'
 import { createAppTray } from './windows/tray.js'
 import { attachSmartClose } from './windows/smartClose.js'
@@ -86,21 +84,6 @@ async function ensureAnalyzer(): Promise<void> {
 //   }
 // }
 
-// --- 清理擷取圖片 ---
-function clearCaptureImage(): void {
-  const imagePath = getCaptureImagePath()
-  const tmpImagePath = getCaptureTmpImagePath()
-
-  if (fs.existsSync(imagePath)) {
-    fs.unlinkSync(imagePath)
-    console.log('deleted svwb.png')
-  }
-  if (fs.existsSync(tmpImagePath)) {
-    fs.unlinkSync(tmpImagePath)
-    console.log('deleted svwb.png.tmp.png')
-  }
-}
-
 // --- 視窗建立 ---
 function createSplash(): void {
   splash = new BrowserWindow({
@@ -120,7 +103,11 @@ function createSplash(): void {
     backgroundColor: '#0f1216',
     show: true,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/splash-preload.js'),
+      // No preload. There never was one: `../preload/splash-preload.js` is not
+      // built by any entry in `electron.vite.config.ts` and does not exist in
+      // `out/preload/`, so Electron logged a load failure and carried on. The
+      // splash is a static document that talks to nothing, so the fix is to
+      // stop asking rather than to add a file.
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -160,6 +147,21 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : { icon }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.mjs'),
+      /**
+       * Still off, and the reason is the file extension above.
+       *
+       * A sandboxed preload has to be CommonJS - Electron's ESM support
+       * explicitly excludes them - and every preload entry here builds to
+       * `.mjs` because the package is `"type": "module"`. So turning this on
+       * is not a one-line flag: it means giving the preload build a CJS output
+       * format for all three entries and re-verifying every bridge, including
+       * `@electron-toolkit/preload`'s, under the sandbox's reduced module set.
+       *
+       * What has been done is the prerequisite: the preload no longer imports
+       * a privileged module. `shell.openExternal` moved to the `app:openLink`
+       * handler below, so what is left to check is the build format rather
+       * than the code.
+       */
       sandbox: false,
       contextIsolation: true,
       nodeIntegration: false
@@ -181,7 +183,6 @@ function createWindow(): void {
       }
       mainWindow!.show()
       // 首繪後才做初始化
-      clearCaptureImage()
       // 背景準備
       // await ensureDbReady()
       // Analyzer 載入
@@ -371,8 +372,13 @@ function startPollingForGame(): void {
       const hwnd = svwbStatus.hwnd
       const shouldCapture = isGameRunning && !treatAsPaused && hwnd !== null
 
+      // No `battle:recog` send here or in the else branch any more. It carried
+      // exactly `shouldCapture`, which is `gameStatus.capturing` above - so the
+      // renderer was told the same fact twice, once change-gated with a
+      // `game:getStatus` catch-up for a window that opens late, and once
+      // unconditionally on every one-second tick. The second one is gone;
+      // `BattleStatus` reads `game:status` like the HUD already did.
       if (shouldCapture) {
-        win.webContents.send('battle:recog', true)
         // The engine owns capture now, so it must be up before the attach; the
         // attach itself is idempotent and re-sent every poll, which is also
         // what re-establishes capture after an engine restart.
@@ -387,7 +393,6 @@ function startPollingForGame(): void {
           win.webContents.send('capture:status', true)
         }
       } else {
-        win.webContents.send('battle:recog', false)
         if (isCapturing) {
           detachCapture()
           isCapturing = false
@@ -483,6 +488,12 @@ function startPollingForGame(): void {
     // updates need that time more than focus tracking does - and mid-drag the
     // answer cannot change anything the drag would not override anyway.
     if (isHudDragging()) return
+    // And nothing to track while the game is not running and the HUD is
+    // already off screen: no focus change can move it until the 1s poll sees
+    // the game again, so 62 native calls a second would be buying nothing.
+    // The `hudCouldMove()` half is what still lets a running game's alt-tab
+    // bring the HUD back, and what lets a hide finish after the game exits.
+    if (!lastGameStatus?.running && !hudCouldMove()) return
     syncHudWithGame(isGameWindowFocused())
   }, FOCUS_POLL_MS)
 
@@ -589,6 +600,32 @@ app.whenReady().then(async () => {
     mainWindow.show()
     mainWindow.focus()
     mainWindow.webContents.send('app:navigate', 'MatchList')
+    return true
+  })
+
+  /**
+   * The one bridge that can hand an arbitrary string to the OS shell.
+   *
+   * The validation used to live in the preload, which is why the preload had
+   * to import `shell` - and importing `shell` is why the main window could not
+   * run `sandbox: true`. A sandboxed preload gets `ipcRenderer`,
+   * `contextBridge` and `webFrame` and nothing else, so the check moved here
+   * and the preload now only forwards.
+   *
+   * Same rule as before, in the process that can actually enforce it: real web
+   * links only, so no call site - or injected markup - can reach `file:`,
+   * `javascript:` or a registered protocol handler.
+   */
+  ipcMain.handle('app:openLink', (_e, url: unknown) => {
+    if (typeof url !== 'string') return false
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      return false
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false
+    void shell.openExternal(parsed.toString())
     return true
   })
 

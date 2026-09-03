@@ -1,7 +1,5 @@
-import React, { useMemo } from 'react'
+import React, { lazy, Suspense, useMemo } from 'react'
 import { Box, Typography } from '@mui/material'
-import { Doughnut } from 'react-chartjs-2'
-import { ArcElement, Chart as ChartJS, DoughnutController } from 'chart.js'
 import type { Match } from '@shared/domain'
 
 import RecentCountSelect from './RecentCountSelect'
@@ -9,7 +7,12 @@ import type { RecentCount } from './recentCount'
 import ModeFilterSelect from './ModeFilterSelect'
 import type { ModeFilter } from './modeFilter'
 
-ChartJS.register(ArcElement, DoughnutController)
+/**
+ * The ring is the app's only user of `chart.js`. Loading it on demand keeps
+ * 128KB out of both entries' eager graph - see the file's own header and the
+ * `manualChunks` comment in `electron.vite.config.ts`.
+ */
+const HudDonut = lazy(() => import('./HudDonut'))
 
 type Props = {
   matches: Match[]
@@ -32,29 +35,6 @@ const captionSx = {
   lineHeight: `${ROW_HEIGHT}px`
 } as const
 
-const donutCenterPlugin = {
-  id: 'hudDonutCenter',
-  afterDraw(chart: ChartJS) {
-    const { ctx, chartArea } = chart
-    const values = (chart.data.datasets[0]?.data ?? []) as number[]
-    const total = values.reduce<number>((sum, value) => sum + Number(value), 0)
-    if (!total) return
-    const wins = Number(chart.data.datasets[0]?.data[0] ?? 0)
-    const rate = Math.round((wins / total) * 100)
-    const x = (chartArea.left + chartArea.right) / 2
-    const y = (chartArea.top + chartArea.bottom) / 2
-
-    ctx.save()
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillStyle = '#F2F5F8'
-    ctx.font = '800 19px "Segoe UI", sans-serif'
-    // The figure stands alone: the ring around it is already a win/loss split.
-    ctx.fillText(`${rate}%`, x, y)
-    ctx.restore()
-  }
-}
-
 /**
  * Win/loss split of the recent matches shown below it. Deliberately just the
  * one figure: a HUD is read at a glance, and the sample is small enough that
@@ -70,23 +50,6 @@ const HudInsights: React.FC<Props> = ({
   const completed = useMemo(() => matches.filter((match) => match.result != null), [matches])
   const wins = completed.filter((match) => match.result === true).length
   const losses = completed.length - wins
-
-  const donutData = useMemo(
-    () => ({
-      labels: ['勝利', '敗北'],
-      datasets: [
-        {
-          data: [wins, losses],
-          backgroundColor: [WIN, LOSS],
-          borderColor: ['rgba(117,226,168,0.22)', 'rgba(242,140,140,0.22)'],
-          borderWidth: 1,
-          hoverOffset: 0,
-          spacing: 2
-        }
-      ]
-    }),
-    [wins, losses]
-  )
 
   if (!completed.length) return null
 
@@ -105,19 +68,15 @@ const HudInsights: React.FC<Props> = ({
         WebkitAppRegion: 'no-drag'
       }}
     >
+      {/*
+        The fallback is the ring's own box, empty. It is on screen for the one
+        frame it takes to resolve a local chunk, and reserving the space means
+        the rest of the row does not reflow when it arrives.
+      */}
       <Box sx={{ height: 74 }}>
-        <Doughnut
-          data={donutData}
-          plugins={[donutCenterPlugin]}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '72%',
-            animation: { duration: 360 },
-            events: [],
-            plugins: { legend: { display: false }, tooltip: { enabled: false } }
-          }}
-        />
+        <Suspense fallback={null}>
+          <HudDonut wins={wins} losses={losses} winColor={WIN} lossColor={LOSS} />
+        </Suspense>
       </Box>
       <Box sx={{ minWidth: 0 }}>
         {/*

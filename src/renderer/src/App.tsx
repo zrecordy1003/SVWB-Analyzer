@@ -19,7 +19,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
-import AutoAwesomeMotionOutlinedIcon from '@mui/icons-material/AutoAwesomeMotionOutlined'
+// import AutoAwesomeMotionOutlinedIcon from '@mui/icons-material/AutoAwesomeMotionOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
 // import Sun from '@mui/icons-material/Brightness4'
 // import Moon from '@mui/icons-material/Brightness7'
@@ -37,7 +37,13 @@ import TelemetryPrompt from './components/Common/TelemetryPrompt'
 const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = lazy(() => import('./components/MatchList/MatchList'))
 const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerformance'))
-const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
+/**
+ * 卡片頁暫時停用 - 一張卡的勝率單看沒什麼可以下判斷的，要等之後那個數據分析
+ * 的介面做出來、能把它和牌組、對局擺在一起看，這頁才講得出東西。程式碼、
+ * `cards:stats` 和資料庫那邊都原封不動留著，要開回來只要把這裡、選單項目和
+ * `PAGE_KEYS`、下面的 render 分支這四處的註解拿掉。
+ */
+// const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
 // import Statistics from './components/Statistics'
 
 const DRAWER_COLLAPSED_WIDTH = 92
@@ -76,7 +82,7 @@ const PAGE_KEYS: readonly PageKey[] = [
   'Analyzer',
   'MatchList',
   'DeckPerformance',
-  'Cards',
+  // 'Cards', // 見上面 CardsPage 的說明
   'Settings',
   'About'
 ]
@@ -163,7 +169,7 @@ function App(): React.JSX.Element {
     { key: 'MatchList', text: '對局列表', icon: <ListAltIcon /> },
     { key: 'DeckPerformance', text: '牌組戰績', icon: <StyleOutlinedIcon /> },
     // 疊起來的幾張：牌組戰績那顆是「一副牌」，這顆是「一堆卡」。
-    { key: 'Cards', text: '卡片', icon: <AutoAwesomeMotionOutlinedIcon /> },
+    // { key: 'Cards', text: '卡片', icon: <AutoAwesomeMotionOutlinedIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
     { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
@@ -313,7 +319,7 @@ function App(): React.JSX.Element {
           <Suspense fallback={<PageLoading />}>
             {currentPage === 'MatchList' && <MatchList />}
             {currentPage === 'DeckPerformance' && <DeckPerformance />}
-            {currentPage === 'Cards' && <CardsPage />}
+            {/* {currentPage === 'Cards' && <CardsPage />} */}
             {currentPage === 'Analyzer' && <Analyzer />}
             {currentPage === 'Settings' && <Settings />}
             {currentPage === 'About' && <About />}

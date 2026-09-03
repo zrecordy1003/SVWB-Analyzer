@@ -202,6 +202,27 @@ export default function DeckCardBoard({
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const { rowCount, rowHeight, columnWidth } = useBoardMetrics(containerRef)
 
+  /**
+   * The board only scrolls sideways (`overflowX: auto`, `overflowY: hidden`),
+   * but a mouse wheel reports vertical delta - left as-is, scrolling over the
+   * card wall does nothing. Redirects that delta into `scrollLeft` instead.
+   *
+   * A native listener with `{ passive: false }`, not `onWheel`: React attaches
+   * wheel handlers as passive by default, so `preventDefault()` there is
+   * silently ignored and the page behind the drawer scrolls too.
+   */
+  const attachWheelScroll = React.useCallback((node: HTMLDivElement | null) => {
+    containerRef.current = node
+    if (!node) return
+    const handleWheel = (e: WheelEvent): void => {
+      if (e.deltaY === 0 || node.scrollWidth <= node.clientWidth) return
+      node.scrollLeft += e.deltaY
+      e.preventDefault()
+    }
+    node.addEventListener('wheel', handleWheel, { passive: false })
+    return () => node.removeEventListener('wheel', handleWheel)
+  }, [])
+
   if (cards.length === 0 && !loading) {
     return (
       <Box ref={containerRef} sx={{ height: '100%' }}>
@@ -225,7 +246,7 @@ export default function DeckCardBoard({
 
   if (loading) {
     return (
-      <Box ref={containerRef} sx={boardSx}>
+      <Box ref={attachWheelScroll} sx={boardSx}>
         {Array.from({ length: rowCount * 6 }, (_, i) => (
           <Skeleton
             key={i}
@@ -238,7 +259,7 @@ export default function DeckCardBoard({
   }
 
   return (
-    <Box ref={containerRef} sx={boardSx}>
+    <Box ref={attachWheelScroll} sx={boardSx}>
       {sortByCost(cards).map((card) => (
         <CardCell
           key={card.cardId}

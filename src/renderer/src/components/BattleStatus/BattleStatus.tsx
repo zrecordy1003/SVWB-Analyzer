@@ -61,16 +61,31 @@ const BattleStatus = (): React.JSX.Element => {
       }
     )
 
-    const unsubRecognizeInfo = window.electron?.ipcRenderer.on(
-      'battle:recog',
-      (_e, msg: boolean) => {
-        setIsRecognizing(msg)
+    /**
+     * Whether recognition is running is `gameStatus.capturing`, and it arrives
+     * on `game:status` - the broadcast that only fires on a change. There used
+     * to be a `battle:recog` message carrying the same boolean on every
+     * one-second poll; it was deleted, not replaced.
+     *
+     * The catch-up matters because of that change gating: this component can
+     * mount well after the last transition (a reload, or the user opening this
+     * page later), so it asks once for the current value instead of waiting
+     * for the game's next state change.
+     */
+    const unsubGameStatus = window.electron?.ipcRenderer.on(
+      'game:status',
+      (_e, status: { capturing?: boolean } | null) => {
+        setIsRecognizing(!!status?.capturing)
       }
     )
+    void window.electron?.ipcRenderer
+      .invoke('game:getStatus')
+      .then((status: { capturing?: boolean } | null) => setIsRecognizing(!!status?.capturing))
+      .catch(() => setIsRecognizing(false))
 
     return () => {
       unsubBattleInfo()
-      unsubRecognizeInfo()
+      unsubGameStatus()
     }
   }, [])
 

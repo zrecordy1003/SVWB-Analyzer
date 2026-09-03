@@ -106,15 +106,21 @@ testable without a game, a database, or Electron.
 - `cargo test` (`tools/`) — state machine scenarios (each one corresponding to a past incident), the
   calibration table, consensus/debounce, `store` against the shipped migrations, and 15 fixture
   tests over 44 of the 47 committed PNGs in `tests/fixtures/captures/`.
-- `pnpm engine:replay` — five recordings driven through the *shipped* state machine end to end,
+- `pnpm engine:replay` — five recordings driven through the _shipped_ state machine end to end,
   including BP value assertions read through the host's tesseract.
 - `pnpm test` (vitest, node environment) — `tests/main/` (migrations, IPC contract smoke, query
   plans, ranked winrate, support prompt) and `tests/renderer/` (pure helpers: confidence, filter
   state, relative time). 48 tests.
 - `pnpm vision:verify` — the cargo tests plus clippy, the OCR oracle, and engine/addon parity.
-- `.github/workflows/ci.yml` runs on `windows-latest` as two parallel jobs: `typescript`
-  (typecheck, lint, bundle build) and `rust` (engine build, vitest, the vision addon build,
-  `vision:verify`, the replay). vitest sits with Rust because it needs the engine binary.
+- `pnpm test:e2e` (Playwright, driving the real Electron app) - `tests/e2e/`: splash, HUD window,
+  class-emblem protocol round trip, the update flow against `SVWB_UPDATE_SIM`, and the
+  deck-versioning rules read back through the real preload bridge. 22 tests, ~51s. The build is a
+  `setup` project the suite depends on, so it cannot run against stale bundles.
+- `.github/workflows/ci.yml` runs on `windows-latest` as three parallel jobs: `typescript`
+  (typecheck, lint, bundle build), `rust` (engine build, vitest, the vision addon build,
+  `vision:verify`, the replay) and `e2e` (engine build, then the Playwright suite with
+  `--grep-invert @network`). vitest sits with Rust because it needs the engine binary; `e2e` is
+  separate because it is the only job that has to download the Electron binary.
 
 ## Completed Work
 
@@ -185,21 +191,31 @@ replay step reports a skip. It is a local-only check today.
 To make it a real gate: commit the recordings through Git LFS (the repo already uses LFS for
 `*.dll` and `*.gz`), then drop the skip branch in `.github/workflows/ci.yml`.
 
-### The Electron host layer has no tests
+### The Electron host layer has no UNIT tests
 
-`cargo test` covers the engine thoroughly. The host does not:
+The E2E suite now covers the host from the outside, and runs in CI - window creation, the preload
+bridge, the protocol handler, the update flow, the versioning rules through real IPC. It caught a
+renderer-breaking chunk cycle on its first run after the bundle work, which the build reported as
+success. What it does not do is exercise the two stateful paths directly:
 
 - `src/main/index.ts`'s poll loop holds six pieces of mutable state in one closure and decides
-  capture attach/detach, analyzer lifecycle, idle shutdown and notification debouncing. Zero tests.
-- `src/main/recognition/engine.ts`'s spawn/restart/re-attach path. Zero tests.
+  capture attach/detach, analyzer lifecycle, idle shutdown and notification debouncing. No unit
+  tests, and E2E cannot reach most of its branches without a running game.
+- `src/main/recognition/engine.ts`'s spawn/restart/re-attach path. Same.
 
 Neither needs jsdom. Extracting the poll into a pure `decide(prevState, observation) -> actions`
-would make it testable with the vitest setup that already exists, and is the highest
+would make it testable with the vitest setup that already exists, and is now the highest
 value-per-hour item on this list.
 
 ### Packaged app smoke test
 
-Verify the real packaged app, not only `electron-vite build`:
+Half done. `tests/e2e/packaged.spec.ts` asserts the resource list and the fresh-profile migration
+against a real package: set `SVWB_E2E_EXECUTABLE` to an installed or `--dir`-unpacked executable
+and the whole E2E suite drives that instead of `out/`. It is skipped when the variable is unset,
+and it is not wired into CI - packaging needs the Rust binaries, so it belongs in the release
+pipeline rather than on every push.
+
+Still by hand, and still worth automating on top of that seam:
 
 - `svwb-engine.exe`, `svwb-vision.node` and `svwb-capture-tool.exe` are present under `resources/`.
 - `resources/migrations` is included and readable, and `svwb-engine migrate` succeeds.
@@ -246,18 +262,17 @@ decks/tags/matches mutation channel has no preload wrapper at all.
 Suggested: one `src/shared/ipc.ts` declaring channel names with their payload and return types;
 preload generated from it, main registered against it. No framework needed.
 
-### Duplicated types
+### Duplicated types - done
 
-`QueryPayload` is defined twice (`src/shared/types.ts` and `src/main/ipc/matches.ts`) and the two
-have already drifted. `RangeKey` lives in `shared/` but `matches.ts` imports it from `ipc/helper.ts`.
-`BattleStatus` had the same problem and was fixed by re-exporting from `shared/`; do the same here.
+`QueryPayload` and `RangeKey` are now imported from `src/shared/types.js` and re-exported from
+`ipc/matches.ts`, the same way `BattleStatus` was fixed.
 
-### Dead compatibility layers in `ipc/matches.ts`
+### Dead compatibility layers in `ipc/matches.ts` - done
 
-`normalizeCountArgs` / `normalizePageArgs` support "legacy positional arguments". Main and renderer
-ship together and always share a version, so no such caller exists; the cost is that two handlers
-have `...args: unknown[]` signatures. `matches:getPage`, `matches:getPageWithExtras` and
-`matches:queryList` are three near-identical query paths that can collapse into one.
+`normalizeCountArgs` / `normalizePageArgs` are gone, and `matches:count`, `matches:queryList` and
+`matches:getPage` now take a typed `QueryPayload` instead of `...args: unknown[]`.
+`matches:getPageWithExtras` was deleted outright: it was byte-for-byte `matches:getPage` behind a
+positional-argument preamble, with no caller anywhere in `src/` or `tests/`.
 
 ### Renderer has no data layer
 
@@ -394,12 +409,19 @@ game open; start/stop the analyzer repeatedly; hide/show the HUD repeatedly; upd
 
 ### Repository hygiene
 
-- `test/` is an empty directory left over from the move to `tests/`.
-- `pnpm-workspace.yaml` contains a literal placeholder: `better-sqlite3: set this to true or false`.
-- `src/main/index.ts`'s `clearCaptureImage()` and the two `getCapture*ImagePath` helpers in
-  `paths.ts` delete an `svwb.png` that the pipeline no longer produces.
-- eslint has `@typescript-eslint/no-explicit-any` off, with 47 `any` uses in `src/`.
-- 19 `console.log` calls stand in for logging, with no levels and no persistence.
+- `clearCaptureImage()` and the `getCapture*` helpers are gone. They deleted an `svwb.png` the
+  pipeline stopped producing at the engine refactor; the one remaining effect was that `ensureDir`
+  created an empty `capture/` directory in every profile on every launch.
+- The splash window asked for `../preload/splash-preload.js`, which no entry in
+  `electron.vite.config.ts` builds and which does not exist in `out/preload/`. Electron logged a
+  load failure and carried on. The splash talks to nothing, so the request was removed rather than
+  the file added.
+- eslint has `@typescript-eslint/no-explicit-any` off, with ~43 `any` uses in `src/`.
+- ~60 `console.log`/`console.error` calls stand in for logging, with no levels and no persistence.
+
+Two earlier entries here were wrong when re-checked against the tree and have been dropped:
+`pnpm-workspace.yaml`'s placeholder is long since filled in, and `test/` holds only empty
+directories that git does not track - it exists on one machine, not in the repository.
 
 ### Documentation
 
@@ -431,9 +453,19 @@ The perception layer is in good shape: one process owns capture through persiste
 machine is a pure function with scenario tests tied to real past incidents, and the fixture and
 replay suites are substantial.
 
-The weak half is now the Electron host. The 1s poll loop in `index.ts` and the engine supervisor are
-untested, and they are where the remaining hard-to-reproduce bugs will come from. The renderer has
-no data layer, which is what is driving component size.
+The weak half is still the Electron host, but less of it than before. The E2E suite runs in CI now,
+so window creation, the preload bridge, the protocol handler, the update flow and the versioning
+rules are verified on every push - and it earned that place immediately by catching a chunk cycle
+that stopped the renderer dead while the build reported success. What remains untested is the
+stateful interior: the 1s poll loop in `index.ts` and the engine supervisor, which is where the
+remaining hard-to-reproduce bugs will come from. The renderer still has no data layer, which is
+what is driving component size.
 
-The next milestone is not another refactor of recognition. It is Priority 1: make CI verify what it
-claims to verify, and get the host layer under test.
+Two things stand ahead of any further recognition work:
+
+1. Extract the poll loop into a pure `decide(prevState, observation) -> actions` and test it. E2E
+   cannot reach those branches without a running game; a pure function needs neither.
+2. Move the UI's SQLite reads off the main process's event loop (see
+   `docs/performance-improvement-notes.md`). It is the one remaining architectural performance
+   problem rather than a constant factor, and it is why a slow query costs HUD focus tracking and
+   engine event handling and not just the screen that asked.

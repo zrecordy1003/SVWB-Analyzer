@@ -32,8 +32,8 @@ import DeckVersionsPanel, {
   type VersionStat
 } from '@renderer/components/DeckCards/DeckVersionsPanel'
 import { groupDeckFamilies, type DeckFamily } from '@renderer/components/DeckCards/deckVersions'
+import AddDeckFlow from '@renderer/components/DeckBuilder/AddDeckFlow'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
-import NewDeckDrawer from '@renderer/components/DeckBuilder/NewDeckDrawer'
 import { readSetting } from '@renderer/components/Analyzer/filterState'
 import { useDecksTags, type DeckLite } from '../../hooks/useDecksTags'
 
@@ -253,20 +253,9 @@ const DeckPerformance = (): React.JSX.Element => {
   // The card list is fetched by the dialog itself, so a deck nobody opens costs
   // nothing here.
   const [inspecting, setInspecting] = useState<{ id: number; name: string } | null>(null)
-  /**
-   * The builder, and which deck it is showing.
-   *
-   * `{ deckId: null }` is an empty builder and `null` is a closed one, so the
-   * two cases that both look like "nothing" stay distinguishable. Importing
-   * lands here too: the dialog creates the deck and hands the id over, because
-   * the thing a user wants right after bringing a deck in is to look at it.
-   */
-  const [building, setBuilding] = useState<{
-    deckId: number | null
-    /** Set when opened from a version's 「修正卡表…」: the save rewrites that version. */
-    correction?: CorrectVersionRequest
-  } | null>(null)
-  // 先問「匯入還是自己建」，再決定要不要開整頁的建構器。
+  /** 從某一版的「修正卡表…」開進建構器的那一版；存檔直接改寫它，不 fork。 */
+  const [correcting, setCorrecting] = useState<CorrectVersionRequest | null>(null)
+  // 先問「匯入還是自己建」，之後的路交給 `AddDeckFlow`。
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
@@ -675,9 +664,7 @@ const DeckPerformance = (): React.JSX.Element => {
                             family={row.family}
                             stats={loading ? null : versionStats}
                             onChanged={() => refreshDecks()}
-                            onCorrect={(correction) =>
-                              setBuilding({ deckId: correction.deckId, correction })
-                            }
+                            onCorrect={(correction) => setCorrecting(correction)}
                           />
                         </Box>
                       )}
@@ -690,29 +677,28 @@ const DeckPerformance = (): React.JSX.Element => {
         )}
       </Paper>
 
-      <NewDeckDrawer
+      {/* 新增牌組：整條路和牌組管理是同一個元件。正在看某一個職業就從那個職業
+          開始；看「全部職業」時沒有答案，讓建構器自己的下拉去問。 */}
+      <AddDeckFlow
         open={adding}
-        onClose={() => setAdding(false)}
-        onOpenDeck={(deckId) => {
-          refreshDecks()
-          setBuilding({ deckId })
-        }}
-        onBuildManually={() => setBuilding({ deckId: null })}
-      />
-
-      <DeckBuilder
-        open={building !== null}
-        deckId={building?.deckId ?? null}
-        correction={
-          building?.correction ? { versionLabel: building.correction.versionLabel } : null
-        }
         categories={allCategories}
-        // 正在看某一個職業就從那個職業開始。看「全部職業」時沒有答案，讓建構器
-        // 自己的下拉去問。
-        initialClass={classFilter === 'all' ? undefined : classFilter}
-        onClose={() => setBuilding(null)}
+        klass={classFilter === 'all' ? undefined : classFilter}
+        onClose={() => setAdding(false)}
         onSaved={() => refreshDecks()}
       />
+
+      {/* 修正某一版的卡表：這是另一個入口，不是新增的一部分——存檔直接改寫那一
+          版，不 fork。 */}
+      {correcting && (
+        <DeckBuilder
+          open
+          deckId={correcting.deckId}
+          correction={{ versionLabel: correcting.versionLabel }}
+          categories={allCategories}
+          onClose={() => setCorrecting(null)}
+          onSaved={() => refreshDecks()}
+        />
+      )}
 
       <DeckContentsDrawer
         open={inspecting !== null}

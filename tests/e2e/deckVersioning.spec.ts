@@ -350,25 +350,6 @@ test('cards get their own win rates, attributed to the exact list each game was 
   const all = await invokeOk<CardStatsResult>(window, 'cards:stats', { rangeKey: 'all' })
   expect(all.coverage).toEqual({ total: 5, covered: 4 })
 
-  // On screen: the standalone 卡片 page. Cards with fewer than ten games are
-  // hidden by default - everything this small profile has - so flip the one
-  // switch the page offers.
-  await window.getByRole('button', { name: '卡片' }).click()
-  const page = window.getByTestId('cards-page')
-  await expect(page).toBeVisible()
-  await expect(page.getByTestId('cards-coverage')).toHaveAttribute('data-covered', '4')
-  await expect(page.getByTestId('cards-coverage')).toHaveAttribute('data-total', '5')
-  await expect(page.getByTestId('cards-empty')).toBeVisible()
-  await page.getByTestId('cards-show-low-sample').getByRole('checkbox').check()
-  await expect(page.getByTestId('cards-row-900001')).toBeVisible()
-  await expect(page.getByTestId('cards-row-900003')).toHaveAttribute('data-low-sample', 'true')
-
-  // Drill in: the card is traced back to the exact versions that carried it.
-  await page.getByTestId('cards-row-900003').click()
-  const drawer = window.getByTestId('cards-drilldown')
-  await expect(drawer).toBeVisible()
-  await expect(drawer).toHaveAttribute('data-card-id', '900003')
-  await expect(drawer.getByTestId(`cards-drilldown-deck-${v2.id}`)).toBeVisible()
-  await expect(drawer.getByTestId(`cards-drilldown-deck-${v1.id}`)).toHaveCount(0)
-  await expect(drawer.getByTestId('cards-drilldown-without')).toBeVisible()
+  // 卡片頁本身暫時從側邊欄拿掉了（等數據分析介面一起做），所以這裡只驗到
+  // `cards:stats` 為止。頁面的 UI 斷言連同分頁一起等它回來再補。
 })

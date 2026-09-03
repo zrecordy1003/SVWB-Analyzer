@@ -14,6 +14,54 @@
  * release has to be published, and nothing is downloaded.
  */
 import { test, expect } from './app'
+import type { Page } from '@playwright/test'
+
+/**
+ * Wait for the background check to actually report, then hand back what it
+ * said.
+ *
+ * The two "says nothing" tests below used to `waitForTimeout(6_000)` and then
+ * assert no dialog. A fixed wait is defensible for an absence - you cannot poll
+ * for "nothing ever happened" - but it made the assertion vacuous in the one
+ * way that matters: if the check never ran at all, no dialog appears and the
+ * test passes while proving nothing. Six seconds of it, twice.
+ *
+ * So instead: listen for the terminal event the simulator sends
+ * (`main/updates.ts`), insist it arrived, and only then assert the screen is
+ * untouched. That is the same claim, stated as "the check reported and the UI
+ * stayed quiet" rather than "nothing showed up for a while", and it costs
+ * about two seconds instead of six.
+ *
+ * The listener is installed the moment the main window exists, which is well
+ * inside the simulator's two-second delay. A second `ipcRenderer.on` for these
+ * channels does not disturb `UpdateProvider`'s.
+ */
+async function updateEventsFrom(window: Page): Promise<void> {
+  await window.evaluate(() => {
+    const seen: string[] = []
+    ;(window as unknown as { __updateEvents: string[] }).__updateEvents = seen
+    const ipc = (
+      window as unknown as {
+        electron: { ipcRenderer: { on: (c: string, cb: () => void) => void } }
+      }
+    ).electron.ipcRenderer
+    for (const channel of ['update:checking', 'update:none', 'update:error', 'update:available']) {
+      ipc.on(channel, () => seen.push(channel))
+    }
+  })
+}
+
+async function expectReported(window: Page, channel: string): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        window.evaluate(
+          () => (window as unknown as { __updateEvents?: string[] }).__updateEvents ?? []
+        ),
+      { timeout: 20_000, message: `the simulated background check never sent ${channel}` }
+    )
+    .toContain(channel)
+}
 
 test.describe('background update check', () => {
   test.describe(() => {
@@ -65,10 +113,11 @@ test.describe('background update check', () => {
     test.use({ updateScenario: 'none' })
 
     test('says nothing at all when there is no update', async ({ window }) => {
-      // The simulated check fires two seconds after launch; wait past it and
-      // then insist the screen is still untouched. This is the regression that
-      // matters most, and it can only be stated as an absence.
-      await window.waitForTimeout(6_000)
+      // The regression that matters most, and it can only be stated as an
+      // absence - so the presence of the report is what makes the absence mean
+      // something. See `updateEventsFrom`.
+      await updateEventsFrom(window)
+      await expectReported(window, 'update:none')
       await expect(window.getByRole('dialog')).toHaveCount(0)
     })
   })
@@ -78,8 +127,11 @@ test.describe('background update check', () => {
 
     test('stays quiet when the check itself fails', async ({ window }) => {
       // A background check that failed is not something the user asked for or
-      // can act on. It belongs in the log, not in front of them.
-      await window.waitForTimeout(6_000)
+      // can act on. It belongs in the log, not in front of them - and the
+      // error having been delivered at all is the half a timeout could not
+      // prove.
+      await updateEventsFrom(window)
+      await expectReported(window, 'update:error')
       await expect(window.getByRole('dialog')).toHaveCount(0)
     })
   })

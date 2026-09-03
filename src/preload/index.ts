@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, shell } from 'electron'
+import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type { ClassName, GameMode } from '../shared/domain.js'
 import type { RangeKey, RankedWinrateByOpponent } from '../shared/types.js'
@@ -14,20 +14,20 @@ contextBridge.exposeInMainWorld('electron', electronAPI)
 contextBridge.exposeInMainWorld('api', api)
 contextBridge.exposeInMainWorld('electronAPI', {
   /**
-   * The renderer only ever passes constants of ours, but this is the one bridge
-   * that can hand an arbitrary string straight to the OS shell. Restrict it to
-   * real web links so no future call site - or injected markup - can reach
-   * `file:`, `javascript:` or a registered protocol handler.
+   * The one bridge that can hand an arbitrary string to the OS shell.
+   *
+   * The http/https restriction now lives in main (`app:openLink`), not here.
+   * That is not a relocation for tidiness: `shell` is the one privileged
+   * module this preload reached for, and it is not available in a sandboxed
+   * preload at all - so removing it is a prerequisite for ever turning the
+   * main window's sandbox on. It is also the stronger place for the rule: the
+   * process that owns `shell` is the one that can enforce it.
+   *
+   * See the `sandbox` note in `main/index.ts`'s `createWindow` for what still
+   * stands in the way.
    */
   openLink: (url: string) => {
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      return
-    }
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return
-    void shell.openExternal(parsed.toString())
+    void ipcRenderer.invoke('app:openLink', url)
   }
 })
 

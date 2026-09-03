@@ -14,8 +14,9 @@ import {
 } from '../data/db/client.js'
 import { provenancePatch, type ProvenanceSource } from '../data/provenance.js'
 import { summariseProvenance, type ProvenanceStats } from '../data/provenanceStats.js'
-import { getRankedWinrateByOpponent, RangeKey } from './helper.js'
+import { getRankedWinrateByOpponent } from './helper.js'
 import { myDeckIdsExpression, type MyDeckScope } from './deckScope.js'
+import type { QueryPayload, RangeKey } from '../../shared/types.js'
 import { broadcast } from '../utils/broadcast.js'
 
 /**
@@ -46,26 +47,16 @@ function invalid(code: string, message: string): Error {
   return err
 }
 
-export type QueryPayload = {
-  myClassIds?: ClassName[]
-  oppoClassIds?: ClassName[]
-  mode?: GameMode | null
-  rangeKey?: RangeKey
-  start?: string | number | Date | null
-  end?: string | number | Date | null
-  myDeckIds?: number[] // 只篩我方牌組；若要同時含對方，改 OR
-  /** 預設 'family'：選中的牌組展開成它整個家族的版本。見 deckScope.ts。 */
-  myDeckScope?: MyDeckScope
-  tagIds?: number[]
-  note?: 'any' | 'with' | 'without'
-  crMin?: number | null
-  crMax?: number | null
-  cursor?: { playedAt: string; id: number } | null
-
-  // for getPage
-  pageIndex?: number
-  pageSize?: number
-}
+/**
+ * Re-exported, not redeclared.
+ *
+ * There used to be a second copy of this type here, and the two had already
+ * drifted - the same failure `BattleStatus` had before it started re-exporting
+ * from `shared/`. The renderer builds these payloads and this file consumes
+ * them, so one of the two processes has to own the shape and it cannot be this
+ * one.
+ */
+export type { QueryPayload } from '../../shared/types.js'
 
 /** The match plus its relations, tags flattened. `queryList`/`getExtras` shape. */
 type MatchWithRelations = Match & {
@@ -182,69 +173,6 @@ export function filterExpressions(
   return exprs
 }
 
-/** 將「舊版位置參數」或「新版物件」統一轉成 QueryPayload */
-function normalizeCountArgs(args: unknown[]): QueryPayload {
-  // 新版：第一個就是物件
-  if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
-    return args[0] as QueryPayload
-  }
-
-  // 舊版：filterMy, filterOppo, filterModes, rangeKey, startDate, endDate [, extraObj]
-  const [
-    filterMy = [],
-    filterOppo = [],
-    filterModes = '',
-    rangeKey = 'today',
-    startDate = null,
-    endDate = null,
-    extra = {}
-  ] = args as [ClassName[], ClassName[], string, RangeKey, unknown, unknown, object]
-  const payload: QueryPayload = {
-    myClassIds: filterMy,
-    oppoClassIds: filterOppo,
-    mode: (filterModes || null) as GameMode | null,
-    rangeKey,
-    start: startDate as QueryPayload['start'],
-    end: endDate as QueryPayload['end']
-  }
-  // 允許把新欄位放在最後一個 extra 物件（可選）
-  if (extra && typeof extra === 'object') Object.assign(payload, extra)
-  return payload
-}
-
-function normalizePageArgs(args: unknown[]): QueryPayload {
-  // 新版：單一物件
-  if (args.length === 1 && typeof args[0] === 'object' && args[0] !== null) {
-    return args[0] as QueryPayload
-  }
-
-  // 舊版：pageIndex, pageSize, filterMy, filterOppo, filterModes, rangeKey, startDate, endDate [, extraObj]
-  const [
-    pageIndex = 0,
-    pageSize = 10,
-    filterMy = [],
-    filterOppo = [],
-    filterModes = '',
-    rangeKey = 'today',
-    startDate = null,
-    endDate = null,
-    extra = {}
-  ] = args as [number, number, ClassName[], ClassName[], string, RangeKey, unknown, unknown, object]
-
-  const payload: QueryPayload = {
-    pageIndex,
-    pageSize,
-    myClassIds: filterMy,
-    oppoClassIds: filterOppo,
-    mode: (filterModes || null) as GameMode | null,
-    rangeKey,
-    start: startDate as QueryPayload['start'],
-    end: endDate as QueryPayload['end']
-  }
-  if (extra && typeof extra === 'object') Object.assign(payload, extra)
-  return payload
-}
-
 export function registerMatchesIpc(): void {
   const db = getDb()
 
@@ -321,9 +249,7 @@ export function registerMatchesIpc(): void {
     return Number(row.n)
   }
 
-  ipcMain.handle('matches:count', async (_e, ...args: unknown[]) => {
-    return countMatches(normalizeCountArgs(args))
-  })
+  ipcMain.handle('matches:count', async (_e, payload: QueryPayload = {}) => countMatches(payload))
 
   /**
    * Match list's hot path: keyset pagination on the (playedAt, id) index.
@@ -332,8 +258,7 @@ export function registerMatchesIpc(): void {
    * equivalent is semantically identical but degrades to an index scan, which is
    * why the old code dropped to raw SQL here. It stays raw for the same reason.
    */
-  ipcMain.handle('matches:queryList', async (_e, ...args: unknown[]) => {
-    const p = normalizePageArgs(args)
+  ipcMain.handle('matches:queryList', async (_e, p: QueryPayload = {}) => {
     const requestedPageSize =
       Number.isFinite(p.pageSize) && (p.pageSize ?? 10) > 0 ? Math.floor(p.pageSize!) : 10
     const pageSize = Math.min(requestedPageSize, 100)
@@ -394,9 +319,8 @@ export function registerMatchesIpc(): void {
     }
   })
 
-  ipcMain.handle('matches:getPage', async (_e, ...args: unknown[]) => {
+  ipcMain.handle('matches:getPage', async (_e, p: QueryPayload = {}) => {
     try {
-      const p = normalizePageArgs(args)
       const pageIndex =
         Number.isFinite(p.pageIndex) && (p.pageIndex ?? 0) >= 0 ? Math.floor(p.pageIndex!) : 0
       const pageSize =
@@ -421,69 +345,12 @@ export function registerMatchesIpc(): void {
     }
   })
 
-  ipcMain.handle(
-    'matches:getPageWithExtras',
-    async (
-      _e,
-      pageIndex: number,
-      pageSize: number,
-      myIds: ClassName[] = [],
-      oppoIds: ClassName[] = [],
-      mode: string | null = null,
-      rangeKey: RangeKey = 'today',
-      start?: string | number | Date | null,
-      end?: string | number | Date | null
-    ) => {
-      try {
-        const safePageIndex =
-          Number.isFinite(pageIndex) && pageIndex >= 0 ? Math.floor(pageIndex) : 0
-        const safePageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.floor(pageSize) : 10
-
-        const asClassArray = (arr: unknown[]): ClassName[] =>
-          Array.isArray(arr) ? (arr.filter((x) => typeof x === 'string') as ClassName[]) : []
-
-        // 舊參數形狀，直接映射到共用的 payload。
-        // 舊版 end 若是零點整，補到當天最後一毫秒的行為由 toDateSafe + 呼叫端保持。
-        const endDate = toDateSafe(end)
-        if (
-          endDate &&
-          endDate.getHours() === 0 &&
-          endDate.getMinutes() === 0 &&
-          endDate.getSeconds() === 0 &&
-          endDate.getMilliseconds() === 0
-        ) {
-          endDate.setHours(23, 59, 59, 999)
-        }
-
-        const p: QueryPayload = {
-          myClassIds: asClassArray(myIds as unknown[]),
-          oppoClassIds: asClassArray(oppoIds as unknown[]),
-          mode: ((typeof mode === 'string' ? mode : '') || null) as GameMode | null,
-          rangeKey,
-          start: toDateSafe(start),
-          end: endDate
-        }
-
-        const ids = (
-          await db
-            .selectFrom('Match')
-            .select('id')
-            .where((eb) => eb.and(filterExpressions(eb, p)))
-            .orderBy('playedAt', 'desc')
-            .orderBy('id', 'desc')
-            .offset(safePageIndex * safePageSize)
-            .limit(safePageSize)
-            .execute()
-        ).map((row) => row.id)
-
-        return (await loadWithRelations(ids)).map(toPivotShape)
-      } catch (err) {
-        console.error('[ipc] matches:getPageWithExtras failed:', err)
-        // 不破壞前端預期型別，錯誤時回傳空陣列
-        return []
-      }
-    }
-  )
+  // `matches:getPageWithExtras` used to sit here. It was byte-for-byte
+  // `matches:getPage` with a positional-argument preamble in front of it, and
+  // nothing in `src/` or `tests/` invoked the channel - main and the renderer
+  // ship together, so no caller of the old shape can exist. Deleted rather
+  // than kept as a wrapper: an unused second door onto the same query is what
+  // let the two drift in the first place.
 
   // HUD 先只抓階級對戰
   ipcMain.handle(

@@ -208,6 +208,38 @@ describe('rule 1: the freeze line is "has been played", not "has been created"',
 })
 
 describe('rule 2: what a fork carries and what it must not', () => {
+  /**
+   * Every path a save can take must leave `isDefault` alone.
+   *
+   * The editor never sends the flag - it has no "設為預設" control - and the
+   * writer used to turn that silence into a hard 0, so opening your default
+   * deck and pressing save quietly stopped it being the default. The three
+   * cases below are the three branches of `upsertDeckWithCards`; only the
+   * fork one was ever covered.
+   */
+  it.each([
+    ['in place (unplayed deck)', { cards: CARDS_V2 }],
+    ['as a no-op (same card list)', { cards: CARDS_V1 }],
+    ['as a correction', { cards: CARDS_V2, forceInPlace: true }]
+  ])('keeps isDefault when the editor saves %s', async (_label, patch) => {
+    const deck = await saveLocal({ isDefault: true })
+
+    await saveLocal({ deckId: deck.id, ...patch })
+
+    const rows = await deckRows()
+    expect(rows.filter((r) => r.isDefault === 1)).toHaveLength(1)
+  })
+
+  it('keeps isDefault when a played deck is saved with an unchanged list', async () => {
+    const deck = await saveLocal({ isDefault: true })
+    await playMatch(deck.id)
+
+    await saveLocal({ deckId: deck.id, cards: CARDS_V1 })
+
+    const rows = await deckRows()
+    expect(rows.find((r) => r.id === deck.id)?.isDefault).toBe(1)
+  })
+
   it('moves isDefault to the new version, where the engine query will find it', async () => {
     const v1 = await saveLocal({ isDefault: true })
     await playMatch(v1.id)

@@ -13,6 +13,7 @@
  * leaving the deck list it was opened from in view behind it.
  */
 import { Alert, Box, Button, Drawer, IconButton, Stack, Typography } from '@mui/material'
+import { ThemeProvider, createTheme, useTheme } from '@mui/material/styles'
 import CloseIcon from '@mui/icons-material/Close'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
 import QrCode2RoundedIcon from '@mui/icons-material/QrCode2Rounded'
@@ -42,7 +43,8 @@ export default function DeckContentsDrawer({
   deckName,
   categories = [],
   onClose,
-  onSaved
+  onSaved,
+  zIndex
 }: {
   open: boolean
   deckId: number | null
@@ -52,6 +54,14 @@ export default function DeckContentsDrawer({
   onClose: () => void
   /** Called after an edit is saved, so the caller can refresh its own list. */
   onSaved?: () => void
+  /**
+   * 疊在已經浮著的東西上面時的底層。
+   *
+   * 牌組戰績是從頁面開的，1250 那個預設就對；牌組管理是從一個 1500 的抽屜裡
+   * 開的，不抬高整個抽屜會開在它後面。從這裡再開出去的建構器與代碼對話框跟著
+   * 往上一階——它們是這個抽屜的下一層，不是它的背景。
+   */
+  zIndex?: number
 }) {
   const [cards, setCards] = React.useState<StoredDeckCard[]>([])
   const [loading, setLoading] = React.useState(false)
@@ -103,7 +113,20 @@ export default function DeckContentsDrawer({
 
   const hasCards = !loading && cards.length > 0
 
-  return (
+  /**
+   * 卡牆上每張卡的能力 tooltip 走 MUI 預設的 `theme.zIndex.tooltip`
+   * （1500）。這個抽屜常被抬到 1500 以上打開（例如牌組管理是 1540），這時
+   * tooltip 反而疊在抽屜底下、滑過卡片什麼都看不到。做法和 `DeckBuilder`
+   * 抬高巢狀 Popover 一樣：套一層只改 `zIndex.tooltip` 的巢狀主題。
+   */
+  const outerTheme = useTheme()
+  const layeredTheme = React.useMemo(
+    () =>
+      zIndex === undefined ? null : createTheme(outerTheme, { zIndex: { tooltip: zIndex + 10 } }),
+    [outerTheme, zIndex]
+  )
+
+  const drawer = (
     <Drawer
       anchor="right"
       open={open}
@@ -112,7 +135,7 @@ export default function DeckContentsDrawer({
       // 固定 AppBar（`zIndex.drawer + 1` = 1201）底下 - 抽屜上緣正好被工具列蓋掉
       // 一截。抬到工具列之上，同時仍留在 `DeckBuilder`／`DeckCodeDialog` 這兩個
       // 從裡面打開的 Dialog（預設 1300）之下。
-      sx={{ zIndex: 1250 }}
+      sx={{ zIndex: zIndex ?? 1250 }}
       slotProps={{
         backdrop: { sx: BACKDROP_SX },
         paper: {
@@ -268,6 +291,7 @@ export default function DeckContentsDrawer({
         open={editing}
         deckId={viewDeckId}
         categories={categories}
+        zIndex={zIndex === undefined ? undefined : zIndex + 10}
         onClose={() => setEditing(false)}
         onSaved={(saved) => {
           // Refresh this drawer too: the user is looking at the list they just
@@ -283,8 +307,11 @@ export default function DeckContentsDrawer({
         open={publishing}
         deckId={viewDeckId}
         deckName={deckName}
+        zIndex={zIndex === undefined ? undefined : zIndex + 10}
         onClose={() => setPublishing(false)}
       />
     </Drawer>
   )
+
+  return layeredTheme ? <ThemeProvider theme={layeredTheme}>{drawer}</ThemeProvider> : drawer
 }

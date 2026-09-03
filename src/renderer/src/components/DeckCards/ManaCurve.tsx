@@ -137,9 +137,19 @@ export default function ManaCurve({
   // top of the track tells you nothing about its own shape.
   const peak = Math.max(1, ...buckets.map((b) => b.count))
 
+  // Fixed so every row in the 從者／法術／護符／合計 block - counts, labels,
+  // and this total - sits on the same line height. Left to the `caption`
+  // variant's own default, the total's heavier weight (and, with `deckSize`,
+  // its longer "n / n" text) rendered at a very slightly different line box
+  // than the plain counts above it, so the four rows didn't line up.
+  const STAT_LINE_HEIGHT = 1.4
+
   const totalEl =
     deckSize == null ? (
-      <Typography variant="caption" sx={{ fontWeight: 800, color: COUNT_COLOUR }}>
+      <Typography
+        variant="caption"
+        sx={{ fontWeight: 800, lineHeight: STAT_LINE_HEIGHT, color: COUNT_COLOUR }}
+      >
         {total} 張
       </Typography>
     ) : (
@@ -150,6 +160,7 @@ export default function ManaCurve({
           variant="caption"
           sx={{
             fontWeight: 900,
+            lineHeight: STAT_LINE_HEIGHT,
             cursor: 'help',
             fontVariantNumeric: 'tabular-nums',
             color: sizeState(total, deckSize).colour,
@@ -254,7 +265,10 @@ export default function ManaCurve({
             display: 'grid',
             gridTemplateColumns: 'auto auto',
             columnGap: 1.5,
-            rowGap: 0.25,
+            // One consistent gap between every row, divider included - it used
+            // to carry its own `my` on top of this, so the gap around it was
+            // taller than the gap between the counts and read as a jump.
+            rowGap: 0.5,
             alignItems: 'center'
           }}
         >
@@ -266,7 +280,10 @@ export default function ManaCurve({
             ] as const
           ).map(([label, value]) => (
             <React.Fragment key={label}>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              <Typography
+                variant="caption"
+                sx={{ lineHeight: STAT_LINE_HEIGHT, color: 'text.secondary' }}
+              >
                 {label}
               </Typography>
               <Typography
@@ -274,6 +291,7 @@ export default function ManaCurve({
                 sx={{
                   textAlign: 'right',
                   fontWeight: 800,
+                  lineHeight: STAT_LINE_HEIGHT,
                   fontVariantNumeric: 'tabular-nums',
                   color: COUNT_COLOUR,
                   opacity: value === 0 ? 0.4 : 1
@@ -284,10 +302,11 @@ export default function ManaCurve({
             </React.Fragment>
           ))}
 
-          <Box
-            sx={{ gridColumn: '1 / -1', height: '1px', bgcolor: 'rgba(255,255,255,0.10)', my: 0.5 }}
-          />
-          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          <Box sx={{ gridColumn: '1 / -1', height: '1px', bgcolor: 'rgba(255,255,255,0.10)' }} />
+          <Typography
+            variant="caption"
+            sx={{ lineHeight: STAT_LINE_HEIGHT, color: 'text.secondary' }}
+          >
             合計
           </Typography>
           <Box sx={{ textAlign: 'right' }}>{totalEl}</Box>

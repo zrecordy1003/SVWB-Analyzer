@@ -62,8 +62,25 @@ function getSnapshot(): ReferenceCache | null {
   return referenceCache
 }
 
+/**
+ * Mark the cache stale WITHOUT throwing the data away.
+ *
+ * Dropping it (`referenceCache = null`) made every subscriber render an empty
+ * snapshot for the ~50ms until the refetch landed, and any re-render inside
+ * that window - `decks:setDefaultForClass` resolving and clearing its busy id
+ * is one - repainted the deck grid from nothing. That is the flicker when you
+ * set a default: the grid empties and refills, and the optimistic star flips
+ * back and forth on the way.
+ *
+ * `fetchedAt = 0` makes every staleness check treat it as expired, so the
+ * refetch still happens; the last known-good data just stays on screen until
+ * the real answer replaces it. Written in place rather than as a new object:
+ * `getSnapshot` must keep returning the same identity until there is actually
+ * new data, or `useSyncExternalStore` re-renders every subscriber for a change
+ * none of them can see.
+ */
 function invalidateReferenceCache(): void {
-  referenceCache = null
+  if (referenceCache) referenceCache.fetchedAt = 0
 }
 
 /**

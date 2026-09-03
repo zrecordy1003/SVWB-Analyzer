@@ -5,11 +5,16 @@ name: CI
 # That is the whole point: `pnpm vision:verify` is where the recognition
 # regressions get caught, and it is worthless if it only ever runs locally.
 #
-# Two jobs, not one. Everything in `typescript` was measured at ~52s and needs
+# Three jobs, not one. Everything in `typescript` was measured at ~52s and needs
 # no Rust toolchain, no cargo cache and no LFS object, so running it after the
 # Rust work put it on the critical path for nothing. The jobs share no state
 # deliberately: `pnpm test` needs the engine binary, so it stays with Rust
 # rather than being handed an artifact.
+#
+# `e2e` is the third. It launches the real Electron app, so unlike `typescript`
+# it has to run the install scripts that fetch the Electron binary, and unlike
+# `rust` it needs no toolchain - which is why it is its own job rather than a
+# step bolted onto either.
 
 on:
   push:
@@ -144,3 +149,71 @@ jobs:
             exit 0
           fi
           pnpm engine:replay-cpu
+
+  # The end-to-end suite, driving the real app through Playwright's Electron
+  # driver. It was local-only until now, which made it the same kind of gap the
+  # replay check has: 865 lines that looked like a gate and never ran on a push.
+  #
+  # The host layer is exactly what it covers - window creation, the preload
+  # bridge, the protocol handler, the update flow, the deck-versioning rules
+  # read back through the real IPC - and that is the half of this repo `cargo
+  # test` cannot reach.
+  e2e:
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # No `--ignore-scripts` here, unlike the other two jobs: this is the one
+      # that actually launches Electron, so `electron-builder install-app-deps`
+      # has to run and fetch the binary.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The database-backed startup path runs `svwb-engine migrate` before
+      # anything reads, so the app cannot boot without the binary. Built here
+      # rather than taken from the `rust` job to keep the two independent - the
+      # same trade the comment at the top of this file describes.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tools
+          key: e2e
+
+      - name: Build the engine
+        run: pnpm engine:build
+
+      # `playwright test` builds the bundles itself: the build is a `setup`
+      # project the `e2e` project depends on (see playwright.config.ts), so
+      # there is no separate build step to keep in sync with it.
+      #
+      # `--grep-invert @network` drops the two class-emblem tests that download
+      # from Cygames. They are real tests, not stubs, and they stay in the local
+      # run - but a push should not hit a third party's CDN, and a green CI
+      # should not appear to cover something whose result depended on that CDN
+      # being up. See tests/e2e/classIcons.spec.ts.
+      - name: End-to-end
+        run: pnpm test:e2e:ci
+
+      # The trace and the main-process log are attached to failing tests by the
+      # `app` fixture. Without this upload they would exist only inside the
+      # runner.
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

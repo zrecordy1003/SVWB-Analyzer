@@ -13,9 +13,22 @@
  * real emblem is at least 270px on its long edge, which is the same signal
  * `ClassIcon` uses to decide whether to keep showing its swatch.
  *
- * This one talks to Cygames' servers, so it is the only test here that needs a
- * network. It is skipped rather than failed when there is none - a developer
- * offline should not be told their code is broken.
+ * # Why two of these are tagged `@network`
+ *
+ * The download happens in the MAIN process (`net.fetch`, see
+ * `data/classIcons.ts`), which is the point - the renderer's CSP forbids it.
+ * That also means Playwright cannot intercept it: there is no browser request
+ * to route. Making these hermetic would mean injecting a transport, which is
+ * what the unit tests already do, and would test the fake instead of the four
+ * things this file exists to check - handler, `net.fetch`, CSP and `<img>` -
+ * actually agreeing.
+ *
+ * So they stay real, and they carry a tag instead. CI runs with
+ * `--grep-invert @network`: hitting a third party's CDN on every push is both
+ * rude and a flake source, and a green CI should not appear to cover something
+ * whose result depended on Cygames being up. Locally they run by default, and
+ * skip rather than fail when there is no network - a developer offline should
+ * not be told their code is broken.
  */
 import { test, expect } from './app'
 
@@ -49,7 +62,7 @@ async function measure(
   )
 }
 
-test('every class emblem loads through svwb-card://', async ({ window }) => {
+test('every class emblem loads through svwb-card://', { tag: '@network' }, async ({ window }) => {
   const reachable = await window.evaluate(async () => {
     try {
       // The renderer cannot reach the network - that is the point of the CSP -
@@ -79,7 +92,7 @@ test('an unknown class name gets the blank pixel, not an error', async ({ window
   expect(result.width).toBe(1)
 })
 
-test('the emblems reach the screen', async ({ window }) => {
+test('the emblems reach the screen', { tag: '@network' }, async ({ window }) => {
   // The default-deck header at the top of every page names a class, so an
   // emblem is on screen from the first paint. Polled rather than read once: the
   // first one on a fresh profile is a cold download, not a cache hit.

@@ -20,12 +20,13 @@ import {
   Alert,
   Box,
   Button,
+  ButtonBase,
   Chip,
   CircularProgress,
   Dialog,
   IconButton,
   InputAdornment,
-  MenuItem,
+  InputBase,
   Stack,
   TextField,
   Typography
@@ -57,10 +58,153 @@ import {
   PANEL_SX
 } from '@renderer/components/Common/surfaces'
 import { SegmentedControl } from '@renderer/components/Common/SegmentedControl'
+import { CategorySelect } from '@renderer/components/Common/filters/CategorySelect'
+import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded'
+import { ThemeProvider, createTheme, useTheme } from '@mui/material/styles'
 import React from 'react'
 
 /** A full deck is 40 cards; the portal enforces the same number. */
 const DECK_SIZE = 40
+
+/**
+ * 牌組名稱欄。
+ *
+ * 和它右邊的分類、左邊的職業一樣是一顆軟填充藥丸，不是 MUI 預設那個 outlined
+ * ＋浮動 label 的表單欄位——見 `CONTROL_SX` 的註解。名稱上限只有 8 個字，所以
+ * 字數就寫在框裡右側；滿了才變色，打字的時候不必一直盯著它。
+ */
+function DeckNameField({
+  value,
+  onChange,
+  placeholder,
+  height = 40,
+  width = 190
+}: {
+  value: string
+  onChange: (next: string) => void
+  placeholder: string
+  height?: number
+  width?: number
+}): React.JSX.Element {
+  const full = value.length >= DECK_NAME_MAX_LEN
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 0.75,
+        height,
+        width,
+        px: 1.5,
+        borderRadius: 2,
+        bgcolor: 'action.hover',
+        border: '1px solid',
+        borderColor: 'divider',
+        transition: 'background-color .15s, border-color .15s',
+        '&:hover': { bgcolor: 'action.selected', borderColor: 'text.disabled' },
+        '&:focus-within': { borderColor: 'primary.main', bgcolor: 'action.selected' }
+      }}
+    >
+      <DriveFileRenameOutlineRoundedIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
+      <InputBase
+        fullWidth
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        inputProps={{ maxLength: DECK_NAME_MAX_LEN, 'aria-label': '牌組名稱' }}
+        sx={{ fontSize: 14, fontWeight: 700 }}
+      />
+      <Typography
+        variant="caption"
+        sx={{
+          flexShrink: 0,
+          fontVariantNumeric: 'tabular-nums',
+          color: full ? 'warning.main' : 'rgba(255,255,255,0.32)'
+        }}
+      >
+        {value.length}/{DECK_NAME_MAX_LEN}
+      </Typography>
+    </Box>
+  )
+}
+
+/**
+ * 一張卡在牌組裡的張數：`−  2  +`。
+ *
+ * 這裡原本是「×2」加一顆只會減的按鈕，加牌只能回左邊的卡池點——但使用者調張數
+ * 的時候看的是右邊這份清單，手邊卻只有一半的操作。兩顆按鈕夾著數字是這件事最
+ * 直接的說法，`×` 也就不必再寫：一顆 `+` 和一顆 `−` 已經說明中間那個數字是
+ * 幾張了。
+ *
+ * `+` 在到達這張卡的張數上限、或牌組滿 40 張時停用；`−` 永遠可按（能看到這一
+ * 列就表示至少有一張）。
+ */
+function CountStepper({
+  count,
+  canAdd,
+  onAdd,
+  onRemove,
+  onBanner
+}: {
+  count: number
+  canAdd: boolean
+  onAdd: () => void
+  onRemove: () => void
+  /** 這一列有卡圖當底：整組要自己變暗，不能靠背景色。 */
+  onBanner: boolean
+}): React.JSX.Element {
+  const buttonSx = {
+    width: 20,
+    height: 20,
+    borderRadius: 1,
+    fontSize: 15,
+    fontWeight: 900,
+    lineHeight: 1,
+    color: onBanner ? '#fff' : 'text.secondary',
+    transition: 'background-color .12s, color .12s',
+    '&:hover': {
+      bgcolor: onBanner ? 'rgba(255,255,255,0.22)' : 'action.selected',
+      color: 'text.primary'
+    },
+    '&.Mui-disabled': { opacity: 0.32 }
+  } as const
+
+  return (
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={0.25}
+      sx={{
+        flexShrink: 0,
+        p: '2px',
+        borderRadius: 1.5,
+        bgcolor: onBanner ? 'rgba(0,0,0,0.62)' : 'action.hover',
+        border: '1px solid',
+        borderColor: onBanner ? 'rgba(255,255,255,0.16)' : 'divider'
+      }}
+    >
+      <ButtonBase onClick={onRemove} aria-label="減少一張" sx={buttonSx}>
+        −
+      </ButtonBase>
+      <Box
+        sx={{
+          minWidth: 16,
+          textAlign: 'center',
+          fontSize: 13,
+          fontWeight: 800,
+          fontVariantNumeric: 'tabular-nums',
+          color: onBanner ? '#fff' : 'text.primary',
+          textShadow: onBanner ? '0 1px 3px rgba(0,0,0,.95)' : undefined
+        }}
+      >
+        {count}
+      </Box>
+      <ButtonBase onClick={onAdd} disabled={!canAdd} aria-label="增加一張" sx={buttonSx}>
+        ＋
+      </ButtonBase>
+    </Stack>
+  )
+}
 /** Fallback when the portal did not say. Three is the game's general rule. */
 const DEFAULT_COPY_LIMIT = 3
 
@@ -435,7 +579,29 @@ export default function DeckBuilder({
 
   const needsSync = syncedAt === null && pool.length === 0 && bootstrap === null
 
-  return (
+  /**
+   * Popovers opened INSIDE a raised builder have to be raised with it.
+   *
+   * `zIndex` only lifted this dialog. Every `Select`, `Menu` and `Tooltip` in
+   * here portals to `<body>` at the theme's own modal layer (1300), so opening
+   * the builder from the deck manager (1530) left the 分類 dropdown rendering
+   * behind the full-screen dialog: the menu was open, and there was nothing to
+   * click. Raising the layer in a nested theme fixes every popover in the
+   * subtree at once, including ones added later, instead of threading a
+   * `MenuProps` override through each control.
+   */
+  const outerTheme = useTheme()
+  const layeredTheme = React.useMemo(
+    () =>
+      zIndex === undefined
+        ? null
+        : createTheme(outerTheme, {
+            zIndex: { modal: zIndex, tooltip: zIndex + 10, snackbar: zIndex + 10 }
+          }),
+    [outerTheme, zIndex]
+  )
+
+  const dialog = (
     <Dialog
       open={open}
       onClose={saving ? undefined : onClose}
@@ -494,30 +660,17 @@ export default function DeckBuilder({
 
           <Box sx={{ flex: 1 }} />
 
-          <TextField
-            size="small"
-            select
-            label="分類"
+          <CategorySelect
             value={categoryId}
-            onChange={(event) => setCategoryId(event.target.value)}
-            sx={{ width: 120 }}
-          >
-            <MenuItem value="">未分類</MenuItem>
-            {categories.map((category) => (
-              <MenuItem key={category.id} value={category.id}>
-                {category.name}
-              </MenuItem>
-            ))}
-          </TextField>
+            onChange={setCategoryId}
+            categories={categories}
+            height={40}
+          />
 
-          <TextField
-            size="small"
-            label="牌組名稱"
+          <DeckNameField
             value={deckName}
-            onChange={(event) => setDeckName(event.target.value)}
+            onChange={setDeckName}
             placeholder={suggestDeckName(classesMap[className].label, new Date())}
-            slotProps={{ htmlInput: { maxLength: DECK_NAME_MAX_LEN } }}
-            sx={{ width: 160 }}
           />
 
           <Button
@@ -752,23 +905,13 @@ export default function DeckBuilder({
                           >
                             {card.name}
                           </Typography>
-                          <Typography
-                            variant="caption"
-                            fontWeight={800}
-                            sx={{ color: banner ? '#fff' : 'text.primary' }}
-                          >
-                            ×{count}
-                          </Typography>
-                          <IconButton
-                            size="small"
-                            onClick={() => remove(card.cardId)}
-                            aria-label="移除一張"
-                            sx={{ color: banner ? '#fff' : 'text.secondary', p: 0.25 }}
-                          >
-                            <Typography variant="caption" fontWeight={900}>
-                              −
-                            </Typography>
-                          </IconButton>
+                          <CountStepper
+                            count={count}
+                            canAdd={count < limitFor(card) && total < DECK_SIZE}
+                            onAdd={() => add(card)}
+                            onRemove={() => remove(card.cardId)}
+                            onBanner={!!banner}
+                          />
                         </Stack>
                       </Box>
                     </CardTooltip>
@@ -781,6 +924,8 @@ export default function DeckBuilder({
       </Stack>
     </Dialog>
   )
+
+  return layeredTheme ? <ThemeProvider theme={layeredTheme}>{dialog}</ThemeProvider> : dialog
 }
 
 function syncErrorMessage(code: string): string {
