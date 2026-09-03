@@ -36,7 +36,7 @@ import AddDeckFlow from '@renderer/components/DeckBuilder/AddDeckFlow'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import { readSetting } from '@renderer/components/Analyzer/filterState'
 import { useDecksTags, type DeckLite } from '../../hooks/useDecksTags'
-import { invokeIpc } from '@renderer/ipc'
+import { deckStatsResource } from '@renderer/resources'
 
 type SplitRecord = { total: number; wins: number }
 type DeckStat = {
@@ -97,6 +97,8 @@ const SORT_SEGMENTS: Array<{ id: SortKey; label: string }> = [
   { id: 'total', label: '場次' },
   { id: 'name', label: '名稱' }
 ]
+
+const NO_STATS: DeckStat[] = []
 
 const DeckPerformanceSkeleton = ({ view }: { view: ViewMode }): React.JSX.Element => (
   <>
@@ -169,9 +171,6 @@ const DeckPerformance = (): React.JSX.Element => {
   const [expandedFamilies, setExpandedFamilies] = useState<ReadonlySet<number>>(() => new Set())
   // 還沒讀回存檔前不要寫回去，否則預設值會蓋掉使用者上次選的那個。
   const viewModeLoadedRef = useRef(false)
-  const [stats, setStats] = useState<DeckStat[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false)
 
   // Start from the mode the player most recently used. The select stays fully
@@ -227,24 +226,21 @@ const DeckPerformance = (): React.JSX.Element => {
     [endDate, modeFilter, rangeKey, startDate]
   )
 
-  useEffect(() => {
-    let active = true
-    setLoading(true)
-    setError(null)
-    void invokeIpc('decks:stats', statsParams)
-      .then((response) => {
-        if (!active) return
-        if (!response?.ok) throw new Error(response?.error ?? '無法載入牌組戰績')
-        setStats(response.data ?? [])
-      })
-      .catch((reason: unknown) => {
-        if (active) setError(reason instanceof Error ? reason.message : '無法載入牌組戰績')
-      })
-      .finally(() => active && setLoading(false))
-    return () => {
-      active = false
-    }
-  }, [statsParams])
+  /**
+   * One line for what used to be three `useState`s and two effects.
+   *
+   * There were two: one fetching on a parameter change, one fetching again on
+   * `matches:needRefetch`, with the error handling written out twice and no
+   * de-duplication between them - so a broadcast arriving mid-fetch issued a
+   * second identical query. `deckStatsResource` collapses both, and the hook
+   * holds the last answer across a filter change so the numbers on screen do
+   * not blank out while the next set loads.
+   */
+  const { data: statsData, loading, error } = deckStatsResource.use([statsParams])
+  // A module constant, not `?? []`: a fresh array each render makes every
+  // downstream `useMemo` recompute while there is no data, which is exactly
+  // what `react-hooks/exhaustive-deps` complains about here.
+  const stats: DeckStat[] = statsData ?? NO_STATS
 
   useEffect(() => {
     if (!loading && !decksLoading) setHasLoadedOnce(true)
@@ -257,15 +253,6 @@ const DeckPerformance = (): React.JSX.Element => {
   const [correcting, setCorrecting] = useState<CorrectVersionRequest | null>(null)
   // 先問「匯入還是自己建」，之後的路交給 `AddDeckFlow`。
   const [adding, setAdding] = useState(false)
-
-  useEffect(() => {
-    const unsubscribe = window.electron?.ipcRenderer.on('matches:needRefetch', () => {
-      void invokeIpc('decks:stats', statsParams).then((response) => {
-        if (response?.ok) setStats(response.data ?? [])
-      })
-    })
-    return () => unsubscribe?.()
-  }, [statsParams])
 
   /** 每個版本的成績，給展開的版本面板用。 */
   const versionStats = useMemo(() => {

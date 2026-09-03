@@ -37,6 +37,7 @@ import type { Match } from '@shared/domain'
 import { classesMap } from '@renderer/map/classMap'
 import type { GameMode } from '@shared/domain'
 import type { BattleStatus, GameStatus } from '@shared/types'
+import { invokeIpc } from '@renderer/ipc'
 
 /**
  * The header buttons are chrome, not content: at the default size they were the
@@ -153,9 +154,7 @@ const HudApp: React.FC = () => {
         window.settings.get('hudStatsDays'),
         window.settings.get('hudRecentCount'),
         // Broadcast only fires on change, so the current value has to be pulled.
-        window.electron?.ipcRenderer
-          .invoke('game:getStatus')
-          .catch(() => null) as Promise<GameStatus | null>
+        invokeIpc('game:getStatus').catch(() => null) as Promise<GameStatus | null>
       ])
       if (!mounted) return
       if (initialGameStatus) setGameStatus(initialGameStatus)

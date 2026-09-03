@@ -87,8 +87,7 @@ const BattleStatus = (): React.JSX.Element => {
         setIsRecognizing(!!status?.capturing)
       }
     )
-    void window.electron?.ipcRenderer
-      .invoke('game:getStatus')
+    void invokeIpc('game:getStatus')
       .then((status: { capturing?: boolean } | null) => setIsRecognizing(!!status?.capturing))
       .catch(() => setIsRecognizing(false))
 

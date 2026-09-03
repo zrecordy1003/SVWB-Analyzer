@@ -16,16 +16,10 @@ import DeckVersionsPanel, {
   type VersionStat
 } from './DeckVersionsPanel'
 import type { DeckFamily } from './deckVersions'
-import { invokeIpc } from '@renderer/ipc'
+import { deckStatsResource } from '@renderer/resources'
 
-type StatsRow = {
-  deckId: number | null
-  total: number
-  wins: number
-  winRate: number
-  firstPlayedAt?: number | null
-  lastPlayedAt?: number | null
-}
+// `type StatsRow` was here - a local restatement of `DeckStatsRow`, which the
+// resource now supplies typed. One less shape to keep in step.
 
 export default function DeckVersionsDialog<T extends VersionDeckLike>({
   open,
@@ -43,45 +37,60 @@ export default function DeckVersionsDialog<T extends VersionDeckLike>({
   /** Passed through to the panel's 「修正卡表…」. */
   onCorrect?: (request: CorrectVersionRequest) => void
 }): React.JSX.Element {
-  const [stats, setStats] = React.useState<Map<number, VersionStat> | null>(null)
-
-  const familyKey = family ? family.versions.map((v) => v.deck.id).join(',') : ''
-
-  React.useEffect(() => {
-    if (!open || !family) return
-    let cancelled = false
-    setStats(null)
-    void invokeIpc('decks:stats', {
-      rangeKey: 'all',
-      mode: 'all',
-      groupBy: 'deck',
-      deckIds: family.versions.map((v) => v.deck.id)
-    })
-      .then((res: { ok: boolean; data?: StatsRow[] }) => {
-        if (cancelled) return
-        const map = new Map<number, VersionStat>()
-        for (const row of res?.ok ? (res.data ?? []) : []) {
-          if (row.deckId !== null) {
-            map.set(row.deckId, {
-              total: row.total,
-              wins: row.wins,
-              winRate: row.winRate,
-              firstPlayedAt: row.firstPlayedAt ?? null,
-              lastPlayedAt: row.lastPlayedAt ?? null
-            })
-          }
-        }
-        setStats(map)
-      })
-      .catch(() => {
-        if (!cancelled) setStats(new Map())
-      })
-    return () => {
-      cancelled = true
-    }
-    // familyKey stands in for the family object, which is rebuilt on every reload.
+  /**
+   * Through the shared `decks:stats` cache, not a fetch of its own.
+   *
+   * This was a `useState` plus an effect with its own error handling, its own
+   * cancellation flag, and no de-duplication against the deck-performance page
+   * behind it - which asks the same channel. Sharing the resource means opening
+   * this dialog can hit a warm answer, and a `matches:needRefetch` refreshes
+   * both from one request.
+   *
+   * The query is `null` while the dialog is closed or has no family, so it
+   * issues nothing until there is something to ask about.
+   */
+  const versionIds = family ? family.versions.map((v) => v.deck.id) : []
+  const familyKey = versionIds.join(',')
+  const query = React.useMemo(
+    () =>
+      open && family
+        ? ([
+            {
+              rangeKey: 'all' as const,
+              mode: 'all' as const,
+              groupBy: 'deck' as const,
+              deckIds: versionIds
+            }
+          ] as const)
+        : null,
+    // `familyKey` stands in for the family object, which is rebuilt on every
+    // reload; depending on the array would refetch for each new identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, familyKey])
+    [open, familyKey]
+  )
+  const { data: rows } = deckStatsResource.use(query ? [query[0]] : null)
+
+  /**
+   * `null` until the first answer, which the render below reads as "loading".
+   * A failed query leaves `rows` null and the dialog says loading rather than
+   * claiming every version has no games - the previous version turned an
+   * error into an empty Map, which looks exactly like a real answer.
+   */
+  const stats = React.useMemo(() => {
+    if (!rows) return null
+    const map = new Map<number, VersionStat>()
+    for (const row of rows) {
+      if (row.deckId === null) continue
+      map.set(row.deckId, {
+        total: row.total,
+        wins: row.wins,
+        winRate: row.winRate,
+        firstPlayedAt: row.firstPlayedAt ?? null,
+        lastPlayedAt: row.lastPlayedAt ?? null
+      })
+    }
+    return map
+  }, [rows])
 
   return (
     <AppDialog

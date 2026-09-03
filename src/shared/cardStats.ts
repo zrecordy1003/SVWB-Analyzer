@@ -13,29 +13,18 @@
  * measured.
  */
 import type { CardKind } from './deckImport.js'
-import type { RangeKey } from './types.js'
 
 /**
- * What the renderer sends to `cards:stats`. The match list's filter payload,
- * minus paging, plus `mode: 'all'` and `limit`. Main widens it to its own
- * `QueryPayload`; this is the renderer-side contract.
+ * What the renderer sends to `cards:stats`.
+ *
+ * Re-exported, not redeclared. There was a hand-written `CardStatsQuery` here
+ * whose own comment called it "the renderer-side contract" - a THIRD spelling
+ * of the payload, and a wider one: `myClassIds?: string[]` where the channel
+ * takes `ClassName[]`, `mode?: string | null` where it takes the enum. Two
+ * sides each describing the same message is the thing `shared/ipc.ts` exists
+ * to stop.
  */
-export type CardStatsQuery = {
-  myClassIds?: string[]
-  /** `'all'` and `null` both mean every mode. */
-  mode?: string | null
-  rangeKey?: RangeKey
-  start?: string | number | Date | null
-  end?: string | number | Date | null
-  myDeckIds?: number[]
-  /** Default 'family': a picked deck stands for every version of it. */
-  myDeckScope?: 'family' | 'deck'
-  tagIds?: number[]
-  crMin?: number | null
-  crMax?: number | null
-  /** Keep only the most recent N matches that pass every other filter. */
-  limit?: number | null
-}
+export type { CardStatsPayload as CardStatsQuery } from './cards.js'
 
 export type WinLoss = { total: number; wins: number }
 
