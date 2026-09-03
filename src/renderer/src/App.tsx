@@ -212,7 +212,7 @@ function App(): React.JSX.Element {
       <CssBaseline />
       <UpdateProvider>
         <SupportPrompt />
-        <TelemetryPrompt onOpenSettings={() => setCurrentPage('Settings')} />
+        <TelemetryPrompt />
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Toolbar sx={{ position: 'relative' }}>
             <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>

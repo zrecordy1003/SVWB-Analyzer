@@ -88,7 +88,7 @@ test.describe('launched with --hidden', () => {
     expect(await storeValue<unknown>(window, 'telemetryPromptShown')).not.toBe(true)
 
     // Nothing on screen to dismiss either.
-    await expect(window.getByText('已為你開啟匿名使用統計')).toHaveCount(0)
+    await expect(window.getByText('已開啟數據統計')).toHaveCount(0)
   })
 
   test('and with the gate shut, an upload cannot happen', async ({ window }) => {
@@ -125,7 +125,7 @@ test.describe('launched with --hidden', () => {
 
     // The guard defers the notice, it does not cancel it: `window:shown` makes
     // the prompt ask again, and now the answer is yes.
-    await expect(window.getByText('已為你開啟匿名使用統計')).toBeVisible({ timeout: 20_000 })
+    await expect(window.getByText('已開啟數據統計')).toBeVisible({ timeout: 20_000 })
     await expect.poll(() => storeValue<unknown>(window, 'telemetryPromptShown')).toBe(true)
   })
 })

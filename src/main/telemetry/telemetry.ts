@@ -200,11 +200,16 @@ let lastUploadStartedAt = 0
 /**
  * One upload. Resolves when it is over, successful or not; never rejects.
  *
- * `force` is the settings page's 立即上傳: it bypasses the minimum gap but not
- * the enabled check, the endpoint check or the notice check - there is no way
- * to send from a build that has nowhere to send to, and none to send from an
- * install that has not been told. (Pressing 立即上傳 means the user is looking
- * at the settings page, so the notice has long since been shown.)
+ * `force` bypasses the minimum gap, and nothing else: not the enabled check,
+ * not the endpoint check, not the notice check. There is no way to send from a
+ * build that has nowhere to send to, and none to send from an install that has
+ * not been told.
+ *
+ * It reached this from the settings page's 「立即上傳」 until 1.3.0, when that
+ * button was removed. `telemetry:uploadNow` is still handled - the schedule
+ * calls the unforced path, and the forced one is what
+ * `tests/main/telemetry.test.ts` drives to prove the gap and the gate hold -
+ * it simply has no UI behind it now.
  */
 export async function uploadNow(opts: { force?: boolean } = {}): Promise<void> {
   if (inFlight) return inFlight
