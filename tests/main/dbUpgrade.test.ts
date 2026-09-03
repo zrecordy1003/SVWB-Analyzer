@@ -110,8 +110,27 @@ afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
+/**
+ * A minute, against vitest's 5s default, and this one IS the machine rather
+ * than a smell.
+ *
+ * Each case applies seven migrations synchronously and then spawns the real
+ * `svwb-engine` - twice, in the idempotency case, because running it again is
+ * the thing being asserted. Locally that is ~600ms; on a cold CI runner with
+ * Defender in the path it went over 5s and the second case failed on time
+ * alone, having done nothing wrong.
+ *
+ * Worth naming the difference from the classIcons flake, which was also "a
+ * test that times out" and was NOT this: there the code polled for a promise
+ * nobody held, so raising the limit only bought a longer wait for the same
+ * race, and the fix was an await seam. Here there is no seam to add - a
+ * subprocess takes as long as the host takes - and the limit is what should
+ * move. It stays finite so a genuine hang still fails rather than hanging CI.
+ */
+const SPAWNS_THE_ENGINE = { timeout: 60_000 }
+
 describe(`upgrading from ${FROM_TAG}`, () => {
-  it('keeps every row, and adds the new columns as nullable', () => {
+  it('keeps every row, and adds the new columns as nullable', SPAWNS_THE_ENGINE, () => {
     if (!existsSync(ENGINE)) {
       throw new Error(`svwb-engine is not built at ${ENGINE}\nRun: pnpm engine:build`)
     }
@@ -271,7 +290,7 @@ describe(`upgrading from ${FROM_TAG}`, () => {
     after.close()
   })
 
-  it('is idempotent: running the upgrade twice changes nothing', () => {
+  it('is idempotent: running the upgrade twice changes nothing', SPAWNS_THE_ENGINE, () => {
     const old = migrationsAtTag()
     const db = new SQLite(dbPath)
     db.exec(SCHEMA_MIGRATIONS_DDL)

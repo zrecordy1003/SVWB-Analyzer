@@ -208,6 +208,28 @@ jobs:
           node-version: 22
           cache: pnpm
 
+      # Python 3.11, not the image's 3.12, and only this job needs it.
+      #
+      # `extract-file-icon`'s install script runs the HOISTED node-gyp 9.4.1,
+      # whose bundled gyp does `from distutils.version import StrictVersion` -
+      # and distutils was removed in Python 3.12:
+      #
+      #   ModuleNotFoundError: No module named 'distutils'
+      #
+      # better-sqlite3 in the same install builds fine, because it brings a
+      # newer node-gyp of its own. That asymmetry is why the failure looks like
+      # one package being broken rather than a toolchain mismatch.
+      #
+      # Together with the windows-2022 pin above, this job's native rebuild
+      # works for the two reasons node-gyp 9.4.1 needs: a Visual Studio it can
+      # parse, and a Python that still has distutils. The durable fix for both
+      # is a modern node-gyp, which means either dropping extract-file-icon or
+      # overriding its build dependency repo-wide - not something to change in
+      # a release week, since the same graph builds the shipped installer.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       # No `--ignore-scripts` here, unlike the other two jobs: this is the one
       # that actually launches Electron, so `electron-builder install-app-deps`
       # has to run and fetch the binary.
