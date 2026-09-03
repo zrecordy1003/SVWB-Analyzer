@@ -26,6 +26,7 @@ import QrCode2RoundedIcon from '@mui/icons-material/QrCode2Rounded'
 import { DECK_CODE_RENEW_MS, DECK_CODE_TTL_MS } from '@shared/deckImport'
 import AppDialog from '@renderer/components/Common/AppDialog'
 import React from 'react'
+import { invokeIpc } from '@renderer/ipc'
 
 function publishErrorMessage(code: string): string {
   if (code === 'NETWORK') return '連不上官方牌組網站，請確認網路連線後再試一次。'
@@ -69,7 +70,7 @@ export default function DeckCodeDialog({
       setError(null)
       setCode(null)
       try {
-        const res = await window.electron.ipcRenderer.invoke('decks:publishCode', { deckId })
+        const res = await invokeIpc('decks:publishCode', { deckId })
         if (cancelled) return
         if (!res?.ok) throw new Error(publishErrorMessage(res?.error ?? 'NETWORK'))
         setCode(res.data.deckCode)
@@ -92,8 +93,7 @@ export default function DeckCodeDialog({
   React.useEffect(() => {
     if (!open || !hash) return
     const timer = setInterval(() => {
-      void window.electron.ipcRenderer
-        .invoke('decks:renewCode', { hash })
+      void invokeIpc('decks:renewCode', { hash })
         .then((res) => {
           if (!res?.ok) return
           setCode(res.data.deckCode)

@@ -186,8 +186,8 @@ function enrichDecks(deckRows: any[], categories: CategoryLite[]): DeckLite[] {
  */
 async function fetchDecks(): Promise<{ deckVersions: DeckLite[]; categories: CategoryLite[] }> {
   const [decksRes, catsRes] = await Promise.all([
-    window.electron.ipcRenderer.invoke('decks:all', { scope: 'all' }),
-    window.electron.ipcRenderer.invoke('deckCategories:all')
+    invokeIpc('decks:all', { scope: 'all' }),
+    invokeIpc('deckCategories:all')
   ])
   if (!decksRes?.ok) throw new Error(decksRes?.error ?? '取得牌組失敗')
   if (!catsRes?.ok) throw new Error(catsRes?.error ?? '取得分類失敗')

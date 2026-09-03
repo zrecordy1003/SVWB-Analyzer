@@ -62,6 +62,7 @@ import { CategorySelect } from '@renderer/components/Common/filters/CategorySele
 import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRenameOutlineRounded'
 import { ThemeProvider, createTheme, useTheme } from '@mui/material/styles'
 import React from 'react'
+import { invokeIpc } from '@renderer/ipc'
 
 /** A full deck is 40 cards; the portal enforces the same number. */
 const DECK_SIZE = 40
@@ -342,8 +343,7 @@ export default function DeckBuilder({
     setCorrectionMatches(null)
     if (!open || !correction || deckId == null) return
     let cancelled = false
-    void window.electron.ipcRenderer
-      .invoke('decks:versionImpact', { id: deckId })
+    void invokeIpc('decks:versionImpact', { id: deckId })
       .then((res: { ok: boolean; data?: { matches: number } }) => {
         if (!cancelled && res?.ok && res.data) setCorrectionMatches(res.data.matches)
       })
@@ -391,7 +391,7 @@ export default function DeckBuilder({
     let cancelled = false
 
     void (async () => {
-      const res = await window.electron.ipcRenderer.invoke('decks:get', { id: deckId })
+      const res = await invokeIpc('decks:get', { id: deckId })
       if (cancelled) return
       if (!res?.ok) {
         setError(res?.error ?? '讀取牌組失敗')
@@ -550,7 +550,7 @@ export default function DeckBuilder({
     setSaving(true)
     setError(null)
     try {
-      const res = await window.electron.ipcRenderer.invoke('decks:saveLocal', {
+      const res = await invokeIpc('decks:saveLocal', {
         deckId,
         name,
         classId,

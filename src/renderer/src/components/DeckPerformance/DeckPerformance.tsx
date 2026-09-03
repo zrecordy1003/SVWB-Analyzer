@@ -36,6 +36,7 @@ import AddDeckFlow from '@renderer/components/DeckBuilder/AddDeckFlow'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import { readSetting } from '@renderer/components/Analyzer/filterState'
 import { useDecksTags, type DeckLite } from '../../hooks/useDecksTags'
+import { invokeIpc } from '@renderer/ipc'
 
 type SplitRecord = { total: number; wins: number }
 type DeckStat = {
@@ -230,8 +231,7 @@ const DeckPerformance = (): React.JSX.Element => {
     let active = true
     setLoading(true)
     setError(null)
-    void window.electron.ipcRenderer
-      .invoke('decks:stats', statsParams)
+    void invokeIpc('decks:stats', statsParams)
       .then((response) => {
         if (!active) return
         if (!response?.ok) throw new Error(response?.error ?? '無法載入牌組戰績')
@@ -260,7 +260,7 @@ const DeckPerformance = (): React.JSX.Element => {
 
   useEffect(() => {
     const unsubscribe = window.electron?.ipcRenderer.on('matches:needRefetch', () => {
-      void window.electron.ipcRenderer.invoke('decks:stats', statsParams).then((response) => {
+      void invokeIpc('decks:stats', statsParams).then((response) => {
         if (response?.ok) setStats(response.data ?? [])
       })
     })

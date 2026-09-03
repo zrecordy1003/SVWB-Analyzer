@@ -10,20 +10,30 @@ import {
   Typography
 } from '@mui/material'
 import { createFilterOptions } from '@mui/material/Autocomplete'
-import type { ClassName } from '@shared/domain'
+import type { ClassName, DeckCategory } from '@shared/domain'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import NewDeckDrawer from '@renderer/components/DeckBuilder/NewDeckDrawer'
 import { classesMap } from '@renderer/map/classMap'
 import { CONTROL_SX, DROPDOWN_PAPER_SX } from '@renderer/components/Common/filters/dropdownSurface'
 import AddIcon from '@mui/icons-material/Add'
+import { invokeIpc } from '@renderer/ipc'
 
 /* ================================
  * Types
  * ================================ */
 
 type DeckRow = { id: number; name: string; class: ClassName; categoryId: string | null }
-type Category = { id: string; name: string; sort?: number }
+/**
+ * What `deckCategories:all` actually answers with.
+ *
+ * This used to be a local `{ id: string; name: string; sort?: number }`, which
+ * was narrower than the truth in the way that matters: `sort` is
+ * `number | null`, not optional. `sortCategories` coalesces it either way so
+ * nothing misbehaved, but the shape was a guess that only compiled because the
+ * channel returned `any`. The typed contract is what disagreed.
+ */
+type Category = DeckCategory
 
 /** 顯示用 Option：帶上 categoryName；__create__ 為空清單時的哨兵。 */
 type Option = (DeckRow & { categoryName: string }) & { __create__?: boolean }
@@ -129,8 +139,8 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
    */
   const loadDecks = React.useCallback(async (): Promise<Option[]> => {
     const [catRes, deckRes] = await Promise.all([
-      window.electron.ipcRenderer.invoke('deckCategories:all'),
-      window.electron.ipcRenderer.invoke('decks:all')
+      invokeIpc('deckCategories:all'),
+      invokeIpc('decks:all')
     ])
     if (!catRes?.ok) throw new Error(catRes?.error ?? '讀取分類失敗')
     if (!deckRes?.ok) throw new Error(deckRes?.error ?? '讀取牌組失敗')

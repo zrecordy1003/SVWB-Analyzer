@@ -19,11 +19,19 @@ import { syncCardPoolSlice } from '../data/cardPool.js'
 import { getDb } from '../data/db/client.js'
 import { SvwbApiError, type PortalLang } from '../data/svwbApi.js'
 import { store } from '../store.js'
+import type { Res } from '../../shared/ipc.js'
 
-type Ok<T> = { ok: true; data: T }
-type Err = { ok: false; error: string }
-type Res<T> = Ok<T> | Err
-
+/**
+ * This module's own `wrap`, and NOT the shared `wrapRes`.
+ *
+ * The difference is the `SvwbApiError` branch: the portal's failures carry a
+ * CODE that the UI switches on to say something specific, so returning
+ * `e.message` here - which is what the shared helper does - would flatten
+ * "the deck code expired" and "the portal is down" into the same string.
+ *
+ * Three other modules did have an identical private copy of the shared one and
+ * have been folded into it; this one is a specialisation, so it stays.
+ */
 const wrap = async <T>(fn: () => Promise<T>): Promise<Res<T>> => {
   try {
     return { ok: true, data: await fn() }

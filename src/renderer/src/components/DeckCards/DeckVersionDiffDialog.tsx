@@ -19,6 +19,7 @@ import AppDialog from '@renderer/components/Common/AppDialog'
 import React from 'react'
 
 import DeckCardList from './DeckCardList'
+import { invokeIpc } from '@renderer/ipc'
 import {
   diffCopyCounts,
   diffDeckCards,
@@ -30,7 +31,7 @@ import {
 export type DiffEndpoint = { id: number; number: number }
 
 async function readCards(deckId: number): Promise<StoredDeckCard[]> {
-  const res = await window.electron.ipcRenderer.invoke('decks:cards', { deckId })
+  const res = await invokeIpc('decks:cards', { deckId })
   if (!res?.ok) throw new Error(res?.error ?? '讀取卡表失敗')
   return res.data as StoredDeckCard[]
 }

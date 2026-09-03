@@ -16,6 +16,7 @@ import DeckVersionsPanel, {
   type VersionStat
 } from './DeckVersionsPanel'
 import type { DeckFamily } from './deckVersions'
+import { invokeIpc } from '@renderer/ipc'
 
 type StatsRow = {
   deckId: number | null
@@ -50,13 +51,12 @@ export default function DeckVersionsDialog<T extends VersionDeckLike>({
     if (!open || !family) return
     let cancelled = false
     setStats(null)
-    void window.electron.ipcRenderer
-      .invoke('decks:stats', {
-        rangeKey: 'all',
-        mode: 'all',
-        groupBy: 'deck',
-        deckIds: family.versions.map((v) => v.deck.id)
-      })
+    void invokeIpc('decks:stats', {
+      rangeKey: 'all',
+      mode: 'all',
+      groupBy: 'deck',
+      deckIds: family.versions.map((v) => v.deck.id)
+    })
       .then((res: { ok: boolean; data?: StatsRow[] }) => {
         if (cancelled) return
         const map = new Map<number, VersionStat>()

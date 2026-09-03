@@ -50,6 +50,7 @@ import { DECK_NAME_MAX_LEN, suggestDeckName, type DeckImportPreview } from '@sha
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap } from '@renderer/map/classMap'
 import React from 'react'
+import { invokeIpc } from '@renderer/ipc'
 
 import {
   BACKDROP_SX,
@@ -129,8 +130,7 @@ export default function NewDeckDrawer({
     setClip(null)
 
     // Checked once, on open - a user gesture - rather than polled.
-    void window.electron.ipcRenderer
-      .invoke('decks:clipboardCandidate')
+    void invokeIpc('decks:clipboardCandidate')
       .then((res) => setClip(res?.ok ? res.data : null))
       .catch(() => setClip(null))
   }, [open])
@@ -149,7 +149,7 @@ export default function NewDeckDrawer({
     for (let attempt = 0; attempt < 20; attempt++) {
       const suffix = attempt === 0 ? '' : String(attempt + 1)
       const name = base.slice(0, DECK_NAME_MAX_LEN - suffix.length) + suffix
-      const res = await window.electron.ipcRenderer.invoke('decks:import', { preview, name })
+      const res = await invokeIpc('decks:import', { preview, name })
       if (res?.ok) return res.data.id as number
 
       const raw: string = res?.error ?? '匯入失敗'
@@ -177,7 +177,7 @@ export default function NewDeckDrawer({
     setBusy(true)
     setError(null)
     try {
-      const res = await window.electron.ipcRenderer.invoke('decks:importPreview', { text: input })
+      const res = await invokeIpc('decks:importPreview', { text: input })
       if (!res?.ok) throw new Error(importErrorMessage(res?.error ?? 'UNEXPECTED_SHAPE'))
 
       const preview: DeckImportPreview = res.data.preview

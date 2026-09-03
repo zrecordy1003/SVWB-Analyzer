@@ -28,11 +28,13 @@ export const PORTAL_ORIGIN = 'https://shadowverse-wb.com'
 /**
  * The portal's language switch is a custom `Lang` REQUEST HEADER.
  *
- * Not a query parameter, not `Accept-Language`, not a cookie, not the `/cht/`
- * path prefix - all four were tried and all four return Japanese. Card names
- * and skill text are the only thing this affects, but they are the whole point.
+ * The type moved to `shared/decks.ts` because `decks:importPreview` takes one
+ * over IPC, and re-exporting keeps this module's own callers unchanged. The
+ * reasoning that made it a header rather than a query parameter is with the
+ * declaration.
  */
-export type PortalLang = 'ja' | 'en' | 'cht' | 'chs' | 'ko'
+export type { PortalLang } from '../../shared/decks.js'
+import type { PortalLang } from '../../shared/decks.js'
 export const PORTAL_LANGS: readonly PortalLang[] = ['ja', 'en', 'cht', 'chs', 'ko'] as const
 export const DEFAULT_PORTAL_LANG: PortalLang = 'cht'
 

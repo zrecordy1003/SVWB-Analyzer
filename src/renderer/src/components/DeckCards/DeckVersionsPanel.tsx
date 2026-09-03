@@ -57,6 +57,7 @@ import {
 import React from 'react'
 
 import DeckVersionDiffDialog, { type DiffEndpoint } from './DeckVersionDiffDialog'
+import { invokeIpc } from '@renderer/ipc'
 import {
   diffChips,
   diffDeckCards,
@@ -113,7 +114,7 @@ const THUMB_HEIGHT = 20
 const THUMB_WIDTH = 44
 
 async function readCards(deckId: number): Promise<StoredDeckCard[]> {
-  const res = await window.electron.ipcRenderer.invoke('decks:cards', { deckId })
+  const res = await invokeIpc('decks:cards', { deckId })
   if (!res?.ok) throw new Error(res?.error ?? '讀取卡表失敗')
   return res.data as StoredDeckCard[]
 }
@@ -530,8 +531,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
       return
     }
     let mounted = true
-    void window.electron.ipcRenderer
-      .invoke('decks:versionImpact', { id: discarding.deck.id })
+    void invokeIpc('decks:versionImpact', { id: discarding.deck.id })
       .then((res: Res<VersionImpact>) => {
         if (mounted && res.ok) setImpact(res.data)
       })
@@ -548,7 +548,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
     setBusy(true)
     setError(null)
     try {
-      const res: Res<unknown> = await window.electron.ipcRenderer.invoke('decks:deleteVersion', {
+      const res: Res<unknown> = await invokeIpc('decks:deleteVersion', {
         id: discarding.deck.id
       })
       if (!res.ok) throw new Error(res.error)

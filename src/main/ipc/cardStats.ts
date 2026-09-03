@@ -33,18 +33,7 @@ import type {
 } from '../../shared/cardStats.js'
 import { getDb } from '../data/db/client.js'
 import { filterExpressions, type QueryPayload } from './matches.js'
-
-type Ok<T> = { ok: true; data: T }
-type Err = { ok: false; error: string }
-type Res<T> = Ok<T> | Err
-
-const wrap = async <T>(fn: () => Promise<T>): Promise<Res<T>> => {
-  try {
-    return { ok: true, data: await fn() }
-  } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Unknown error' }
-  }
-}
+import { wrapRes as wrap, type Res } from '../../shared/ipc.js'
 
 /**
  * The match list's filter payload, with two additions: `mode: 'all'` (the

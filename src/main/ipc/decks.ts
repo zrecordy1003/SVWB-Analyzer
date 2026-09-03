@@ -1,4 +1,4 @@
-import { clipboard, ipcMain } from 'electron'
+import { clipboard } from 'electron'
 import { sql, type Kysely, type Selectable, type Transaction } from 'kysely'
 import type { ClassName, Deck, DeckCategory, GameMode } from '../../shared/domain.js'
 import {
@@ -32,72 +32,21 @@ import {
   type PortalLang
 } from '../data/svwbApi.js'
 import { broadcast } from '../utils/broadcast.js'
+import { handleIpc } from './typed.js'
+import { wrapRes as wrap, type Res } from '../../shared/ipc.js'
+import type {
+  DeckCreateInput,
+  DeckImportCommitInput,
+  DeckListItem,
+  DeckSaveLocalInput,
+  DeckStatsRow,
+  DeckUpdateInput
+} from '../../shared/decks.js'
 import { RangeKey } from './helper.js'
 
 /* ================================
  * 型別
  * ================================ */
-
-type DeckCreateInput = {
-  name: string
-  class: ClassName
-  categoryId?: string | null
-  isDefault?: boolean
-}
-
-type DeckUpdateInput = {
-  id: number
-  name?: string
-  categoryId?: string | null
-  // 避免語意混亂，不在 update 中改職業；若有需要另開 API。
-  isDefault?: boolean
-}
-
-type DeckImportCommitInput = {
-  preview: DeckImportPreview
-  name: string
-  categoryId?: string | null
-  isDefault?: boolean
-  lang?: PortalLang
-  /**
-   * Set when the user answered a DUPLICATE_CONTENT by choosing to update the
-   * deck they already had, instead of saving a second copy of the same 40 cards.
-   */
-  replaceDeckId?: number | null
-}
-
-type DeckSaveLocalInput = {
-  /** Set to edit an existing deck; omit to create one. */
-  deckId?: number | null
-  name: string
-  classId: number
-  battleFormat?: number | null
-  categoryId?: string | null
-  isDefault?: boolean
-  cards: { cardId: number; count: number }[]
-  /**
-   * The escape hatch of plan rule 3.2: "correct this deck, do not create a new
-   * version". A played deck normally freezes and editing it forks a new row;
-   * a typo fixed the day after is not a new version, so this flag forces the
-   * old in-place overwrite. Default is fork - the caller must say it out loud.
-   */
-  forceInPlace?: boolean
-}
-
-/**
- * A deck as the list screen wants it.
- *
- * Carries two things the Deck row does not: what the deck is made of, and the
- * banner of the card that best represents it. Both are derived here rather than
- * in the renderer, because both need the card list joined to the card cache and
- * the list screen should not be issuing a query per deck to get them.
- */
-type DeckListItem = Deck & {
-  /** Banner of the deck's "face" card. See `pickHeroCard`. */
-  heroBannerHash: string | null
-  /** Null when the deck has no card list at all - distinct from three zeroes. */
-  composition: { follower: number; spell: number; amulet: number } | null
-}
 
 type DeckCardFacts = {
   deckId: number
@@ -133,39 +82,7 @@ function pickHeroCard(cards: DeckCardFacts[]): DeckCardFacts | null {
   )[0]
 }
 
-type Ok<T> = { ok: true; data: T }
-type Err = { ok: false; error: string }
-type Res<T> = Ok<T> | Err
-
 type Db = Kysely<Database> | Transaction<Database>
-type DeckStatsRow = {
-  /**
-   * Under `groupBy: 'family'` (the default) this is the family's current
-   * version id, so the renderer's deckId -> stat lookup keeps working
-   * unchanged. Null only on the "no deck assigned" catch-all row.
-   */
-  deckId: number | null
-  familyId: number | null
-  total: number
-  wins: number
-  winRate: number
-  /**
-   * 先攻／後攻各自的成績。
-   *
-   * 條件寫成明確比對 `= 'first'` 與 `= 'second'` 而不是「不是先攻就是後攻」：
-   * `play_order` 目前是 NOT NULL，兩者相加等於 `total`，但真要跑出第三種值時，
-   * 這樣寫是少一列，而不是把它默默算成後攻。
-   */
-  first: { total: number; wins: number }
-  second: { total: number; wins: number }
-  /**
-   * 這一列（家族或版本）最早與最晚一場對局的 `playedAt`（epoch ms），受同一組
-   * 篩選限制。版本時間線用它畫「實際打過的期間」——一個版本的 createdAt 只說它
-   * 何時被存下來，說不出它何時在打。沒有對局就是 null。
-   */
-  firstPlayedAt: number | null
-  lastPlayedAt: number | null
-}
 type ReferenceDataScope = 'decks' | 'tags' | 'categories' | 'all'
 
 // The 3s stats cache that used to sit here existed to hide the Prisma engine's
@@ -191,16 +108,6 @@ function notifyReferenceDataChanged(scope: ReferenceDataScope): void {
 /* ================================
  * 小工具：統一錯誤處理 / 資料驗證 / 輔助
  * ================================ */
-
-// 統一 try/catch 包裝，回傳 Res<T>
-const wrap = async <T>(fn: () => Promise<T>): Promise<Res<T>> => {
-  try {
-    const data = await fn()
-    return { ok: true, data }
-  } catch (e: unknown) {
-    return { ok: false, error: e instanceof Error ? e.message : 'Unknown error' }
-  }
-}
 
 // 把 '' 視為 null（未分類）
 const coerceCategoryId = (v?: string | null): string | null => {
@@ -655,7 +562,7 @@ export function registerDecksIpc(): void {
   const db = getDb()
 
   // 取全部分類（穩定排序）
-  ipcMain.handle(
+  handleIpc(
     'deckCategories:all',
     async (): Promise<Res<DeckCategory[]>> =>
       wrap(async () => {
@@ -676,7 +583,7 @@ export function registerDecksIpc(): void {
   // 裡冒出一堆同名項目。對局卡片上的牌組名稱不受影響——那是 matches IPC 端用
   // deckId 直接查列，任何版本、封存與否都查得到。
   // 要看全部版本（階段 2 的版本 UI、測試）就帶 scope: 'all'。
-  ipcMain.handle(
+  handleIpc(
     'decks:all',
     async (_e, params: { scope?: 'current' | 'all' } = {}): Promise<Res<DeckListItem[]>> =>
       wrap(async () => {
@@ -773,7 +680,7 @@ export function registerDecksIpc(): void {
   // 該家族當前版本的 id——所以在 fork 從未發生過的資料庫上，輸出跟舊版逐 deckId
   // 分組完全相同（相容性保證：使用者看到的數字不變）。groupBy 'deck' 才把版本
   // 各自分開。封存的牌組照算：封存是「離開挑選清單」，不是「離開歷史」。
-  ipcMain.handle(
+  handleIpc(
     'decks:stats',
     async (
       _e,
@@ -961,7 +868,7 @@ export function registerDecksIpc(): void {
   )
 
   // 建立分類（如需）
-  ipcMain.handle(
+  handleIpc(
     'deckCategories:create',
     async (_e, input: { name: string }): Promise<Res<DeckCategory>> =>
       wrap(async () => {
@@ -978,7 +885,7 @@ export function registerDecksIpc(): void {
   )
 
   // 建立牌組：支援 isDefault；若 isDefault=true，單一交易清掉同職業其它預設
-  ipcMain.handle(
+  handleIpc(
     'decks:create',
     async (_e, input: DeckCreateInput): Promise<Res<Deck>> =>
       wrap(async () => {
@@ -1036,7 +943,7 @@ export function registerDecksIpc(): void {
   )
 
   // 更新牌組：名稱/分類/isDefault（同樣維持單一預設的不變量）
-  ipcMain.handle(
+  handleIpc(
     'decks:update',
     async (_e, input: DeckUpdateInput): Promise<Res<Deck>> =>
       wrap(async () => {
@@ -1126,7 +1033,7 @@ export function registerDecksIpc(): void {
   // 版本真刪（FK 讓 DeckCard 一併消失，沒有東西要保護）；有引用的封存（寫
   // archivedAt），因為在這個模型裡那一列就是那幾十場對局的卡表。封存列若持有
   // isDefault 必須清掉，否則 engine 會繼續把新對局安靜地掛到「已刪除」的牌組上。
-  ipcMain.handle(
+  handleIpc(
     'decks:delete',
     async (
       _e,
@@ -1155,7 +1062,7 @@ export function registerDecksIpc(): void {
 
   // 刪除前的預告：這副牌（整個家族）底下有幾場對局、幾個版本。刪除確認框要
   // 讓使用者知道會走「封存」還是「真刪」，就得先講得出這兩個數字。
-  ipcMain.handle(
+  handleIpc(
     'decks:deleteImpact',
     async (_e, { id }: { id: number }): Promise<Res<{ matches: number; versions: number }>> =>
       wrap(async () => {
@@ -1174,7 +1081,7 @@ export function registerDecksIpc(): void {
 
   // 捨棄單一版本前的預告：這一個版本有幾場對局、它是不是家族最後一個未封存的
   // 版本。後者決定了「捨棄此版本」會不會變成「刪掉整副牌」——確認框要先講。
-  ipcMain.handle(
+  handleIpc(
     'decks:versionImpact',
     async (
       _e,
@@ -1202,7 +1109,7 @@ export function registerDecksIpc(): void {
   // （封存時清 isDefault）。例外是家族最後一個未封存的版本——把它拿掉等於
   // 「刪掉這副牌」，所以行為等同 decks:delete，整個家族一起處理；否則家族的
   // 「當前版本」定義會回退到某個封存的舊列，或這副牌從清單上安靜消失。
-  ipcMain.handle(
+  handleIpc(
     'decks:deleteVersion',
     async (
       _e,
@@ -1238,7 +1145,7 @@ export function registerDecksIpc(): void {
   )
 
   // 設為某職業預設：給某個 deckId 設預設，並清除此職業其他預設
-  ipcMain.handle(
+  handleIpc(
     'decks:setDefaultForClass',
     async (_e, { deckId }: { deckId: number }): Promise<Res<Deck>> =>
       wrap(async () => {
@@ -1274,7 +1181,7 @@ export function registerDecksIpc(): void {
   //
   // 這不只是體驗考量 —— 官方兩支端點都不回傳牌組名稱，名字一定得由使用者給，
   // 所以中間這一步本來就省不掉。
-  ipcMain.handle(
+  handleIpc(
     'decks:importPreview',
     async (
       _e,
@@ -1319,7 +1226,7 @@ export function registerDecksIpc(): void {
    *
    * 由開啟對話框這個動作觸發，不是背景輪詢。
    */
-  ipcMain.handle(
+  handleIpc(
     'decks:clipboardCandidate',
     async (): Promise<Res<ParsedDeckInput | null>> =>
       wrap(async () => {
@@ -1334,7 +1241,7 @@ export function registerDecksIpc(): void {
 
   // commit 收的是 preview 物件，不是原始字串 —— 短碼在使用者填名字這段期間
   // 很可能已經過期，重抓一次就等於讓匯入隨機失敗。
-  ipcMain.handle(
+  handleIpc(
     'decks:import',
     async (_e, input: DeckImportCommitInput): Promise<Res<Deck>> =>
       wrap(async () => {
@@ -1462,7 +1369,7 @@ export function registerDecksIpc(): void {
 
   // 編輯器存檔。與匯入共用同一條寫入路徑，差別只在來源標記與不需要寫 Card
   // （卡片主資料已經由卡池同步進來了）。
-  ipcMain.handle(
+  handleIpc(
     'decks:saveLocal',
     async (_e, input: DeckSaveLocalInput): Promise<Res<Deck>> =>
       wrap(async () => {
@@ -1542,7 +1449,7 @@ export function registerDecksIpc(): void {
   //
   // 卡表跟著一起回，因為編輯器需要的是「這副牌現在長什麼樣」而不是兩次查詢
   // 拼起來的近似值 —— 中間隔一次 IPC 就有機會拿到不一致的兩半。
-  ipcMain.handle(
+  handleIpc(
     'decks:get',
     async (_e, { id }: { id: number }): Promise<Res<{ deck: Deck; cards: StoredDeckCard[] }>> =>
       wrap(async () => {
@@ -1561,7 +1468,7 @@ export function registerDecksIpc(): void {
   // 拿到 hash 之後會寫回 Deck.sourceRef：hash 沒有效期，所以這是這副牌第一次
   // 取得「可以長期保存、可以分享」的身分 —— 尤其是編輯器建的牌組，在此之前
   // 它從來沒去過官方站。
-  ipcMain.handle(
+  handleIpc(
     'decks:publishCode',
     async (
       _e,
@@ -1622,7 +1529,7 @@ export function registerDecksIpc(): void {
 
   // 續期。官方頁面每 60 秒重打一次 publish 讓代碼不過期；我們照做，但只在
   // 使用者開著代碼畫面的時候 —— 這是唯一的常態輪詢，關掉畫面就停。
-  ipcMain.handle(
+  handleIpc(
     'decks:renewCode',
     async (_e, input: { hash: string }): Promise<Res<{ deckCode: string; ttlMs: number }>> =>
       wrap(async () => {
@@ -1637,7 +1544,7 @@ export function registerDecksIpc(): void {
 
   // 讀回某副牌的卡表，給檢視用。Card 是快取，可能缺列 —— 缺的時候降級成
   // 「有這張卡，細節不知道」，而不是讓整個查詢失敗。
-  ipcMain.handle(
+  handleIpc(
     'decks:cards',
     async (_e, { deckId }: { deckId: number }): Promise<Res<StoredDeckCard[]>> =>
       wrap(async () => readDeckCards(db, deckId))

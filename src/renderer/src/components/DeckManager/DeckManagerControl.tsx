@@ -45,6 +45,7 @@ import { cardImageUrl } from '@shared/deckImport'
 import { PANEL_SX } from '@renderer/components/Common/surfaces'
 import type { ClassName } from '@shared/domain'
 import { useDecksTags, type DeckLite } from '@renderer/hooks/useDecksTags'
+import { invokeIpc } from '@renderer/ipc'
 
 /** BattleState 介面（來自事件） */
 interface BattleState {
@@ -306,8 +307,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
       return
     }
     let mounted = true
-    void window.electron.ipcRenderer
-      .invoke('decks:deleteImpact', { id: deleting.id })
+    void invokeIpc('decks:deleteImpact', { id: deleting.id })
       .then((res: Res<{ matches: number; versions: number }>) => {
         if (mounted && res.ok) setDeleteImpact(res.data)
       })
@@ -423,7 +423,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
     try {
       setDefaultBusyId(deck.id)
       setDefaultOptimistic(deck.id, deck.classId)
-      const res = (await window.electron.ipcRenderer.invoke('decks:setDefaultForClass', {
+      const res = (await invokeIpc('decks:setDefaultForClass', {
         deckId: deck.id
       })) as Res<DbDeck>
       if (!res.ok) throw new Error(res.error)
@@ -448,7 +448,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
     if ((deck.categoryId ?? null) === categoryId) return
     try {
       setCategoryBusyId(deck.id)
-      const res = (await window.electron.ipcRenderer.invoke('decks:update', {
+      const res = (await invokeIpc('decks:update', {
         id: deck.id,
         categoryId
       })) as Res<DbDeck>
@@ -522,7 +522,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
 
     try {
       setSavingRename(true)
-      const res = (await window.electron.ipcRenderer.invoke('decks:update', {
+      const res = (await invokeIpc('decks:update', {
         id: renaming.id,
         name: next
       })) as Res<DbDeck>
@@ -546,7 +546,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
     if (!deleting) return
     try {
       setDeletingBusy(true)
-      const res = (await window.electron.ipcRenderer.invoke('decks:delete', {
+      const res = (await invokeIpc('decks:delete', {
         id: deleting.id
       })) as Res<{ success: true; deleted: number; archived: number }>
 

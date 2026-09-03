@@ -33,6 +33,7 @@ import DeckCardBoard from './DeckCardBoard'
 import DeckCodeDialog from './DeckCodeDialog'
 import ManaCurve from './ManaCurve'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
+import { invokeIpc } from '@renderer/ipc'
 
 /** 標題列、內容與動作列對齊用的同一個左邊界，和其他抽屜一致。 */
 const GUTTER = 2.5
@@ -92,7 +93,7 @@ export default function DeckContentsDrawer({
       setError(null)
       try {
         const [res, settings] = await Promise.all([
-          window.electron.ipcRenderer.invoke('decks:cards', { deckId: viewDeckId }),
+          invokeIpc('decks:cards', { deckId: viewDeckId }),
           window.settings.get('settings')
         ])
         if (cancelled) return

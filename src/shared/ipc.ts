@@ -35,7 +35,18 @@
  * both. Adding a channel means adding a line here first; the compiler then
  * says which side is missing.
  */
-import type { GameMode, Match, Tag } from './domain.js'
+import type { Deck, DeckCategory, GameMode, Match, Tag } from './domain.js'
+import type {
+  DeckCreateInput,
+  DeckImportCommitInput,
+  DeckListItem,
+  DeckSaveLocalInput,
+  DeckStatsQuery,
+  DeckStatsRow,
+  DeckUpdateInput,
+  PortalLang
+} from './decks.js'
+import type { DeckImportPreview, ParsedDeckInput, StoredDeckCard } from './deckImport.js'
 import type { SupportPromptPayload } from './support.js'
 import type { TelemetryPayload, TelemetryStatus } from './telemetry.js'
 import type {
@@ -151,6 +162,53 @@ export type IpcContract = {
   'matches:updateWithExtras': (payload: MatchEditInput) => MatchDetail | null
 
   'stats:getRankedWinrateByOpponent': (args: RankedWinrateQuery) => RankedWinrateByOpponent
+
+  // ------------------------------------------------------------------ decks
+  //
+  // Every one of these answers with `Res<T>`. They are the channels a person
+  // can make fail - a duplicate name, a deck code that has expired, an
+  // optimistic-lock conflict - and the message has to reach the dialog that
+  // asked, which is what the envelope is for.
+  'deckCategories:all': () => Res<DeckCategory[]>
+  'deckCategories:create': (input: { name: string }) => Res<DeckCategory>
+  /** Default scope is the current version of each live family; `'all'` includes every version. */
+  'decks:all': (params?: { scope?: 'current' | 'all' }) => Res<DeckListItem[]>
+  'decks:stats': (params?: DeckStatsQuery) => Res<DeckStatsRow[]>
+  'decks:get': (params: { id: number }) => Res<{ deck: Deck; cards: StoredDeckCard[] }>
+  'decks:cards': (params: { deckId: number }) => Res<StoredDeckCard[]>
+  'decks:create': (input: DeckCreateInput) => Res<Deck>
+  'decks:update': (input: DeckUpdateInput) => Res<Deck>
+  'decks:saveLocal': (input: DeckSaveLocalInput) => Res<Deck>
+  'decks:setDefaultForClass': (params: { deckId: number }) => Res<Deck>
+  /** `deleted` and `archived` are counts: a played deck is archived, an unplayed one deleted. */
+  'decks:delete': (params: {
+    id: number
+  }) => Res<{ success: true; deleted: number; archived: number }>
+  'decks:deleteImpact': (params: { id: number }) => Res<{ matches: number; versions: number }>
+  'decks:versionImpact': (params: {
+    id: number
+  }) => Res<{ matches: number; versions: number; isLastActive: boolean }>
+  'decks:importPreview': (input: {
+    text: string
+    lang?: PortalLang
+  }) => Res<{ preview: DeckImportPreview; duplicateDeckId: number | null }>
+  'decks:import': (input: DeckImportCommitInput) => Res<Deck>
+  /** What is on the clipboard, if it parses as a deck code or portal link. */
+  'decks:clipboardCandidate': () => Res<ParsedDeckInput | null>
+  'decks:renewCode': (input: { hash: string }) => Res<{ deckCode: string; ttlMs: number }>
+  /**
+   * Discarding one version. `familyDeleted` is how the caller knows the whole
+   * deck went with it - discarding the only remaining active version means
+   * "delete this deck", so it behaves like `decks:delete` rather than leaving
+   * the family pointing at an archived row.
+   */
+  'decks:deleteVersion': (params: {
+    id: number
+  }) => Res<{ success: true; deleted: number; archived: number; familyDeleted: boolean }>
+  /** Gives a deck a shareable identity on the portal, for one that never went there. */
+  'decks:publishCode': (input: {
+    deckId: number
+  }) => Res<{ hash: string; deckCode: string; shareUrl: string; ttlMs: number }>
 }
 
 /**
