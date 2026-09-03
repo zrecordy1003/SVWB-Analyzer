@@ -15,3 +15,40 @@ database_id = "ae233733-1687-40dd-8be0-7e0d03d0749c"
 migrations_dir = "migrations"
 
 # ADMIN_TOKEN is a secret, not a var: `wrangler secret put ADMIN_TOKEN`.
+
+# Rate limiting. `/v1/ingest` is unauthenticated by necessity - an anonymous
+# install has to be able to report - so these are what stands between the
+# public aggregate and a few thousand invented install ids. The 500-matches-a-
+# day validation cap does not help there: an attacker spreads the load over
+# more ids.
+#
+# Two layers on ingest because they stop different things. The IP limit stops
+# one machine flooding; the per-install limit stops one id being written far
+# more often than the client could send it (the app has a 60s floor between
+# attempts, so a real install never approaches 6/min).
+#
+# `period` accepts only 10 or 60. Namespace ids are local to this Worker and
+# must be distinct; changing one resets its counters.
+#
+# The bindings are read as OPTIONAL in src/index.ts and fail open: telemetry
+# going quiet is a worse bug than accepting too much for an afternoon.
+
+[[unsafe.bindings]]
+name = "INGEST_IP_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
+
+[[unsafe.bindings]]
+name = "INGEST_INSTALL_LIMITER"
+type = "ratelimit"
+namespace_id = "1002"
+simple = { limit = 6, period = 60 }
+
+# The public read. Generous, because a legitimate chart page may fan out, but
+# bounded so a `no-cache` flood cannot turn every request into a D1 query.
+[[unsafe.bindings]]
+name = "META_LIMITER"
+type = "ratelimit"
+namespace_id = "1003"
+simple = { limit = 120, period = 60 }

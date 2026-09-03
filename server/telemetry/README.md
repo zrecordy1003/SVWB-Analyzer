@@ -13,25 +13,50 @@ app 端的對應程式在 `src/main/telemetry/`；wire format 在 `src/shared/te
 
 ## 端點
 
-| 方法 | 路徑                 | 用途                                                                 | 保護            |
-| ---- | -------------------- | -------------------------------------------------------------------- | --------------- |
-| POST | `/v1/ingest`         | app 上傳。以 `(installId, date)` 為鍵整批**覆寫**，重送冪等。        | 無（見下）      |
-| GET  | `/v1/meta`           | 公開彙總：ranked、`clean` tier、預設最近 14 天（`?days=1..90`）。    | 無；邊緣快取 15 分 |
-| GET  | `/v1/admin/overview` | 維護者數字：活躍安裝數（今日／7 天／30 天）、各版本人數、每日序列。 | `Authorization: Bearer <ADMIN_TOKEN>` |
-| GET  | `/health`            | 存活檢查                                                             | 無              |
+| 方法 | 路徑                 | 用途                                                                | 保護                                   |
+| ---- | -------------------- | ------------------------------------------------------------------- | -------------------------------------- |
+| POST | `/v1/ingest`         | app 上傳。以 `(installId, date)` 為鍵整批**覆寫**，重送冪等。       | 無認證；每 IP 60/分、每 installId 6/分 |
+| GET  | `/v1/meta`           | 公開彙總：ranked、`clean` tier、預設最近 14 天（`?days=1..90`）。   | 無認證；每 IP 120/分；邊緣快取 15 分   |
+| GET  | `/v1/admin/overview` | 維護者數字：活躍安裝數（今日／7 天／30 天）、各版本人數、每日序列。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
+| GET  | `/health`            | 存活檢查                                                            | 無                                     |
 
 `/v1/ingest` 沒有認證，因為 client 是開源的，任何金鑰都等於公開（`docs/meta-stats-plan.md` R-5）。
-防線是統計性的：列舉值白名單、單日場次上限（`TELEMETRY_MAX_MATCHES_PER_DAY`）、body 大小上限、
-逐日拒收而非整包拒收，以及覆寫語意讓重送不會累加。要再加一層，用 Cloudflare 的 WAF rate limiting
-規則對 `/v1/ingest` 設每 IP 每分鐘上限即可，不必改程式。
+
+第一層防線是統計性的：列舉值白名單、單日場次上限（`TELEMETRY_MAX_MATCHES_PER_DAY`）、body 大小
+上限、逐日拒收而非整包拒收，以及覆寫語意讓重送不會累加。但這些都攔不住「偽造大量 installId」——
+攻擊者把量分散到更多 id 上就繞過了單日上限，而公開表就是這樣被汙染的。
+
+## 防濫用
+
+兩層，刻意重疊。
+
+**Worker 內**（`wrangler.toml` 的 `[[unsafe.bindings]]` + `src/index.ts` 的 `withinLimit`）：
+每 IP 每分鐘 60 次 ingest、每 installId 每分鐘 6 次、`/v1/meta` 每 IP 每分鐘 120 次。app 自己的
+排程在兩次上傳之間有 60 秒的底線（`MIN_GAP_MS`），所以真實安裝離 6/分很遠。
+
+這些 binding 在程式裡是**可選的**，而且 fail **open**：binding 不存在、改名或 `limit()` 本身失敗
+時放行。理由是 telemetry 靜掉是 bug，而一個因為 binding 改名就拒收所有上傳的 Worker，比一個多收
+一下午的 Worker 糟得多。代價是「限制沒生效」不會有任何錯誤——所以部署後要實際驗一次（見下）。
+
+**Cloudflare 邊緣**（儀表板，零程式碼，擋在 Worker 執行之前、不計 Worker 請求數）：
+Security → WAF → Rate limiting rules，新增一條
+
+- Field `URI Path` equals `/v1/ingest`
+- Rate: `600` requests per `1 minute`, counting by `IP`
+- Action: `Block`, duration `1 minute`
+
+刻意設得比 Worker 內那層鬆一個數量級：邊緣這條是防真正的洪水（省 Worker 額度），Worker 內那層
+才是防資料汙染的細粒度限制。兩層的閾值一樣的話，其中一層就是白費的。
+
+`namespace_id` 是 Worker 內部的編號，彼此不能重複；改動它等於把該限制器的計數歸零。
 
 ## 資料表
 
 見 `migrations/0001_init.sql`。四張表回答兩個問題：
 
 - **誰在用什麼**：`installs`（每個安裝一列，最後回報的版本／平台）、`activity`（每個安裝每個
-  *收到上傳的* UTC 日一列）。「今日活躍」= `activity` 當日列數。
-- **記錄了什麼**：`match_days`（每個安裝每個 *對局發生的* UTC 日一列，含總數）、`buckets`
+  _收到上傳的_ UTC 日一列）。「今日活躍」= `activity` 當日列數。
+- **記錄了什麼**：`match_days`（每個安裝每個 _對局發生的_ UTC 日一列，含總數）、`buckets`
   （依 tier／模式／雙方職業／先後攻／勝負的計數）。
 
 兩組日期刻意分開：一個人今天打開程式，上傳的是過去 14 天的對局；活躍度看前者，對局趨勢看後者。
@@ -62,6 +87,26 @@ pnpm deploy
 部署完成會印出 Worker 的網址。把它填進
 `src/main/telemetry/config.ts` 的 `BUILT_IN_ENDPOINT`，重新打包 app。**沒填之前 app 的開關是
 灰的、什麼都不會送**——這是刻意的，一個看起來開著卻沒送出去的開關比沒有開關更糟。
+
+部署後驗一次限制器有沒有真的生效——它 fail open，所以壞掉的時候沒有任何徵兆：
+
+```bash
+for i in $(seq 1 10); do
+  curl -s -o /dev/null -w "%{http_code} " -X POST "$URL/v1/ingest" \
+    -H 'content-type: application/json' \
+    -d '{"schema":1,"installId":"00000000-0000-4000-8000-000000000000","appVersion":"0.0.0","platform":"x","arch":"x","locale":"x","sentAt":"2026-01-01T00:00:00Z","days":[]}'
+done
+```
+
+前幾次應該是 400（`days` 是空的，這是預期的拒收），第七次之後應該轉成 **429**——那是
+`INGEST_INSTALL_LIMITER` 的 6/分在作用。一路都是 400 表示限制器沒接上。
+
+`/v1/meta` 的邊緣快取是 15 分鐘，所以剛部署的改動不會立刻反映在公開頁面上。要立刻看到新的
+結果，用標準的 `Cache-Control: no-cache`（Worker 會遵守，見 `src/index.ts` 的快取查詢註解）：
+
+```bash
+curl -s -H 'cache-control: no-cache' "$URL/v1/meta" | head -c 400
+```
 
 ## 看數字
 

@@ -7,20 +7,43 @@
 
 // ------------------------------------------------------------------ /v1/meta
 
+/**
+ * One row per cell, already folded down from per-install rows by SQL.
+ *
+ * The per-install grouping happens in the query rather than here: the row
+ * count of the ungrouped form is `installs x cells-they-occupy`, which grows
+ * without bound, while what SQL hands over is one row per cell carrying both
+ * the capped and the uncapped sums plus how many installs stood behind them.
+ */
 export type MatrixRow = {
   my_class: string
   oppo_class: string
   play_order: string
-  result: string
-  n: number
+  /** Distinct installs that contributed to this cell. */
+  installs: number
+  /** Capped: no install counts for more than `maxPerInstallPerCell`. */
+  wins: number
+  total: number
+  /** Uncapped, so the effect of the cap can be seen rather than trusted. */
+  raw_wins: number
+  raw_total: number
 }
 
 export type MetaCell = {
   myClass: string
   oppoClass: string
   playOrder: string
+  /**
+   * The numbers to plot. Capped per install (see `sampling`), so one player who
+   * has ground out a matchup cannot be more than their cap's share of it.
+   */
   wins: number
   total: number
+  /** Sample size in PLAYERS, which is the one a matchup table lives or dies by. */
+  installs: number
+  /** The same cell with no cap applied, so the cap is auditable. */
+  rawWins: number
+  rawTotal: number
 }
 
 export type MetaDocument = {
@@ -31,47 +54,120 @@ export type MetaDocument = {
   tiers: string[]
   /** Distinct installs that contributed at least one bucket in the window. */
   installs: number
-  /** Sum of every cell's total. Each match appears once, from its recorder's side. */
+  /**
+   * Sum of every published cell's capped total.
+   *
+   * Recorder-side observations, not distinct games: a match between two people
+   * who both run this app is recorded by both and appears once in `(A vs B)`
+   * and once in `(B vs A)`. There is no match id to deduplicate on, by design,
+   * so this is an observation count - and `caveats` says so.
+   */
   matches: number
   /**
-   * One cell per (my class, opponent class, play order) that has any data.
-   * Wins and totals only - the interval is the reader's job (plan D-8), and a
-   * cell with a small `total` must be shown as such, never as a bare rate.
+   * One cell per (my class, opponent class, play order) that clears
+   * `minInstallsPerCell`. Wins and totals only - the interval is the reader's
+   * job (plan D-8), and a cell with a small `total` must be shown as such,
+   * never as a bare rate.
    */
   cells: MetaCell[]
-  /** Per-class totals from the recorder's side: how often each class was played. */
-  byClass: Array<{ myClass: string; wins: number; total: number }>
+  /** Per-class totals from the recorder's side, under the same threshold. */
+  byClass: Array<{ myClass: string; wins: number; total: number; installs: number }>
+  /**
+   * How the numbers above were bounded, and what that hid.
+   *
+   * Both constants are server-side and can be retuned without a client
+   * release. That is the reason the client uploads all four tiers and lets the
+   * server decide what to publish.
+   */
+  sampling: {
+    maxPerInstallPerCell: number
+    minInstallsPerCell: number
+    /** Cells that existed but had too few contributing installs to publish. */
+    suppressedCells: number
+    /** Raw observations inside those cells, so their absence is not silent. */
+    suppressedMatches: number
+  }
+  /** What these numbers cannot be read as. Travels with the data on purpose. */
+  caveats: string[]
 }
+
+/**
+ * The caveats no amount of code removes, so they ship with the document.
+ *
+ * A public number gets quoted without its context by default. Putting these in
+ * the payload means a chart, a bot or a third party reading `/v1/meta` has them
+ * in hand rather than in a README they never opened.
+ */
+export const META_CAVEATS: readonly string[] = [
+  'People who run a tracker are not a random sample of players; read this as the meta among users of this app.',
+  'All ranks are pooled. The upload carries no rank or MP, so this cannot be split by skill.',
+  'A game between two users of this app is recorded by both and appears in both directions; matches counts observations, not distinct games.',
+  'Only engine-recorded matches with nothing hand-corrected and no recognition warning are counted.'
+]
 
 export function buildMeta(
   rows: readonly MatrixRow[],
-  opts: { installs: number; since: string; days: number; mode: string; tiers: string[]; now: Date }
+  opts: {
+    installs: number
+    since: string
+    days: number
+    mode: string
+    tiers: string[]
+    maxPerInstallPerCell: number
+    minInstallsPerCell: number
+    now: Date
+  }
 ): MetaDocument {
-  const cells = new Map<string, MetaCell>()
+  const cells: MetaCell[] = []
   const byClass = new Map<string, { myClass: string; wins: number; total: number }>()
+  const classInstalls = new Map<string, number>()
   let matches = 0
+  let suppressedCells = 0
+  let suppressedMatches = 0
 
   for (const row of rows) {
-    const n = Number(row.n) || 0
-    if (n <= 0) continue
-    const key = `${row.my_class}|${row.oppo_class}|${row.play_order}`
-    const cell = cells.get(key) ?? {
+    const total = Number(row.total) || 0
+    if (total <= 0) continue
+
+    const installs = Number(row.installs) || 0
+    /**
+     * k-anonymity, and on a PUBLIC endpoint it is not a nicety.
+     *
+     * With one contributing install a cell IS that person's match record - how
+     * often they played this matchup and how it went - and the document prints
+     * `installs: 1` beside it, so there is no crowd to hide in. At two or three
+     * it stays close enough to that to be worth refusing. A cell is therefore
+     * published only once enough separate people stand behind it, and the
+     * count of what was withheld goes out in its place: a chart has to be able
+     * to say "not enough data yet" rather than draw an empty grid.
+     */
+    if (installs < opts.minInstallsPerCell) {
+      suppressedCells += 1
+      suppressedMatches += Number(row.raw_total) || 0
+      continue
+    }
+
+    const wins = Math.min(Math.max(Number(row.wins) || 0, 0), total)
+    cells.push({
       myClass: row.my_class,
       oppoClass: row.oppo_class,
       playOrder: row.play_order,
-      wins: 0,
-      total: 0
-    }
-    cell.total += n
-    if (row.result === 'win') cell.wins += n
-    cells.set(key, cell)
+      wins,
+      total,
+      installs,
+      rawWins: Number(row.raw_wins) || 0,
+      rawTotal: Number(row.raw_total) || 0
+    })
+    matches += total
 
     const cls = byClass.get(row.my_class) ?? { myClass: row.my_class, wins: 0, total: 0 }
-    cls.total += n
-    if (row.result === 'win') cls.wins += n
+    cls.total += total
+    cls.wins += wins
     byClass.set(row.my_class, cls)
-
-    matches += n
+    // A class's player count is not the sum of its cells' - one person appears
+    // in several of them - so the largest cell is used as the floor the class
+    // is known to clear. Understated rather than invented.
+    classInstalls.set(row.my_class, Math.max(classInstalls.get(row.my_class) ?? 0, installs))
   }
 
   const byKey = <T extends { myClass: string }>(a: T, b: T): number =>
@@ -84,13 +180,22 @@ export function buildMeta(
     tiers: opts.tiers,
     installs: opts.installs,
     matches,
-    cells: [...cells.values()].sort(
+    cells: cells.sort(
       (a, b) =>
         byKey(a, b) ||
         (a.oppoClass < b.oppoClass ? -1 : a.oppoClass > b.oppoClass ? 1 : 0) ||
         (a.playOrder < b.playOrder ? -1 : a.playOrder > b.playOrder ? 1 : 0)
     ),
-    byClass: [...byClass.values()].sort(byKey)
+    byClass: [...byClass.values()]
+      .map((row) => ({ ...row, installs: classInstalls.get(row.myClass) ?? 0 }))
+      .sort(byKey),
+    sampling: {
+      maxPerInstallPerCell: opts.maxPerInstallPerCell,
+      minInstallsPerCell: opts.minInstallsPerCell,
+      suppressedCells,
+      suppressedMatches
+    },
+    caveats: [...META_CAVEATS]
   }
 }
 

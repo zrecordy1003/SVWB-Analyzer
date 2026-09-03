@@ -186,27 +186,117 @@ describe('validatePayload', () => {
 })
 
 describe('buildMeta', () => {
-  it('folds win/loss rows into cells and per-class totals', () => {
+  const META_OPTS = {
+    installs: 40,
+    since: '2026-08-20',
+    days: 14,
+    mode: 'ranked',
+    tiers: ['clean'],
+    maxPerInstallPerCell: 10,
+    minInstallsPerCell: 5,
+    now: NOW
+  }
+
+  /** A cell as the SQL hands it over, with the cap already applied by SQL. */
+  const cell = (
+    my: string,
+    oppo: string,
+    order: string,
+    installs: number,
+    wins: number,
+    total: number,
+    raw?: { wins: number; total: number }
+  ) => ({
+    my_class: my,
+    oppo_class: oppo,
+    play_order: order,
+    installs,
+    wins,
+    total,
+    raw_wins: raw?.wins ?? wins,
+    raw_total: raw?.total ?? total
+  })
+
+  it('publishes the cells that clear the install floor, sorted', () => {
     const doc = buildMeta(
       [
-        { my_class: 'witch', oppo_class: 'dragon', play_order: 'first', result: 'win', n: 7 },
-        { my_class: 'witch', oppo_class: 'dragon', play_order: 'first', result: 'loss', n: 3 },
-        { my_class: 'witch', oppo_class: 'elf', play_order: 'second', result: 'loss', n: 2 },
-        { my_class: 'elf', oppo_class: 'witch', play_order: 'first', result: 'win', n: 1 }
+        cell('witch', 'dragon', 'first', 8, 7, 10),
+        cell('witch', 'elf', 'second', 6, 0, 2),
+        cell('elf', 'witch', 'first', 5, 1, 1)
       ],
-      { installs: 4, since: '2026-08-20', days: 14, mode: 'ranked', tiers: ['clean'], now: NOW }
+      META_OPTS
     )
     expect(doc.matches).toBe(13)
-    expect(doc.installs).toBe(4)
-    expect(doc.cells).toEqual([
-      { myClass: 'elf', oppoClass: 'witch', playOrder: 'first', wins: 1, total: 1 },
-      { myClass: 'witch', oppoClass: 'dragon', playOrder: 'first', wins: 7, total: 10 },
-      { myClass: 'witch', oppoClass: 'elf', playOrder: 'second', wins: 0, total: 2 }
+    expect(doc.installs).toBe(40)
+    expect(doc.cells.map((c) => [c.myClass, c.oppoClass, c.playOrder])).toEqual([
+      ['elf', 'witch', 'first'],
+      ['witch', 'dragon', 'first'],
+      ['witch', 'elf', 'second']
     ])
     expect(doc.byClass).toEqual([
-      { myClass: 'elf', wins: 1, total: 1 },
-      { myClass: 'witch', wins: 7, total: 12 }
+      { myClass: 'elf', wins: 1, total: 1, installs: 5 },
+      // 8 rather than 14: a class's player count is not the sum of its cells',
+      // so the largest cell is the floor it is known to clear.
+      { myClass: 'witch', wins: 7, total: 12, installs: 8 }
     ])
+    expect(doc.sampling).toEqual({
+      maxPerInstallPerCell: 10,
+      minInstallsPerCell: 5,
+      suppressedCells: 0,
+      suppressedMatches: 0
+    })
+    expect(doc.caveats.length).toBeGreaterThan(0)
+  })
+
+  /**
+   * The one that matters most on a public endpoint. A cell standing on fewer
+   * than `minInstallsPerCell` installs is close to being one person's match
+   * record, and the document prints the install count beside it - so it must
+   * not be published at all.
+   */
+  it('withholds a cell too few people stand behind, and says how much it withheld', () => {
+    const doc = buildMeta(
+      [
+        cell('witch', 'dragon', 'first', 1, 9, 12),
+        cell('witch', 'elf', 'first', 4, 3, 6),
+        cell('elf', 'witch', 'first', 5, 2, 4)
+      ],
+      META_OPTS
+    )
+    expect(doc.cells).toHaveLength(1)
+    expect(doc.cells[0]).toMatchObject({ myClass: 'elf', installs: 5 })
+    // Nothing from the two withheld cells leaks into the totals...
+    expect(doc.matches).toBe(4)
+    expect(doc.byClass.map((c) => c.myClass)).toEqual(['elf'])
+    // ...but their absence is stated rather than silent, so a chart can say
+    // "not enough data yet" instead of drawing an empty grid.
+    expect(doc.sampling.suppressedCells).toBe(2)
+    expect(doc.sampling.suppressedMatches).toBe(18)
+  })
+
+  it('carries the uncapped numbers beside the capped ones', () => {
+    // What SQL produces for one install that went 18-2 in a cell, capped at
+    // 10: the ratio is kept, so 9-1 rather than 10-2.
+    const doc = buildMeta(
+      [cell('witch', 'dragon', 'first', 6, 9, 10, { wins: 18, total: 20 })],
+      META_OPTS
+    )
+    expect(doc.cells[0]).toMatchObject({ wins: 9, total: 10, rawWins: 18, rawTotal: 20 })
+    // `matches` counts what is published, not what was recorded.
+    expect(doc.matches).toBe(10)
+  })
+
+  it('never reports more wins than games, whatever the row says', () => {
+    // Defence against a rounding or SQL change that overshoots: a win rate
+    // above 100% on a public page is the worst possible failure here.
+    const doc = buildMeta([cell('witch', 'dragon', 'first', 5, 99, 10)], META_OPTS)
+    expect(doc.cells[0].wins).toBe(10)
+  })
+
+  it('drops an empty cell rather than dividing by zero downstream', () => {
+    const doc = buildMeta([cell('witch', 'dragon', 'first', 9, 0, 0)], META_OPTS)
+    expect(doc.cells).toEqual([])
+    expect(doc.matches).toBe(0)
   })
 })
 

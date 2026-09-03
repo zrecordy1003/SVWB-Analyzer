@@ -124,6 +124,23 @@ const get = async (path, token) => {
 }
 
 /**
+ * `/v1/meta`, read past the edge cache.
+ *
+ * Nothing else in this script can assert what that document CONTAINS. Its
+ * cache key is the normalised url - `days` and nothing else, extra parameters
+ * dropped on purpose - so a second run inside `max-age` reads the first run's
+ * answer. That is not hypothetical: an earlier version of the block below
+ * "passed" against a response that predated the code it was testing.
+ *
+ * `Cache-Control: no-cache` is the standard way to ask for a fresh copy and
+ * the Worker honours it (see the comment on the cache lookup in index.ts).
+ */
+const getFresh = async (path) => {
+  const res = await fetch(`${BASE}${path}`, { headers: { 'cache-control': 'no-cache' } })
+  return { res, status: res.status, body: await res.json().catch(() => null) }
+}
+
+/**
  * Today's row of the admin series. The public `/v1/meta` is cached at the edge
  * for 15 minutes, so it cannot answer "did that write land"; this can.
  */
@@ -205,16 +222,148 @@ check(
   { base, afterCorrection }
 )
 
-const meta = await get('/v1/meta?days=1')
+/* ------------------------------------------------------------------ /v1/meta
+ *
+ * The three things unit tests cannot reach, because all three live in the SQL:
+ * the install floor, the per-install cap, and that the cap keeps the win ratio.
+ *
+ * Every read of `/v1/meta` here goes through `getFresh`, which asks the edge
+ * cache to stand aside. See its comment: without that these assertions read
+ * whatever a previous run left behind.
+ */
+
+/**
+ * The privacy property, stated so it does not depend on what the database has
+ * accumulated.
+ *
+ * The first version of this asserted "no cells are published yet", which was
+ * true only against an empty database - the local D1 keeps every install any
+ * previous run wrote, so by the third run the cell had six contributors and the
+ * check failed while the code was correct.
+ *
+ * The invariant that actually matters is unconditional: a published cell always
+ * stands on at least `minInstallsPerCell` separate installs. Nothing about how
+ * much data is already there can make that false.
+ */
+const metaBelow = await getFresh('/v1/meta?days=1')
+const floor = metaBelow.body?.sampling?.minInstallsPerCell
+check('meta states the install floor it applied', typeof floor === 'number' && floor >= 2, {
+  sampling: metaBelow.body?.sampling
+})
 check(
-  'meta answers with the matchup',
-  Array.isArray(meta.body?.cells) && meta.body.cells.length > 0,
-  meta.body
+  'no cell is published that too few people stand behind',
+  metaBelow.body.cells.every((c) => c.installs >= floor),
+  metaBelow.body.cells.filter((c) => c.installs < floor)
+)
+
+// And the same thing from the other side: a pairing that exactly one fresh
+// install has ever reported must not be on the page. `nemesis` mirrors are
+// used for nothing else in this script, so this install is the only
+// contributor unless a previous run left some - hence the `< floor` form
+// rather than an equality.
+const LONER = { myClass: 'nemesis', oppoClass: 'nemesis', playOrder: 'second' }
+await post(
+  payload(crypto.randomUUID(), '1.3.0', (p) => {
+    p.days[0] = {
+      date: day(0),
+      abandoned: 0,
+      manual: 0,
+      buckets: [{ ...bucket(), ...LONER, count: 4 }]
+    }
+  })
+)
+const metaLoner = await getFresh('/v1/meta?days=1')
+const lonerCell = metaLoner.body.cells.find(
+  (c) =>
+    c.myClass === LONER.myClass &&
+    c.oppoClass === LONER.oppoClass &&
+    c.playOrder === LONER.playOrder
+)
+check(
+  "one person's own record is withheld, and counted as withheld",
+  (!lonerCell || lonerCell.installs >= floor) && metaLoner.body.sampling.suppressedCells > 0,
+  { lonerCell, sampling: metaLoner.body.sampling }
+)
+
+// Now push the same cell over the floor with fresh installs. One of them plays
+// it far more than the others, which is what the cap is for.
+const CELL = { myClass: 'witch', oppoClass: 'dragon', playOrder: 'first' }
+const GRINDER_WINS = 18
+const GRINDER_TOTAL = 20
+const crowd = []
+for (let i = 0; i < floor + 1; i += 1) crowd.push(crypto.randomUUID())
+
+for (const [i, id] of crowd.entries()) {
+  // The last one is the grinder; everyone else plays the matchup twice.
+  const wins = i === crowd.length - 1 ? GRINDER_WINS : 1
+  const total = i === crowd.length - 1 ? GRINDER_TOTAL : 2
+  const res = await post(
+    payload(id, '1.3.0', (p) => {
+      p.days[0] = {
+        date: day(0),
+        abandoned: 0,
+        manual: 0,
+        buckets: [
+          { ...bucket(), count: wins },
+          { ...bucket(), result: 'loss', count: total - wins }
+        ]
+      }
+    })
+  )
+  check(`crowd install ${i + 1} accepted`, res.status === 200, res.body)
+}
+
+const metaAbove = await getFresh('/v1/meta?days=1')
+const published = metaAbove.body.cells.find(
+  (c) =>
+    c.myClass === CELL.myClass && c.oppoClass === CELL.oppoClass && c.playOrder === CELL.playOrder
+)
+check('past the floor, the cell is published', Boolean(published), {
+  cells: metaAbove.body.cells,
+  sampling: metaAbove.body.sampling
+})
+
+const cap = metaAbove.body.sampling.maxPerInstallPerCell
+check(
+  'the cell counts every install that contributed',
+  published.installs >= crowd.length,
+  published
+)
+check(
+  'the raw total includes all of the grinder games',
+  published.rawTotal >= GRINDER_TOTAL,
+  published
+)
+check(
+  'the cap holds the grinder to its share',
+  published.total < published.rawTotal && published.total <= (published.installs + 1) * cap,
+  { published, cap }
+)
+// The cap damps a lopsided record; it must not invert or flatten it. This
+// cannot tell scaling from truncation on its own - the two differ by a few
+// points at this sample size - so the SQL ROUND is pinned separately, by
+// running the CTE against D1 directly (see the comment on the query).
+const cappedRate = published.wins / published.total
+const rawRate = published.rawWins / published.rawTotal
+check('and keeps the win ratio rather than flattening it', Math.abs(cappedRate - rawRate) < 0.15, {
+  cappedRate,
+  rawRate,
+  published
+})
+check(
+  'wins never exceed total',
+  metaAbove.body.cells.every((c) => c.wins >= 0 && c.wins <= c.total),
+  metaAbove.body.cells
+)
+check(
+  'the caveats travel with the numbers',
+  Array.isArray(metaAbove.body.caveats) && metaAbove.body.caveats.length > 0,
+  metaAbove.body.caveats
 )
 check(
   'meta is edge-cacheable',
-  /max-age=\d+/.test(meta.res.headers.get('cache-control') ?? ''),
-  meta.res.headers.get('cache-control')
+  /max-age=\d+/.test(metaAbove.res.headers.get('cache-control') ?? ''),
+  metaAbove.res.headers.get('cache-control')
 )
 
 check('the admin route is closed without a token', (await get('/v1/admin/overview')).status === 401)
