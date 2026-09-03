@@ -56,8 +56,20 @@ jobs:
         with:
           node-version: 22
 
+      # `--ignore-workspace` is load-bearing. `server/telemetry` has its own
+      # package.json and lockfile, but pnpm walks UP looking for a workspace
+      # root and finds the repo's `pnpm-workspace.yaml` - and since this
+      # directory is not a member of it, an ordinary `pnpm install` here
+      # installs the ROOT project and leaves `server/telemetry/node_modules`
+      # empty. The next step then fails with `Cannot find type definition file
+      # for '@cloudflare/workers-types'`.
+      #
+      # This workflow's first real run is how that was found. Locally it looked
+      # fine, because that node_modules already existed from a manual install -
+      # exactly the "本機通過不等於乾淨環境會通過" case docs/releasing.md warns
+      # about.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-workspace
 
       - name: Typecheck the Worker
         run: pnpm typecheck
