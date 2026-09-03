@@ -63,7 +63,24 @@ async function expectReported(window: Page, channel: string): Promise<void> {
     .toContain(channel)
 }
 
+/**
+ * Skipped against a package, on purpose.
+ *
+ * `SVWB_UPDATE_SIM` only wires the simulator when `!app.isPackaged`
+ * (`main/updates.ts`), so a packaged build runs the REAL `autoUpdater` - which
+ * has no `app-update.yml` in a `--dir` output and fails with an ENOENT that
+ * says nothing about this app's update UI. Driving the simulator's scenarios
+ * at a build that cannot answer them tests the harness, not the product.
+ *
+ * The flow itself is covered by the `out/` run, which is where the simulator
+ * exists. What a packaged run has to prove is that the resources are present
+ * and the database comes up - `packaged.spec.ts`.
+ */
+const PACKAGED = Boolean(process.env.SVWB_E2E_EXECUTABLE)
+
 test.describe('background update check', () => {
+  test.skip(PACKAGED, 'the update simulator is dev-only; see the note above')
+
   test.describe(() => {
     test.use({ updateScenario: 'available' })
 
