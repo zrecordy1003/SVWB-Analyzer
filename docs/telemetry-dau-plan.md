@@ -60,8 +60,15 @@ wire format 在 `src/shared/telemetry.ts`；一次上傳長這樣：
       "abandoned": 1,
       "manual": 0,
       "buckets": [
-        { "tier": "clean", "mode": "ranked", "myClass": "witch", "oppoClass": "dragon",
-          "playOrder": "first", "result": "win", "count": 3 }
+        {
+          "tier": "clean",
+          "mode": "ranked",
+          "myClass": "witch",
+          "oppoClass": "dragon",
+          "playOrder": "first",
+          "result": "win",
+          "count": 3
+        }
       ]
     }
   ]

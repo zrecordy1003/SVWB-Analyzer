@@ -178,11 +178,11 @@ transaction 之後，WAL 下的衝突會以 busy/snapshot 錯誤炸出來而不�
 
 今天 `decks:delete`（`decks.ts:640`）是裸 `DELETE`，後果全靠外鍵：
 
-| 對象 | 外鍵行為 | 結果 |
-|---|---|---|
-| `Match.my_deckId` / `oppo_deckId` | `ON DELETE SET NULL`（migration 001） | 對局倖存，牌組連結斷掉 |
-| `DeckCard` | `ON DELETE CASCADE`（migration 009） | **卡表直接消失** |
-| `Deck.id` | `AUTOINCREMENT` | id 不回收，不會錯配到後來的牌組 |
+| 對象                              | 外鍵行為                              | 結果                            |
+| --------------------------------- | ------------------------------------- | ------------------------------- |
+| `Match.my_deckId` / `oppo_deckId` | `ON DELETE SET NULL`（migration 001） | 對局倖存，牌組連結斷掉          |
+| `DeckCard`                        | `ON DELETE CASCADE`（migration 009）  | **卡表直接消失**                |
+| `Deck.id`                         | `AUTOINCREMENT`                       | id 不回收，不會錯配到後來的牌組 |
 
 在新模型下這會變糟，因為卡表只存在 `DeckCard`，所以刪除的性質從「失去一個標籤」升級成
 「失去那副牌到底是什麼」。而 fork 會讓舊版本累積，使用者最自然的動作就是「刪掉那些舊的」
@@ -208,11 +208,11 @@ transaction 之後，WAL 下的衝突會以 busy/snapshot 錯誤炸出來而不�
 
 **封存牌組的可見性規則**（很重要，弄錯的話封存就等於刪除）：
 
-| 位置 | 行為 |
-|---|---|
-| 挑牌組的選單（`DeckPicker`、`InlineDeckSelect`、`NewDeckDrawer`） | 過濾掉 |
-| `decks:stats` 及其他統計查詢 | **不過濾**，照算 |
-| `DeckPerformance`、Analyzer 的牌組篩選 | 預設隱藏，給「顯示已封存」開關；列上灰階加標記 |
+| 位置                                                              | 行為                                           |
+| ----------------------------------------------------------------- | ---------------------------------------------- |
+| 挑牌組的選單（`DeckPicker`、`InlineDeckSelect`、`NewDeckDrawer`） | 過濾掉                                         |
+| `decks:stats` 及其他統計查詢                                      | **不過濾**，照算                               |
+| `DeckPerformance`、Analyzer 的牌組篩選                            | 預設隱藏，給「顯示已封存」開關；列上灰階加標記 |
 
 刪除確認框的文字（`DeckManagerControl.tsx:978`，現在寫「這不會移除既有對局紀錄，但此操作
 無法復原」）要改掉，並顯示「這副牌有 N 場對局」，讓使用者知道會走封存那條路。
@@ -304,20 +304,20 @@ transaction 之後，WAL 下的衝突會以 busy/snapshot 錯誤炸出來而不�
 目標：凍結、fork、封存三條規則進資料層，而**畫面看起來跟今天一樣**。做法是牌組清單只顯示
 每個家族的當前版本，所以 fork 出來的舊版本不會突然冒出來變成一堆同名項目。
 
-| 檔案 | 改什麼 |
-|---|---|
-| `resources/migrations/011_add_deck_family.sql` | 新增，內容見第三節 |
-| `src/main/data/db/client.ts` | `DeckRow` += `familyId: number \| null`、`archivedAt: number \| null` |
-| `ipc/decks.ts:229`（`upsertDeckWithCards`） | 凍結判斷（同 transaction 內）+ fork；指紋沒變則 no-op；`familyId` 繼承；`isDefault` 移轉；provenance 不繼承 |
-| `ipc/decks.ts:205`（`hasNameDuplicateCI`） | 同家族不算重名（fork 會沿用名稱） |
-| `ipc/decks.ts:521`（`decks:create`） | 插入後補 `familyId = id` |
-| `ipc/decks.ts:625`（`decks:update`） | 名稱／分類改成 `WHERE familyId = ?` 全家族套用 |
-| `ipc/decks.ts:637`（`decks:delete`） | 作用整個家族：逐列數引用 → 真刪或封存；封存列若持有 `isDefault` 要清掉；回傳各做了幾列 |
-| `ipc/decks.ts:394`（`decks:all`） | 只回每個家族的當前版本，且濾掉封存；另開參數才回全部版本。**MatchList 等把 deckId 對成名字的地方必須改用全部版本**，否則指向舊版本的對局會顯示成未知牌組 |
-| `ipc/decks.ts:455`（`decks:stats`） | 加 `groupBy: 'family' \| 'deck'`，**預設 `family`**；不濾封存；多回一列「未指定牌組」 |
-| `ipc/decks.ts:739`（`decks:import`） | `replaceDeckId` 語意改為「fork 進這副牌的家族」 |
-| `ipc/decks.ts:854`（`decks:saveLocal`） | 加「修正、不建立新版本」模式（3.2 的逃生門） |
-| `DeckManagerControl.tsx:978` | 刪除確認框文字 + 場次 + 封存說明 |
+| 檔案                                           | 改什麼                                                                                                                                                   |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `resources/migrations/011_add_deck_family.sql` | 新增，內容見第三節                                                                                                                                       |
+| `src/main/data/db/client.ts`                   | `DeckRow` += `familyId: number \| null`、`archivedAt: number \| null`                                                                                    |
+| `ipc/decks.ts:229`（`upsertDeckWithCards`）    | 凍結判斷（同 transaction 內）+ fork；指紋沒變則 no-op；`familyId` 繼承；`isDefault` 移轉；provenance 不繼承                                              |
+| `ipc/decks.ts:205`（`hasNameDuplicateCI`）     | 同家族不算重名（fork 會沿用名稱）                                                                                                                        |
+| `ipc/decks.ts:521`（`decks:create`）           | 插入後補 `familyId = id`                                                                                                                                 |
+| `ipc/decks.ts:625`（`decks:update`）           | 名稱／分類改成 `WHERE familyId = ?` 全家族套用                                                                                                           |
+| `ipc/decks.ts:637`（`decks:delete`）           | 作用整個家族：逐列數引用 → 真刪或封存；封存列若持有 `isDefault` 要清掉；回傳各做了幾列                                                                   |
+| `ipc/decks.ts:394`（`decks:all`）              | 只回每個家族的當前版本，且濾掉封存；另開參數才回全部版本。**MatchList 等把 deckId 對成名字的地方必須改用全部版本**，否則指向舊版本的對局會顯示成未知牌組 |
+| `ipc/decks.ts:455`（`decks:stats`）            | 加 `groupBy: 'family' \| 'deck'`，**預設 `family`**；不濾封存；多回一列「未指定牌組」                                                                    |
+| `ipc/decks.ts:739`（`decks:import`）           | `replaceDeckId` 語意改為「fork 進這副牌的家族」                                                                                                          |
+| `ipc/decks.ts:854`（`decks:saveLocal`）        | 加「修正、不建立新版本」模式（3.2 的逃生門）                                                                                                             |
+| `DeckManagerControl.tsx:978`                   | 刪除確認框文字 + 場次 + 封存說明                                                                                                                         |
 
 `decks:stats` 預設 `groupBy: 'family'` 是刻意的：**使用者今天看到的數字不會變**。這是這個
 階段最重要的相容性保證，也是回歸測試要盯的那一條。
@@ -423,20 +423,20 @@ transaction 之後，WAL 下的衝突會以 busy/snapshot 錯誤炸出來而不�
 在真的 `svwb-engine migrate` 建出來的資料庫上，用 better-sqlite3（與 app 同一個 driver）驗過。
 列在這裡是因為其中幾條推翻了先前的設計，日後重新評估時值得先看一眼。
 
-| 驗證的事 | 結果 |
-|---|---|
-| FK `ON DELETE SET NULL` 會不會觸發 `AFTER UPDATE OF` trigger | **會**——這條推翻了 4.1 |
-| `PRAGMA recursive_triggers` 預設 | `0`（關閉） |
-| `RETURNING` 看不看得到 trigger 改的值 | **看不到**（回 trigger 之前的值） |
-| trigger 內層 UPDATE 會不會污染 `changes()` | 不會（樂觀鎖 `numUpdatedRows` 安全） |
-| trigger 內層 UPDATE 會不會影響 `last_insert_rowid()` | 不會（`store.rs:196` 依賴它） |
-| engine 的 `execute_batch` 吃不吃 `CREATE TRIGGER ... BEGIN ... END;` | 吃得下 |
-| 兩個 process 的 SQLite 版本 | better-sqlite3 → 3.53.4；libsqlite3-sys 0.30.1 → 3.46.x |
-| `Deck.id` 會不會被回收再用 | 不會（`AUTOINCREMENT`） |
-| engine 會不會寫 `Deck` / `DeckCard` | **不會**（`tools/engine/src/*.rs` 零命中），TS 是唯一寫入者 |
-| `DeckCard` 有幾個寫入點 | 一個：`upsertDeckWithCards`（`decks.ts:260` / `:271`） |
-| `Deck.fingerprint` 與 `DeckCard` 內容是否必然一致 | 是（`deckImport.ts:373` 的 `count <= 0 continue` 與 `fingerprintDeck` 的 filter 條件相同，且同一 transaction 寫入） |
-| engine 會不會在 insert 之後指定牌組 | 不會，只會清（`clear_my_deck` 是唯一路徑） |
-| engine 在第一次 schema 變更前會不會備份 | 會（`store.rs:139`，保留五份） |
-| `Match` 的寫入端有幾個 | 兩個：`ipc/matches.ts:710` 與 `tools/engine/src/store.rs:179` |
-| `DeckBuilder` 是自動存還是明確存 | 明確按存檔才寫（`DeckBuilder.tsx:372`），所以編輯過程不會產生版本 |
+| 驗證的事                                                             | 結果                                                                                                                |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| FK `ON DELETE SET NULL` 會不會觸發 `AFTER UPDATE OF` trigger         | **會**——這條推翻了 4.1                                                                                              |
+| `PRAGMA recursive_triggers` 預設                                     | `0`（關閉）                                                                                                         |
+| `RETURNING` 看不看得到 trigger 改的值                                | **看不到**（回 trigger 之前的值）                                                                                   |
+| trigger 內層 UPDATE 會不會污染 `changes()`                           | 不會（樂觀鎖 `numUpdatedRows` 安全）                                                                                |
+| trigger 內層 UPDATE 會不會影響 `last_insert_rowid()`                 | 不會（`store.rs:196` 依賴它）                                                                                       |
+| engine 的 `execute_batch` 吃不吃 `CREATE TRIGGER ... BEGIN ... END;` | 吃得下                                                                                                              |
+| 兩個 process 的 SQLite 版本                                          | better-sqlite3 → 3.53.4；libsqlite3-sys 0.30.1 → 3.46.x                                                             |
+| `Deck.id` 會不會被回收再用                                           | 不會（`AUTOINCREMENT`）                                                                                             |
+| engine 會不會寫 `Deck` / `DeckCard`                                  | **不會**（`tools/engine/src/*.rs` 零命中），TS 是唯一寫入者                                                         |
+| `DeckCard` 有幾個寫入點                                              | 一個：`upsertDeckWithCards`（`decks.ts:260` / `:271`）                                                              |
+| `Deck.fingerprint` 與 `DeckCard` 內容是否必然一致                    | 是（`deckImport.ts:373` 的 `count <= 0 continue` 與 `fingerprintDeck` 的 filter 條件相同，且同一 transaction 寫入） |
+| engine 會不會在 insert 之後指定牌組                                  | 不會，只會清（`clear_my_deck` 是唯一路徑）                                                                          |
+| engine 在第一次 schema 變更前會不會備份                              | 會（`store.rs:139`，保留五份）                                                                                      |
+| `Match` 的寫入端有幾個                                               | 兩個：`ipc/matches.ts:710` 與 `tools/engine/src/store.rs:179`                                                       |
+| `DeckBuilder` 是自動存還是明確存                                     | 明確按存檔才寫（`DeckBuilder.tsx:372`），所以編輯過程不會產生版本                                                   |

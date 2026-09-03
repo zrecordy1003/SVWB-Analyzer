@@ -6,15 +6,15 @@
 
 請先安裝下列工具，再 clone 專案。
 
-| 工具                           | 建議版本／安裝項目                                             | 用途                                           |
-| ------------------------------ | -------------------------------------------------------------- | ---------------------------------------------- |
-| Git                            | 最新版                                                         | 取得程式碼                                     |
-| Git LFS                        | 最新版                                                         | 下載 OCR 訓練資料（`eng.traineddata.gz`）      |
-| Node.js                        | 22.23.1（見 `.node-version`）                                  | Electron 與 TypeScript 執行環境                |
-| pnpm                           | 11.10.0                                                        | 套件管理                                       |
-| Visual Studio 2022 Build Tools | **Desktop development with C++**、MSVC v143、Windows 10/11 SDK | 重建 Electron 原生模組，並供 Rust MSVC 使用    |
-| Python                         | 3.11 以上                                                      | node-gyp 的原生編譯依賴                        |
-| Rust                           | stable **MSVC** toolchain                                      | 編譯 `svwb-engine`、vision addon 與截圖器      |
+| 工具                           | 建議版本／安裝項目                                             | 用途                                        |
+| ------------------------------ | -------------------------------------------------------------- | ------------------------------------------- |
+| Git                            | 最新版                                                         | 取得程式碼                                  |
+| Git LFS                        | 最新版                                                         | 下載 OCR 訓練資料（`eng.traineddata.gz`）   |
+| Node.js                        | 22.23.1（見 `.node-version`）                                  | Electron 與 TypeScript 執行環境             |
+| pnpm                           | 11.10.0                                                        | 套件管理                                    |
+| Visual Studio 2022 Build Tools | **Desktop development with C++**、MSVC v143、Windows 10/11 SDK | 重建 Electron 原生模組，並供 Rust MSVC 使用 |
+| Python                         | 3.11 以上                                                      | node-gyp 的原生編譯依賴                     |
+| Rust                           | stable **MSVC** toolchain                                      | 編譯 `svwb-engine`、vision addon 與截圖器   |
 
 安裝 Node.js 後，以 PowerShell 啟用 pnpm：
 

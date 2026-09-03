@@ -45,6 +45,7 @@ Tesseract worker 冷啟動是數百 ms 級。
 約 0.9 秒 ≈ 2 個 tick),所以這是正確性問題,`tick-over-budget` 診斷已在收集證據。
 
 **修法**:
+
 1. `recognizeNumber` / `recognizeBPGain` 改收 `frame: VisionFrame`,由 `analyzeOnce`
    傳入當前 tick 的 frame(它本來就在 `finally` 統一 dispose)。
 2. 模組層持有單一 lazy worker,`stop` 訊息時 terminate;OCR 失敗時重建一次。

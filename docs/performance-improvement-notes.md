@@ -6,34 +6,37 @@ This document tracks project-wide performance improvements and the intended impl
 > removal, and still names both - read it as history. What is true today is in the two sections
 > immediately after it.
 
-## The one architectural problem left
+## The one architectural problem left — done (2026-09-03)
 
-**The UI's SQLite reads run synchronously on the main process's event loop.**
+**The UI's SQLite now runs in its own process.**
 
-`data/db/client.ts` opens better-sqlite3, which is a synchronous driver, and all 84
-`ipcMain.handle` callbacks run on it. That same event loop also carries:
+`better-sqlite3` is synchronous, and all 84 `ipcMain.handle` callbacks used to
+execute their queries on the main process's event loop - the same loop carrying
+the 16ms focus ticker, the 1s game poll, the engine's stdout JSON Lines and
+every window message. One slow query cost HUD focus tracking, engine event
+handling and every other IPC call, not just the screen that asked.
 
-- the 16ms foreground-focus ticker (`index.ts`),
-- the 1s game-detection poll,
-- the engine's stdout JSON Lines, parsed and applied,
-- every window message.
+The seam is lower than the plan that used to be written here. Moving
+`src/main/ipc/` wholesale into a `utilityProcess` does not work - a large
+fraction of those handlers need main-only APIs (`clipboard`, `dialog`,
+`shell`, `net.fetch`, `app`, `electron-store`) - so instead `src/dbworker`
+owns the file and the driver, and main keeps a Kysely instance whose dialect
+forwards compiled SQL across a `postMessage`
+(`src/main/data/db/remoteDriver.ts`). Every handler is unchanged.
 
-So the cost of one slow query is not "that screen is slow". It is: the HUD drops a dozen frames of
-focus tracking, engine events queue up behind it, and every other IPC call waits. Everything else
-in this file is a constant factor; this is the shape.
+Two things to know before touching it:
 
-The fix is the one already applied to perception: give the work its own process. `src/main/data/`
-and `src/main/ipc/` can move into a `utilityProcess` close to wholesale, leaving main as the
-supervisor it already is for the engine. Not attempted yet because it changes the execution
-environment of every handler and deserves its own branch and its own test pass.
+- The worker holds ONE synchronous handle, so the driver serialises through
+  Kysely's `acquireConnection`. Two overlapping transactions would otherwise
+  issue `BEGIN` twice and the first one's writes would escape it.
+- `configureDbPath` requires a dialect on purpose. An optional one would let a
+  regression fall back to an in-process connection that works perfectly while
+  undoing the whole change - tests ask for that path by name.
 
-Cheaper mitigations, done:
-
-- The focus ticker no longer runs when the game is not running and the HUD is already off screen.
-  It used to make ~62 native calls a second from launch to quit regardless.
-- `battle:recog` was deleted. It carried exactly `gameStatus.capturing` and was sent on every
-  one-second tick, while `game:status` carries the same fact only on change and has a
-  `game:getStatus` catch-up for a window that opens late. `BattleStatus` reads the latter now.
+The cheaper mitigations that came first are still in place: the focus ticker no
+longer runs when the game is not running and the HUD is off screen, and
+`battle:recog` (which duplicated `gameStatus.capturing` on every one-second
+tick) is gone.
 
 ## Renderer bundle (2026-09-03)
 

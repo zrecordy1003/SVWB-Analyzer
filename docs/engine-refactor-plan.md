@@ -50,15 +50,15 @@ runtime，並衍生整套重試 / 游標遮擋補償邏輯（`--fail-first-ocr` 
 
 ### 佐證數據（2026-08-28 量測）
 
-| 項目 | 實測 |
-|---|---|
-| `app.db` 大小 / `Match` 筆數 | 250 KB / 324 |
-| `node_modules/.prisma` | 183 MB（含 8 份殘留的 21MB `.tmp*` DLL） |
-| 打包進安裝檔的 Prisma engine | 22 MB |
-| `forkedImageAnalyzer.ts` | 1,270 行（註解 402、空行 102、`console.*` 44、**實際邏輯 ≈700**，狀態機核心 ≈400） |
-| `replay-recording.cjs` | 953 行（狀態機手抄副本） |
-| renderer | 11,044 行（本計畫不動） |
-| 既有 Rust | 1,480 行 |
+| 項目                         | 實測                                                                               |
+| ---------------------------- | ---------------------------------------------------------------------------------- |
+| `app.db` 大小 / `Match` 筆數 | 250 KB / 324                                                                       |
+| `node_modules/.prisma`       | 183 MB（含 8 份殘留的 21MB `.tmp*` DLL）                                           |
+| 打包進安裝檔的 Prisma engine | 22 MB                                                                              |
+| `forkedImageAnalyzer.ts`     | 1,270 行（註解 402、空行 102、`console.*` 44、**實際邏輯 ≈700**，狀態機核心 ≈400） |
+| `replay-recording.cjs`       | 953 行（狀態機手抄副本）                                                           |
+| renderer                     | 11,044 行（本計畫不動）                                                            |
+| 既有 Rust                    | 1,480 行                                                                           |
 
 查詢效能不是問題，現在不是、將來也不會是：324 筆資料、已建 11 個索引。
 「效能」在本計畫中指的是啟動延遲、tick 預算、安裝檔體積，不是查詢吞吐。
@@ -82,14 +82,14 @@ runtime，並衍生整套重試 / 游標遮擋補償邏輯（`--fail-first-ocr` 
 
 ### 已定案的決策
 
-| # | 決策 | 理由 |
-|---|---|---|
-| A-1 | 引擎是**獨立 exe**，不是 napi addon | ① 可脫離 Electron 執行 → replay 測試跑的就是出貨的狀態機，D-2 在結構上被消滅 ② 崩潰隔離（連續運行數小時）③ 不被 Electron ABI 綁定 |
-| A-2 | 協定用 **JSON Lines over stdio** | 事件率每秒個位數，序列化成本無意義；人眼可讀、可 `> log.jsonl` 存證、測試不需 harness |
-| A-3 | **DB 檔案共用**，引擎寫入 / UI 讀取 + 使用者編輯，WAL + `busy_timeout` | 明確否決「UI 所有查詢都問引擎」：那會讓改一個 SELECT 要 `cargo build`，把 UI 迭代綁死在 Rust 編譯上 |
-| A-4 | `resources/migrations/*.sql` 維持唯一 schema 真相，由引擎在啟動時套用 | 避免再次出現 `schema.prisma` 這種平行真相 |
-| A-5 | 數字辨識改用**模板比對**，移除 tesseract.js | 固定字體、固定 ROI、只有 0-9；既有比對器可直接使用 |
-| A-6 | **不換 Electron**（不轉 Tauri） | HUD 點擊穿透、`node-window-manager`、`extract-file-icon` 皆為 Electron/Node 綁定。本架構完成後外殼變成可抽換，決定被推遲而非鎖死 |
+| #   | 決策                                                                   | 理由                                                                                                                              |
+| --- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| A-1 | 引擎是**獨立 exe**，不是 napi addon                                    | ① 可脫離 Electron 執行 → replay 測試跑的就是出貨的狀態機，D-2 在結構上被消滅 ② 崩潰隔離（連續運行數小時）③ 不被 Electron ABI 綁定 |
+| A-2 | 協定用 **JSON Lines over stdio**                                       | 事件率每秒個位數，序列化成本無意義；人眼可讀、可 `> log.jsonl` 存證、測試不需 harness                                             |
+| A-3 | **DB 檔案共用**，引擎寫入 / UI 讀取 + 使用者編輯，WAL + `busy_timeout` | 明確否決「UI 所有查詢都問引擎」：那會讓改一個 SELECT 要 `cargo build`，把 UI 迭代綁死在 Rust 編譯上                               |
+| A-4 | `resources/migrations/*.sql` 維持唯一 schema 真相，由引擎在啟動時套用  | 避免再次出現 `schema.prisma` 這種平行真相                                                                                         |
+| A-5 | 數字辨識改用**模板比對**，移除 tesseract.js                            | 固定字體、固定 ROI、只有 0-9；既有比對器可直接使用                                                                                |
+| A-6 | **不換 Electron**（不轉 Tauri）                                        | HUD 點擊穿透、`node-window-manager`、`extract-file-icon` 皆為 Electron/Node 綁定。本架構完成後外殼變成可抽換，決定被推遲而非鎖死  |
 
 ### 明確不做的事
 
@@ -213,6 +213,7 @@ engine vs addon parity: 34 fixtures x 21 probes = 714 comparisons
 沒有任何真實畫面證明它會觸發。`tests/fixtures.rs::no_still_fixture_shows_a_versus_screen`
 把這個缺口寫成一個會失敗的測試 —— 哪天有 fixture 開始呈現 versus 畫面，它會失敗並要求
 把該 fixture 升級成正式斷言。缺口在引擎能端到端 replay 錄影後關閉。
+
 - [x] 接合面定案（`src/machine.rs`）：`Reading`（本 tick 看到什麼）/ `Change`（決定了什麼）/
       `Machine`（持有跨 tick 狀態）。`Machine::tick(&mut self, reading, now) -> Vec<Change>`，
       不碰影像、資料庫、message port。
@@ -254,20 +255,20 @@ custom 錄影報 `final-screen-never-seen closed-by-timeout`。
 一個早前的文件編輯誤刪了本子計畫的清單段落；此處為權威記錄。
 **刪除任何測試都必須指名接手者**，對照如下：
 
-| 已刪除 | 職責由誰接手 |
-|---|---|
-| `check-rois.cjs` | 職責（兩份 ROI 表是否一致）在單一來源下不存在 |
-| `check-scales.cjs` | `tests/fixtures.rs` 以出貨 scale 走完整管線斷言判定 |
-| `check-score-system.cjs` | `fixtures.rs::ranked_result_screens_report_their_score_system` |
-| `check-unattributable.cjs` | `fixtures.rs::quiet_screens_stay_quiet` + 各結算畫面測試 |
-| `check-custom-roi.cjs` | `fixtures.rs::the_custom_room_is_recognised...` + quiet screens |
-| `check-history-roi.cjs` / `check-replay-chrome.cjs` | `fixtures.rs::replay_signals_are_found_at_both_resolutions` |
-| `check-cpu-label.cjs` | `fixtures.rs::the_cpu_label_is_found_on_both_screens_that_show_it` |
-| `check-result-fade.cjs` | `fixtures.rs::a_fading_in_result_screen_has_a_banner_but_no_label_yet` |
-| `scan.cjs` | `svwb-engine probe-dump` 做同一件事，且吃單一來源的登錄表 |
-| `verify.cjs` | 驗證的是已完成的窄窗口遷移，歷史任務結束 |
-| `bench-tick.cjs` | 量的是 addon 路徑，已非出貨形狀，留著會誤導；正式環境由引擎發 `SlowTick` |
-| `visionNative.ts`（437 行） | 死碼：唯一使用者已刪。`matches_the_typescript_table` 守衛測試依其自述的刪除條件一併退役 |
+| 已刪除                                              | 職責由誰接手                                                                            |
+| --------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `check-rois.cjs`                                    | 職責（兩份 ROI 表是否一致）在單一來源下不存在                                           |
+| `check-scales.cjs`                                  | `tests/fixtures.rs` 以出貨 scale 走完整管線斷言判定                                     |
+| `check-score-system.cjs`                            | `fixtures.rs::ranked_result_screens_report_their_score_system`                          |
+| `check-unattributable.cjs`                          | `fixtures.rs::quiet_screens_stay_quiet` + 各結算畫面測試                                |
+| `check-custom-roi.cjs`                              | `fixtures.rs::the_custom_room_is_recognised...` + quiet screens                         |
+| `check-history-roi.cjs` / `check-replay-chrome.cjs` | `fixtures.rs::replay_signals_are_found_at_both_resolutions`                             |
+| `check-cpu-label.cjs`                               | `fixtures.rs::the_cpu_label_is_found_on_both_screens_that_show_it`                      |
+| `check-result-fade.cjs`                             | `fixtures.rs::a_fading_in_result_screen_has_a_banner_but_no_label_yet`                  |
+| `scan.cjs`                                          | `svwb-engine probe-dump` 做同一件事，且吃單一來源的登錄表                               |
+| `verify.cjs`                                        | 驗證的是已完成的窄窗口遷移，歷史任務結束                                                |
+| `bench-tick.cjs`                                    | 量的是 addon 路徑，已非出貨形狀，留著會誤導；正式環境由引擎發 `SlowTick`                |
+| `visionNative.ts`（437 行）                         | 死碼：唯一使用者已刪。`matches_the_typescript_table` 守衛測試依其自述的刪除條件一併退役 |
 
 `check-ocr-numbers.cjs` **保留但改接引擎**：12 個硬編窗口歸零，裁切改由 `svwb-engine crop`
 供給 —— 走 `number_window -> shift_roi -> binarize_to_png` 的正式路徑，所以它從此驗證的是
@@ -406,10 +407,10 @@ tesseract 在正式環境讀錯 —— `check-ocr-numbers.cjs` 的 11 個案例�
 
 現況有一個講不通的不對稱：
 
-| 欄位 | 性質 | 現行接受條件 |
-|---|---|---|
-| `totalMp` / `currentCr` | **會跑動畫**（88638→88754→88762） | 連續兩 tick 相同才接受 |
-| `bp` / `deltaMp` / `deltaCr` | **靜態，畫出來就不動** | **第一次讀成功就接受** |
+| 欄位                         | 性質                              | 現行接受條件           |
+| ---------------------------- | --------------------------------- | ---------------------- |
+| `totalMp` / `currentCr`      | **會跑動畫**（88638→88754→88762） | 連續兩 tick 相同才接受 |
+| `bp` / `deltaMp` / `deltaCr` | **靜態，畫出來就不動**            | **第一次讀成功就接受** |
 
 反了。會動的值拿了共識，不會動的值反而單次採信 —— 而後者的共識是免費的。
 改成靜態值也取多幀共識，且**與辨識器無關**。
@@ -432,20 +433,20 @@ tesseract 在正式環境讀錯 —— `check-ocr-numbers.cjs` 的 11 個案例�
 
 `resources/templates/` 14 個 set 中**沒有數字集**。從現有 fixture 擷取並逐字元分割後：
 
-| 字元 | 觀察到的尺寸（寬×高） |
-|---|---|
-| `+` | 8x10, 8x11 ×3, 8x12 |
-| `-` | 6x2 |
-| `1` | 8x16 ×2, 9x16, 10x16 ×2, 9x20 ×2, 10x20 |
-| `2` | 12x16 ← 僅 1 樣本 |
-| `3` | 10x16, 14x23, 15x23 |
-| `4` | 11x16, 12x16, 14x22 |
-| `5` | 10x16, 12x22 ×2, 13x22 |
-| `6` | 11x16 ← 僅 1 樣本 |
-| `7` | 12x16, 14x22 |
-| `8` | 10x16, 13x21, 14x21 |
-| `9` | 13x23 ← 僅 1 樣本 |
-| **`0`** | **不存在** |
+| 字元    | 觀察到的尺寸（寬×高）                   |
+| ------- | --------------------------------------- |
+| `+`     | 8x10, 8x11 ×3, 8x12                     |
+| `-`     | 6x2                                     |
+| `1`     | 8x16 ×2, 9x16, 10x16 ×2, 9x20 ×2, 10x20 |
+| `2`     | 12x16 ← 僅 1 樣本                       |
+| `3`     | 10x16, 14x23, 15x23                     |
+| `4`     | 11x16, 12x16, 14x22                     |
+| `5`     | 10x16, 12x22 ×2, 13x22                  |
+| `6`     | 11x16 ← 僅 1 樣本                       |
+| `7`     | 12x16, 14x22                            |
+| `8`     | 10x16, 13x21, 14x21                     |
+| `9`     | 13x23 ← 僅 1 樣本                       |
+| **`0`** | **不存在**                              |
 
 四個問題：
 
@@ -467,9 +468,9 @@ P6-c 的收割機制正是為了自動解除第 1、4 項。
 
 關鍵在於它是一個**不對稱訊號**：
 
-| 情況 | 意義 | 允許的行動 |
-|---|---|---|
-| 等式**成立** | 有資訊。兩個獨立來源（本場讀值、上一場存值）互相印證 | 可用於**提升信心** |
+| 情況           | 意義                                                 | 允許的行動                       |
+| -------------- | ---------------------------------------------------- | -------------------------------- |
+| 等式**成立**   | 有資訊。兩個獨立來源（本場讀值、上一場存值）互相印證 | 可用於**提升信心**               |
 | 等式**不成立** | **無資訊**。無法區分「讀錯」與「中間有未記錄的對戰」 | **不得有任何行動，連診斷都不報** |
 
 因此唯一正當的用法是**縮短共識門檻**：某次讀值若與 `上一場 + 差值` 相符，
@@ -524,6 +525,7 @@ P3 之後皆為可延後的體積與效能優化。計畫因此在中途停下�
 **R-3｜2026-08-28：新增判斷題 D-4（事件順序）、D-5（migration 所有權）。**
 
 兩者皆為原計畫的規格空洞，見「判斷題」一節。
+
 ## 命名規範
 
 移植不是逐字翻譯。`forkedImageAnalyzer.ts` 有一批名稱在現況已經誤導，照搬過去只會把
@@ -542,32 +544,32 @@ P3 之後皆為可延後的體積與效能優化。計畫因此在中途停下�
 
 ### 詞彙表（P2 移植對照）
 
-| 現況（JS） | 目標（Rust） | 為什麼 |
-|---|---|---|
-| `inBattle` / `isMatchRecord` / `isResultMidDetect` / `activeMatchId` | `Phase` enum | 四個變數編碼同一個狀態機，32 種組合只有 4 種合法 |
-| `isMatchRecord` | （併入 `Phase::InBattle`） | 讀起來像型別判斷，實際意思是「有一列開著」 |
-| `isResultMidDetect` | （併入 `Phase::Resolving`） | 實際意思是「已看到戰鬥結束的中央大字」 |
-| `isModifyBP` / `isModifyMp` / `isModifyDeltaMp` / `isModifyCurrentCR` / `isModifyDeltaCR` | `MatchPatch` 的 `Option<i32>` | 「已寫入 DB」是實作副作用；「已有值」才是語意 |
-| `mode` + `modeConfidence` | `resolved_mode: Option<(GameMode, Confidence)>` | 兩者永遠同進退，分開就可能只更新一半 |
-| `MODE_CONFIDENCE` 查表 | `Confidence` derive `Ord` | 「弱不得覆蓋強」交給型別系統 |
-| `cpuDetectionHits` / `plazaDetectionHits` / `customDetectionHits` / `lastPlazaHit` | `Debounce { hits, last_pos }` | 三份手抄的同一個東西 |
-| `pendingCumulative` | `settling: SettlingCounters` | 它擋的是計數動畫尚未停止，不是「待處理」 |
-| `ocrGraceUntil` | `numbers_deadline` | 綁在 OCR 這個實作上；換成模板比對後名稱就過期（P6） |
-| `resultModeDeadline` | `mode_deadline` | 對稱化 |
-| `preBattleModeExpiresAt` | （併入 `Phase::Idle { hint: ModeHint { expires } }`） | 不是獨立狀態，見上 |
-| `replayLatchUntil` / `replayLatched` | （併入 `Phase::ReplaySuppressed { until }`） | `latched` 只是邊緣偵測的暫存 |
-| `requiredNumbers: 'bp' \| 'mp'` | `owed: Option<NumberBlock>` | 「這張結算畫面欠我們哪一組數字」 |
-| **`parseBPGain`** | **`parse_signed_int`** | **名稱比實際範圍窄**：實際餵給它的有 BP、MP、deltaMp、CR、deltaCR 共 6 個呼叫點，只有 2 個是 BP |
-| `recognizeNumber` | `read_number` | `recognize` 是 Tesseract 的詞彙，P6 之後不再適用 |
-| `recognizeGainedMp` / `recognizeTotalMp` | `read_delta_mp` / `read_cumulative_mp` | delta / cumulative 是這兩者真正的差別，也正是兩 tick 一致性檢查只套用在後者的原因 |
-| `modifyMatchBP` / `modifyMatchMode` / ... | `MatchPatch` 欄位 | `modify` 沒有資訊量；9 個函式塌縮成一個結構 |
-| `scoreAndName` | `Hit` | 型別名複述欄位，且順序與宣告相反 |
-| `pickBestResult` | `best_above(threshold)` | 說出門檻語意 |
-| `bestMatch` | `best_of` | 與 `match` 關鍵字撞名 |
-| `layoutDy` | `layout_offset_y` | |
-| `SET` | `templates` | 它是 template 目錄名，不是抽象的「集合」 |
-| `THRESHOLD` | `threshold` 模組 | |
-| `ROI`（模組層級） | `calibration` 模組 | 該模組同時含窗口、scale、門檻、版面位移，`roi` 只涵蓋其一 |
+| 現況（JS）                                                                                | 目標（Rust）                                          | 為什麼                                                                                          |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `inBattle` / `isMatchRecord` / `isResultMidDetect` / `activeMatchId`                      | `Phase` enum                                          | 四個變數編碼同一個狀態機，32 種組合只有 4 種合法                                                |
+| `isMatchRecord`                                                                           | （併入 `Phase::InBattle`）                            | 讀起來像型別判斷，實際意思是「有一列開著」                                                      |
+| `isResultMidDetect`                                                                       | （併入 `Phase::Resolving`）                           | 實際意思是「已看到戰鬥結束的中央大字」                                                          |
+| `isModifyBP` / `isModifyMp` / `isModifyDeltaMp` / `isModifyCurrentCR` / `isModifyDeltaCR` | `MatchPatch` 的 `Option<i32>`                         | 「已寫入 DB」是實作副作用；「已有值」才是語意                                                   |
+| `mode` + `modeConfidence`                                                                 | `resolved_mode: Option<(GameMode, Confidence)>`       | 兩者永遠同進退，分開就可能只更新一半                                                            |
+| `MODE_CONFIDENCE` 查表                                                                    | `Confidence` derive `Ord`                             | 「弱不得覆蓋強」交給型別系統                                                                    |
+| `cpuDetectionHits` / `plazaDetectionHits` / `customDetectionHits` / `lastPlazaHit`        | `Debounce { hits, last_pos }`                         | 三份手抄的同一個東西                                                                            |
+| `pendingCumulative`                                                                       | `settling: SettlingCounters`                          | 它擋的是計數動畫尚未停止，不是「待處理」                                                        |
+| `ocrGraceUntil`                                                                           | `numbers_deadline`                                    | 綁在 OCR 這個實作上；換成模板比對後名稱就過期（P6）                                             |
+| `resultModeDeadline`                                                                      | `mode_deadline`                                       | 對稱化                                                                                          |
+| `preBattleModeExpiresAt`                                                                  | （併入 `Phase::Idle { hint: ModeHint { expires } }`） | 不是獨立狀態，見上                                                                              |
+| `replayLatchUntil` / `replayLatched`                                                      | （併入 `Phase::ReplaySuppressed { until }`）          | `latched` 只是邊緣偵測的暫存                                                                    |
+| `requiredNumbers: 'bp' \| 'mp'`                                                           | `owed: Option<NumberBlock>`                           | 「這張結算畫面欠我們哪一組數字」                                                                |
+| **`parseBPGain`**                                                                         | **`parse_signed_int`**                                | **名稱比實際範圍窄**：實際餵給它的有 BP、MP、deltaMp、CR、deltaCR 共 6 個呼叫點，只有 2 個是 BP |
+| `recognizeNumber`                                                                         | `read_number`                                         | `recognize` 是 Tesseract 的詞彙，P6 之後不再適用                                                |
+| `recognizeGainedMp` / `recognizeTotalMp`                                                  | `read_delta_mp` / `read_cumulative_mp`                | delta / cumulative 是這兩者真正的差別，也正是兩 tick 一致性檢查只套用在後者的原因               |
+| `modifyMatchBP` / `modifyMatchMode` / ...                                                 | `MatchPatch` 欄位                                     | `modify` 沒有資訊量；9 個函式塌縮成一個結構                                                     |
+| `scoreAndName`                                                                            | `Hit`                                                 | 型別名複述欄位，且順序與宣告相反                                                                |
+| `pickBestResult`                                                                          | `best_above(threshold)`                               | 說出門檻語意                                                                                    |
+| `bestMatch`                                                                               | `best_of`                                             | 與 `match` 關鍵字撞名                                                                           |
+| `layoutDy`                                                                                | `layout_offset_y`                                     |                                                                                                 |
+| `SET`                                                                                     | `templates`                                           | 它是 template 目錄名，不是抽象的「集合」                                                        |
+| `THRESHOLD`                                                                               | `threshold` 模組                                      |                                                                                                 |
+| `ROI`（模組層級）                                                                         | `calibration` 模組                                    | 該模組同時含窗口、scale、門檻、版面位移，`roi` 只涵蓋其一                                       |
 
 ### 不改名的部分
 
@@ -593,11 +595,11 @@ P3 之後皆為可延後的體積與效能優化。計畫因此在中途停下�
 
 **四個變數在編碼同一個狀態機** —— 32 種布林組合中只有 4 種合法，現無任何機制阻止其餘 28 種：
 
-| 現有條件式 | 真正語意 |
-|---|---|
-| `inBattle && !isMatchRecord && !isResultMidDetect` | 開場 |
-| `isMatchRecord && activeMatchId !== null && resultMid > 0.3` | 中場結果浮出 |
-| `!isMatchRecord && isResultMidDetect && result > 門檻` | 最終結算畫面 |
+| 現有條件式                                                              | 真正語意     |
+| ----------------------------------------------------------------------- | ------------ |
+| `inBattle && !isMatchRecord && !isResultMidDetect`                      | 開場         |
+| `isMatchRecord && activeMatchId !== null && resultMid > 0.3`            | 中場結果浮出 |
+| `!isMatchRecord && isResultMidDetect && result > 門檻`                  | 最終結算畫面 |
 | `activeMatchId !== null && ocrGraceUntil > 0 && pendingResult !== null` | 結算後保留期 |
 
 ```rust
@@ -636,14 +638,14 @@ enum Awaiting {
 
 其餘真狀態分組：
 
-| 組 | 現有變數（行號） | 目標 |
-|---|---|---|
-| 模式 + 信心 | `mode`(342)、`modeConfidence`(391) | `Option<(GameMode, Confidence)>` — 綁一起就不可能只更新一半 |
-| 數字已寫入旗標 | `isModifyBP/Mp/DeltaMp/CurrentCR/DeltaCR`(344-348) | P3 重整後消失 |
-| 數字收集 | `requiredNumbers`(424)、`pendingCumulative`(433) | `NumberCollector` |
-| 四個 deadline | `resultModeDeadline`(356)、`ocrGraceUntil`(422)、`preBattleModeExpiresAt`(358)、`replayLatchUntil`(411) | 全部依賴 `Date.now()` → 必須注入時鐘 |
-| 去抖 | `cpuDetectionHits`(350)、`plazaDetectionHits`(351)、`customDetectionHits`(354)、`lastPlazaHit`(353) | 收斂為單一 `Debounce` |
-| 其他 | `pendingResult`(355)、`preBattleMode`(357)、`replayLatched`(413) | 併入 `Phase` |
+| 組             | 現有變數（行號）                                                                                        | 目標                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| 模式 + 信心    | `mode`(342)、`modeConfidence`(391)                                                                      | `Option<(GameMode, Confidence)>` — 綁一起就不可能只更新一半 |
+| 數字已寫入旗標 | `isModifyBP/Mp/DeltaMp/CurrentCR/DeltaCR`(344-348)                                                      | P3 重整後消失                                               |
+| 數字收集       | `requiredNumbers`(424)、`pendingCumulative`(433)                                                        | `NumberCollector`                                           |
+| 四個 deadline  | `resultModeDeadline`(356)、`ocrGraceUntil`(422)、`preBattleModeExpiresAt`(358)、`replayLatchUntil`(411) | 全部依賴 `Date.now()` → 必須注入時鐘                        |
+| 去抖           | `cpuDetectionHits`(350)、`plazaDetectionHits`(351)、`customDetectionHits`(354)、`lastPlazaHit`(353)     | 收斂為單一 `Debounce`                                       |
+| 其他           | `pendingResult`(355)、`preBattleMode`(357)、`replayLatched`(413)                                        | 併入 `Phase`                                                |
 
 ### 應為 tick 區域變數（5 個）
 
@@ -660,14 +662,14 @@ enum Awaiting {
 
 ### 外部相依
 
-| 相依 | 用量 | 歸屬 |
-|---|---|---|
-| `MessagePortMain` | 17 次 postMessage，僅 3 種訊息（`inBattle`×2、`matchResult`×2、`modifyMode`×13） | JSON Lines 事件 |
-| Prisma | 21 次呼叫 / 9 個函式 | 引擎內 rusqlite（P3） |
-| tesseract.js | worker + 4 個 recognize 包裝 | 消失（P5） |
-| `visionNative` | 20 次 `match()` + `detectScoreSystem` + `resultLayoutOffset` + `loadFrame` | 同行程呼叫，napi 消失 |
-| `fs` | `existsSync`/`statSync` 輪詢 | 消失（P1） |
-| `diagnosticsRecorder` | `captureFrame`×5、`noteEvent`×3、`noteScore`×3、`noteSlowTick`×1 | 引擎內模組 |
+| 相依                  | 用量                                                                             | 歸屬                  |
+| --------------------- | -------------------------------------------------------------------------------- | --------------------- |
+| `MessagePortMain`     | 17 次 postMessage，僅 3 種訊息（`inBattle`×2、`matchResult`×2、`modifyMode`×13） | JSON Lines 事件       |
+| Prisma                | 21 次呼叫 / 9 個函式                                                             | 引擎內 rusqlite（P3） |
+| tesseract.js          | worker + 4 個 recognize 包裝                                                     | 消失（P5）            |
+| `visionNative`        | 20 次 `match()` + `detectScoreSystem` + `resultLayoutOffset` + `loadFrame`       | 同行程呼叫，napi 消失 |
+| `fs`                  | `existsSync`/`statSync` 輪詢                                                     | 消失（P1）            |
+| `diagnosticsRecorder` | `captureFrame`×5、`noteEvent`×3、`noteScore`×3、`noteSlowTick`×1                 | 引擎內模組            |
 
 `modifyMode` 那 13 次都只是叫前端重新查詢 —— 移植後是**一種**事件，不是 13 個呼叫點。
 
@@ -718,15 +720,15 @@ P4 起引擎接管，`initDb.ts` 的對應邏輯在同一批變更中移除。
 
 ## 進度
 
-| 期 | 狀態 | 消滅的缺陷 | 淨行數變化（估） |
-|---|---|---|---|
-| P0 止血 | **完成 2026-08-28** | B-1 | ~0 |
-| P1 引擎骨架 + 探測搬入 | **完成 2026-08-28** | — | +1,100 Rust |
-| P2 狀態機移植 + 消滅手抄品 | **主體完成 2026-08-28** | **D-2** | +3,900 Rust / −1,897 JS（淨） |
-| P3 capture 併入 | **主體完成 2026-08-28（待真機驗證）** | **D-1** | +230 Rust / −220 JS |
-| P4 引擎直寫 DB | **主體完成 2026-08-28（待真機驗證）** | — | +330 Rust / −340 JS |
-| P5 UI 端 Prisma 退場 | **主體完成 2026-08-28（待真機驗證）** | — | −900 JS 淨（含 22MB 依賴退場） |
-| P6 數字模板 | 未開始 | D-3 | +300 Rust / −300 JS |
+| 期                         | 狀態                                  | 消滅的缺陷 | 淨行數變化（估）               |
+| -------------------------- | ------------------------------------- | ---------- | ------------------------------ |
+| P0 止血                    | **完成 2026-08-28**                   | B-1        | ~0                             |
+| P1 引擎骨架 + 探測搬入     | **完成 2026-08-28**                   | —          | +1,100 Rust                    |
+| P2 狀態機移植 + 消滅手抄品 | **主體完成 2026-08-28**               | **D-2**    | +3,900 Rust / −1,897 JS（淨）  |
+| P3 capture 併入            | **主體完成 2026-08-28（待真機驗證）** | **D-1**    | +230 Rust / −220 JS            |
+| P4 引擎直寫 DB             | **主體完成 2026-08-28（待真機驗證）** | —          | +330 Rust / −340 JS            |
+| P5 UI 端 Prisma 退場       | **主體完成 2026-08-28（待真機驗證）** | —          | −900 JS 淨（含 22MB 依賴退場） |
+| P6 數字模板                | 未開始                                | D-3        | +300 Rust / −300 JS            |
 
 行數為估計值，僅用於判斷相對規模。時程以週計，非以日計。
 P2 的估計已依 R-2 上修（原為 +1,200 / −2,200，未計入 check 套件的 9 份手抄品）。
@@ -800,10 +802,10 @@ parity 37 fixtures × 20 probes 全等，custom / CPU 錄影回歸重跑無變�
 前一輪把 `MODES_2PICK` 修正、把 `MODE_SETTLE` 拉到 12 秒後，這份錄影**仍然**replay
 成 `mode: ranked`。原因是勝利會先播 RANK UP 動畫：
 
-| 時點 | t |
-| --- | --- |
-| WIN 橫幅過門檻 | 1033s |
-| RANK UP 動畫 | 1035–1039s |
+| 時點                     | t                   |
+| ------------------------ | ------------------- |
+| WIN 橫幅過門檻           | 1033s               |
+| RANK UP 動畫             | 1035–1039s          |
 | 2Pick階級 才可讀（0.82） | **1048s，晚 15 秒** |
 
 15 秒超過機器所有的寬限期；而把寬限期再拉長，只是等第三份錄影來打破它。

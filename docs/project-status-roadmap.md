@@ -347,11 +347,24 @@ them), `AppSettingsInner`, `Category`, `BattleState`, plus `OnCloseBehavior` /
 `matches:getPageWithExtras` was deleted outright: it was byte-for-byte `matches:getPage` behind a
 positional-argument preamble, with no caller anywhere in `src/` or `tests/`.
 
-### Renderer has no data layer
+### Renderer has no data layer — done
 
-Components call IPC directly and hold their own `useState`; `decks:all` is invoked from four
-separate places with no shared cache or invalidation. The symptom is component size —
-`DeckManagerControl.tsx` is 1055 lines with 23 `useState` calls, which is an unwritten reducer.
+`src/renderer/src/ipcResource.ts` generalises what `useDecksTags` had already
+worked out - `useSyncExternalStore` over a module snapshot, in-flight
+de-duplication, one shared broadcast listener, "mark stale but keep the data" -
+and adds a key, because reference data is one value while stats are one value
+per filter. The instances live in `src/renderer/src/resources.ts`, not in
+components: a shared cache only shares if both consumers reach the same one.
+
+Deliberately not TanStack Query, and the module header says why - retries,
+focus refetching and devtools are what it would buy, and none of them apply to
+a sub-10ms local round trip invalidated by a broadcast.
+
+It replaced three separate implementations: `DeckPerformance`'s two effects
+issuing the same query with the error handling written twice,
+`DeckVersionsDialog`'s own fetch (which turned a failure into an empty Map -
+indistinguishable from "every version has no games"), and `useCardStats`'s
+sequence counter, which the key made unnecessary rather than moved.
 
 ## Priority 4: Query and data performance
 

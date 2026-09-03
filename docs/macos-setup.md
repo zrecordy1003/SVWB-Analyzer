@@ -8,20 +8,20 @@ macOS 可以做這個專案大部分的開發與測試工作。唯一真正做�
 
 ## 適用範圍
 
-| 工作                                                    | macOS |
-| ------------------------------------------------------- | ----- |
-| React／renderer／IPC／TypeScript 修改                   | 支援  |
-| `pnpm typecheck`、`pnpm lint`、`pnpm build`             | 支援  |
-| `pnpm test`（vitest：資料層、IPC 契約、純函式）         | 支援  |
-| `pnpm vision:test`（cargo：狀態機情境與 fixture 斷言）  | 支援  |
-| `pnpm vision:check`（clippy）                           | 支援  |
-| `pnpm engine:build`、`svwb-engine migrate`              | 支援  |
-| `svwb-engine replay <video>`（對錄影跑出貨的狀態機）    | 支援（見下方說明，npm script 本身是 Windows 路徑） |
-| `pnpm dev`（UI 開發；遊戲一定顯示「未偵測到」）         | 支援  |
-| 即時擷取、遊戲視窗偵測、真實對局辨識                     | 不支援；須在 Windows 實機驗證 |
-| `capture:build`、`vision:build`（PowerShell 腳本）      | 不支援 |
-| `vision:check-engine-parity` / `vision:verify`          | 不支援；需要 PowerShell 建置的 `svwb-vision.node` |
-| `build:win`、NSIS installer、發行                        | 不支援 |
+| 工作                                                   | macOS                                              |
+| ------------------------------------------------------ | -------------------------------------------------- |
+| React／renderer／IPC／TypeScript 修改                  | 支援                                               |
+| `pnpm typecheck`、`pnpm lint`、`pnpm build`            | 支援                                               |
+| `pnpm test`（vitest：資料層、IPC 契約、純函式）        | 支援                                               |
+| `pnpm vision:test`（cargo：狀態機情境與 fixture 斷言） | 支援                                               |
+| `pnpm vision:check`（clippy）                          | 支援                                               |
+| `pnpm engine:build`、`svwb-engine migrate`             | 支援                                               |
+| `svwb-engine replay <video>`（對錄影跑出貨的狀態機）   | 支援（見下方說明，npm script 本身是 Windows 路徑） |
+| `pnpm dev`（UI 開發；遊戲一定顯示「未偵測到」）        | 支援                                               |
+| 即時擷取、遊戲視窗偵測、真實對局辨識                   | 不支援；須在 Windows 實機驗證                      |
+| `capture:build`、`vision:build`（PowerShell 腳本）     | 不支援                                             |
+| `vision:check-engine-parity` / `vision:verify`         | 不支援；需要 PowerShell 建置的 `svwb-vision.node`  |
+| `build:win`、NSIS installer、發行                      | 不支援                                             |
 
 ## 1. 安裝前置工具
 
@@ -112,11 +112,11 @@ pnpm release:win     # 需要 Windows build artifact 與已登入的 gh CLI
 
 ## 疑難排解
 
-| 現象                                              | 處理方式                                                                          |
-| ------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `pnpm test` 說 `svwb-engine is not built`         | 執行 `pnpm engine:build`。                                                         |
-| 原生模組在 postinstall 失敗                       | 先確認 `xcode-select --install` 已完成；仍失敗則改用 `pnpm install --ignore-scripts`，但資料庫測試會無法執行。 |
-| 找不到 `powershell.exe`，或 `.exe` 無法執行       | 預期行為；那些 script 只支援 Windows。                                             |
-| `svwb-engine replay` 找不到錄影檔                 | 錄影檔沒有進版控，向 Windows 端索取後放到對應目錄。                                |
-| Git 顯示 LFS 檔變成 pointer                       | 執行 `git lfs install`、`git lfs pull`。                                            |
-| 要驗證擷取或真實對局辨識                          | 轉到 Windows 裝置，依 [Windows 開發環境與首次執行](windows-setup.md) 操作。        |
+| 現象                                        | 處理方式                                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `pnpm test` 說 `svwb-engine is not built`   | 執行 `pnpm engine:build`。                                                                                     |
+| 原生模組在 postinstall 失敗                 | 先確認 `xcode-select --install` 已完成；仍失敗則改用 `pnpm install --ignore-scripts`，但資料庫測試會無法執行。 |
+| 找不到 `powershell.exe`，或 `.exe` 無法執行 | 預期行為；那些 script 只支援 Windows。                                                                         |
+| `svwb-engine replay` 找不到錄影檔           | 錄影檔沒有進版控，向 Windows 端索取後放到對應目錄。                                                            |
+| Git 顯示 LFS 檔變成 pointer                 | 執行 `git lfs install`、`git lfs pull`。                                                                       |
+| 要驗證擷取或真實對局辨識                    | 轉到 Windows 裝置，依 [Windows 開發環境與首次執行](windows-setup.md) 操作。                                    |

@@ -32,17 +32,17 @@ class 強、先後手影響多少、某個對位實際勝率是多少。
 
 ### 現況查證（2026-08-30，逐項對照程式碼）
 
-| 事實 | 依據 | 對統計的影響 |
-|---|---|---|
-| 沒有任何手動新增對局的路徑 | `insertInto('Match')` 在 `src/` 零命中；渲染層只用 `matches:` 的 delete / fetchRecent / getById / latestMode / needRefetch / queryList / updateDeck / updateWithExtras | **最大資產**：每列都源自 `store.rs:151` 的 `insert_match`。但這個保證是隱性的，沒有測試守著 |
-| `updatedAt` 引擎也寫 | `store.rs:191,197,208,222`；`insert_match` 插入當下即寫入（`VALUES ... ?9, ?9`） | 從出生就非 NULL，**不能當「人改過」的旗標** |
-| 編輯可改動全部統計欄位 | `ipc/matches.ts:616-645` 收 `result` / `play_order` / `my_class` / `oppo_class` / `mode` / `bp` / `playedAt`，就地覆寫 | 引擎原本讀到什麼，永久消失 |
-| 刪除是硬刪除 | `ipc/matches.ts:709` | 已上傳的資料無法對帳 |
-| 對戰一被辨識就先插列，result 後補 | `store.rs:148` 註解 | 每個 DB 都有一批未收尾的列 |
-| 統計查詢沉默濾掉 `result IS NULL` | `ipc/matches.ts:473,495` | 若放棄行為與勝負相關，過濾本身即引入偏差 |
-| 已知的系統性誤判 | `diagnosticsRecorder.ts:36` 註解：plaza / custom 兩個 probe 無驗證正樣本，其中一個曾把 ranked 標成 `weekendPlaza` | 系統性偏差不會因樣本變大而被平均掉 |
-| `Confidence` 是仲裁順序，不是正確率 | `protocol.rs:56` 註解；ranked = `Strong`（`machine/tick.rs:184`），weekendPlaza = `Authoritative`（`tick.rs:196`） | 見「否決的方案 R-1」 |
-| class / play_order / result 沒有信心度 | `Confidence` 只用於 mode；class 讀不到則整場丟棄（`class-unrecognised`） | 信任分層目前只能覆蓋四個統計維度中的一個 |
+| 事實                                   | 依據                                                                                                                                                                   | 對統計的影響                                                                                |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| 沒有任何手動新增對局的路徑             | `insertInto('Match')` 在 `src/` 零命中；渲染層只用 `matches:` 的 delete / fetchRecent / getById / latestMode / needRefetch / queryList / updateDeck / updateWithExtras | **最大資產**：每列都源自 `store.rs:151` 的 `insert_match`。但這個保證是隱性的，沒有測試守著 |
+| `updatedAt` 引擎也寫                   | `store.rs:191,197,208,222`；`insert_match` 插入當下即寫入（`VALUES ... ?9, ?9`）                                                                                       | 從出生就非 NULL，**不能當「人改過」的旗標**                                                 |
+| 編輯可改動全部統計欄位                 | `ipc/matches.ts:616-645` 收 `result` / `play_order` / `my_class` / `oppo_class` / `mode` / `bp` / `playedAt`，就地覆寫                                                 | 引擎原本讀到什麼，永久消失                                                                  |
+| 刪除是硬刪除                           | `ipc/matches.ts:709`                                                                                                                                                   | 已上傳的資料無法對帳                                                                        |
+| 對戰一被辨識就先插列，result 後補      | `store.rs:148` 註解                                                                                                                                                    | 每個 DB 都有一批未收尾的列                                                                  |
+| 統計查詢沉默濾掉 `result IS NULL`      | `ipc/matches.ts:473,495`                                                                                                                                               | 若放棄行為與勝負相關，過濾本身即引入偏差                                                    |
+| 已知的系統性誤判                       | `diagnosticsRecorder.ts:36` 註解：plaza / custom 兩個 probe 無驗證正樣本，其中一個曾把 ranked 標成 `weekendPlaza`                                                      | 系統性偏差不會因樣本變大而被平均掉                                                          |
+| `Confidence` 是仲裁順序，不是正確率    | `protocol.rs:56` 註解；ranked = `Strong`（`machine/tick.rs:184`），weekendPlaza = `Authoritative`（`tick.rs:196`）                                                     | 見「否決的方案 R-1」                                                                        |
+| class / play_order / result 沒有信心度 | `Confidence` 只用於 mode；class 讀不到則整場丟棄（`class-unrecognised`）                                                                                               | 信任分層目前只能覆蓋四個統計維度中的一個                                                    |
 
 ### 四類誤差，必須分開處理
 

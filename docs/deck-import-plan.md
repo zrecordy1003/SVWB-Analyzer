@@ -54,17 +54,17 @@ Last updated: 2026-08-31
 
 ## 現況查證（2026-08-31，逐項對照程式碼）
 
-| 事實 | 依據 | 影響 |
-|---|---|---|
-| `Deck` 無卡片欄位 | `001_init.sql:11-19`、`src/shared/domain.ts:94` | 需要新表，不是加欄位 |
-| migration 由 Rust 引擎套用，檔名 `NNN_name.sql`，讀目錄後依序套 | `tools/engine/src/store.rs:99-129`、`main.rs:202-224` | **新增 SQL 檔即可，不必改 Rust** |
-| decks 的 IPC 沒有 preload bridge，渲染層直接 `window.electron.ipcRenderer.invoke` | `src/renderer/src/hooks/useDecksTags.ts:67,98` | 新 channel 不必動 `preload/index.ts` 與 `global.d.ts` |
-| `ipc/decks.ts` 已有 `wrap()` / `Res<T>` / `notifyReferenceDataChanged()` 慣例 | `src/main/ipc/decks.ts` | 新 handler 沿用，不另立錯誤模型 |
-| 重名檢查是「同職業 + 同分類」不分大小寫 | `hasNameDuplicateCI()` | 匯入撞名要有自己的處理，不能直接丟 `DUPLICATE_NAME` |
-| `classMap.ts` 的 id 與官方 `class_id` **同名但順序不同** | `classMap.ts:3-11` | 用陣列索引轉換會把主教與夜魔對調 |
-| 渲染層 CSP 是 `img-src 'self' data:` | `src/renderer/index.html:10` | 卡圖需要自訂 protocol，不能熱連結 |
-| `paths.ts` 已有 `userData/cache/<name>` 慣例 | `src/main/paths.ts:26` | 卡圖快取沿用同一層 |
-| 專案已聲明不得打包 Cygames 素材 | `ASSETS_POLICY.md` §1 | 卡圖不得進 repo 或 installer |
+| 事實                                                                              | 依據                                                  | 影響                                                  |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------- |
+| `Deck` 無卡片欄位                                                                 | `001_init.sql:11-19`、`src/shared/domain.ts:94`       | 需要新表，不是加欄位                                  |
+| migration 由 Rust 引擎套用，檔名 `NNN_name.sql`，讀目錄後依序套                   | `tools/engine/src/store.rs:99-129`、`main.rs:202-224` | **新增 SQL 檔即可，不必改 Rust**                      |
+| decks 的 IPC 沒有 preload bridge，渲染層直接 `window.electron.ipcRenderer.invoke` | `src/renderer/src/hooks/useDecksTags.ts:67,98`        | 新 channel 不必動 `preload/index.ts` 與 `global.d.ts` |
+| `ipc/decks.ts` 已有 `wrap()` / `Res<T>` / `notifyReferenceDataChanged()` 慣例     | `src/main/ipc/decks.ts`                               | 新 handler 沿用，不另立錯誤模型                       |
+| 重名檢查是「同職業 + 同分類」不分大小寫                                           | `hasNameDuplicateCI()`                                | 匯入撞名要有自己的處理，不能直接丟 `DUPLICATE_NAME`   |
+| `classMap.ts` 的 id 與官方 `class_id` **同名但順序不同**                          | `classMap.ts:3-11`                                    | 用陣列索引轉換會把主教與夜魔對調                      |
+| 渲染層 CSP 是 `img-src 'self' data:`                                              | `src/renderer/index.html:10`                          | 卡圖需要自訂 protocol，不能熱連結                     |
+| `paths.ts` 已有 `userData/cache/<name>` 慣例                                      | `src/main/paths.ts:26`                                | 卡圖快取沿用同一層                                    |
+| 專案已聲明不得打包 Cygames 素材                                                   | `ASSETS_POLICY.md` §1                                 | 卡圖不得進 repo 或 installer                          |
 
 ---
 
@@ -75,12 +75,12 @@ shadowverse-wb.com 的 Deck Portal 有一組公開 API。**讀取免任何憑證
 
 ### 通用規則
 
-| 項目 | 內容 |
-|---|---|
-| 語系 | request header **`Lang`**：`ja` / `en` / `cht` / `chs` / `ko`。query param、`Accept-Language`、cookie、Referer 全部無效 |
-| 成功判定 | `data_headers.result_code === 1`；`10200` 查無資料；`1021` 參數或憑證不合法 |
-| 讀取 | 無 cookie、無 CSRF 即可 |
-| 寫入 | 需要 **`sid` cookie** 與**同一 session 取得的** `X-Csrf-Token`，外加 `X-Requested-With: XMLHttpRequest` |
+| 項目     | 內容                                                                                                                    |
+| -------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 語系     | request header **`Lang`**：`ja` / `en` / `cht` / `chs` / `ko`。query param、`Accept-Language`、cookie、Referer 全部無效 |
+| 成功判定 | `data_headers.result_code === 1`；`10200` 查無資料；`1021` 參數或憑證不合法                                             |
+| 讀取     | 無 cookie、無 CSRF 即可                                                                                                 |
+| 寫入     | 需要 **`sid` cookie** 與**同一 session 取得的** `X-Csrf-Token`，外加 `X-Requested-With: XMLHttpRequest`                 |
 
 CSRF token 從任何一次 GET 的 `data_headers.csrf_token` 取得。**用 `GET /web/Login/status`**
 ——它一次同時發 `sid` cookie 並回配對的 token。
@@ -98,11 +98,11 @@ CSRF token 從任何一次 GET 的 `data_headers.csrf_token` 取得。**用 `GET
 
 ### 讀取端點
 
-| 用途 | 端點 |
-|---|---|
-| 4 碼遊戲代碼 → 牌組 | `POST /web/DeckCode/getDeck`，body `{"deck_code":"ufj1"}` |
-| 長 hash → 牌組 | `GET /web/DeckBuilder/deckHashDetail?hash=1.7.cQnG...` |
-| 職業卡池 | `GET /web/DeckBuilder/cards?class=0,<classId>&battle_format=<f>` |
+| 用途                | 端點                                                             |
+| ------------------- | ---------------------------------------------------------------- |
+| 4 碼遊戲代碼 → 牌組 | `POST /web/DeckCode/getDeck`，body `{"deck_code":"ufj1"}`        |
+| 長 hash → 牌組      | `GET /web/DeckBuilder/deckHashDetail?hash=1.7.cQnG...`           |
+| 職業卡池            | `GET /web/DeckBuilder/cards?class=0,<classId>&battle_format=<f>` |
 
 兩支牌組端點回傳**完全相同**的 `data` 結構，正規化只寫一份。短碼**不能**丟給
 `deckHashDetail`（回 `10200`）。
@@ -123,11 +123,17 @@ CSRF token 從任何一次 GET 的 `data_headers.csrf_token` 取得。**用 `GET
 
 ```jsonc
 {
-  "name": "", "is_published": 1, "status": 1,
-  "class_id": 7, "deck_id": null, "battle_format": 1,
-  "key_card_id": 10573310,          // 牌組封面，通常取第一張
-  "card_id1": 10573310, "card_num1": 3,
-  "card_id2": 10771310, "card_num2": 3,
+  "name": "",
+  "is_published": 1,
+  "status": 1,
+  "class_id": 7,
+  "deck_id": null,
+  "battle_format": 1,
+  "key_card_id": 10573310, // 牌組封面，通常取第一張
+  "card_id1": 10573310,
+  "card_num1": 3,
+  "card_id2": 10771310,
+  "card_num2": 3
   // ... 每個「卡種」一組，直到全部列完（40 張通常是 16 組左右）
 }
 ```
@@ -474,11 +480,11 @@ CREATE INDEX IF NOT EXISTS idx_card_class_cost ON Card(class, cost);
 
 因此要分開看：
 
-| 情境 | 判讀 |
-|---|---|
-| 付費解鎖任何功能、付費版 / 免費版分級 | 🔴 明確衝突。不要做 |
+| 情境                                                       | 判讀                    |
+| ---------------------------------------------------------- | ----------------------- |
+| 付費解鎖任何功能、付費版 / 免費版分級                      | 🔴 明確衝突。不要做     |
 | 贊助可換取任何回饋（去廣告、搶先體驗、專屬功能、名字上榜） | 🔴 實質上就是付費，同上 |
-| 純粹自願贊助，**零回饋、零解鎖、與 app 內容完全脫鉤** | 🟡 灰色，但明顯較輕 |
+| 純粹自願贊助，**零回饋、零解鎖、與 app 內容完全脫鉤**      | 🟡 灰色，但明顯較輕     |
 
 若要做贊助，把風險壓到最低的具體做法：
 
@@ -525,14 +531,14 @@ CREATE INDEX IF NOT EXISTS idx_card_class_cost ON Card(class, cost);
 
 ## 測試
 
-| 層 | 方式 |
-|---|---|
-| `shared/deckImport.ts` | 純單元測試：各種輸入格式、全形空白、失敗案例、fingerprint 穩定性 |
-| `main/data/svwbApi.ts` | fixture 驅動，不打網路；含 `10200`、`1021`、缺欄位、非預期結構 |
-| `getDeckHash` 參數組裝 | 純函式（卡表 → 扁平 body），用已知牌組的 fixture 釘住輸出 |
-| IPC | 沿用 `tests/main/` 的 in-memory DB 慣例（`tests/helpers/db.ts`），測判重與 transaction |
-| protocol handler | 快取命中 / 未命中 / 開關關閉三種路徑 |
-| UI | 渲染層測試 infra 尚未建立，本計畫不引入 |
+| 層                     | 方式                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------- |
+| `shared/deckImport.ts` | 純單元測試：各種輸入格式、全形空白、失敗案例、fingerprint 穩定性                       |
+| `main/data/svwbApi.ts` | fixture 驅動，不打網路；含 `10200`、`1021`、缺欄位、非預期結構                         |
+| `getDeckHash` 參數組裝 | 純函式（卡表 → 扁平 body），用已知牌組的 fixture 釘住輸出                              |
+| IPC                    | 沿用 `tests/main/` 的 in-memory DB 慣例（`tests/helpers/db.ts`），測判重與 transaction |
+| protocol handler       | 快取命中 / 未命中 / 開關關閉三種路徑                                                   |
+| UI                     | 渲染層測試 infra 尚未建立，本計畫不引入                                                |
 
 `class_id` 與 `type` 的對照表要有測試釘住——它們是反推來的，不是官方文件，
 是最容易在改版後悄悄壞掉的地方。
