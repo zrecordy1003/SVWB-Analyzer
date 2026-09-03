@@ -196,6 +196,27 @@ export function decidePoll(state: PollState, observation: PollObservation): Poll
     if (analyzerRunning) {
       actions.push({ type: 'stopAnalyzer' })
       analyzerRunning = false
+      /**
+       * Capture goes with it, and it has to be said out loud.
+       *
+       * The engine owns capture, so stopping the engine ends capture whether
+       * anyone tracks that or not. What used to happen: the idle rule fires
+       * while the window is still capturable, the capture block above has
+       * already re-attached and left `capturing` true, and so the renderer's
+       * indicator and the HUD's `game:status.capturing` both went on claiming
+       * capture was live for the whole idle period - with no `captureStatus`
+       * to correct them, because the flag never changed.
+       *
+       * The two game-side routes cannot reach here with `capturing` true: both
+       * of them require the window to be uncapturable, which detached it
+       * above. So in practice this is the idle route, which is exactly the one
+       * that can stop the analyzer with a perfectly good window on screen.
+       */
+      if (capturing) {
+        capturing = false
+        actions.push({ type: 'detachCapture' })
+        actions.push({ type: 'captureStatus', capturing: false })
+      }
     }
   } else if (running && !analyzerRunning) {
     // Warm standby: a running game keeps the analyzer up even while the window

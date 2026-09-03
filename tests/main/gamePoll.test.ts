@@ -240,22 +240,38 @@ describe('the analyzer outlives the game by half an hour', () => {
   })
 
   /**
-   * Recorded, not endorsed.
+   * The inconsistency the extraction found.
    *
-   * The idle rule stops the analyzer and leaves `capturing` true, because the
-   * capture block runs first and the window is still capturable. So the engine
-   * process is gone while the renderer's capture indicator - and the HUD's
-   * `game:status.capturing` - still say capture is live. Nothing re-sends
-   * `captureStatus` either, because the flag never changed.
+   * The engine owns capture, so stopping the engine ends capture whether
+   * anyone tracks it or not. Before this, the idle rule fired while the window
+   * was still capturable, the capture block had already re-attached and left
+   * `capturing` true, and the renderer's indicator plus the HUD's
+   * `game:status.capturing` went on claiming capture was live for the whole
+   * idle period - with nothing to correct them, because the flag never
+   * changed.
    *
-   * This is the behaviour the closure had; this extraction is deliberately
-   * behaviour-preserving, so the case states what happens rather than what
-   * should. The fix is its own change.
+   * `detachCapture` before `captureStatus`, and both after `stopAnalyzer`:
+   * tell the engine, then tell the screen.
    */
-  it('idling with the game up stops the analyzer but leaves capture believing it is on', () => {
+  it('idling takes capture down with the analyzer, and says so', () => {
     const { state, steps } = run([seen(), seen({ now: T0 + 1000, systemIdle: true })])
-    expect(kinds(steps[1].actions)).toEqual(['attachCapture', 'stopAnalyzer'])
-    expect(state).toMatchObject({ analyzerRunning: false, capturing: true })
+    expect(kinds(steps[1].actions)).toEqual([
+      'attachCapture',
+      'stopAnalyzer',
+      'detachCapture',
+      'captureStatus'
+    ])
+    expect(steps[1].actions).toContainEqual({ type: 'captureStatus', capturing: false })
+    expect(state).toMatchObject({ analyzerRunning: false, capturing: false })
+  })
+
+  it('does not detach twice when the window was already uncapturable', () => {
+    // The two game-side routes both require an uncapturable window, which the
+    // capture block has already detached - so the analyzer stop must not add a
+    // second detach on top of it.
+    const { steps } = run([seen(), minimized({ now: T0 + THRESHOLD_MS })])
+    expect(kinds(steps[1].actions).filter((k) => k === 'detachCapture')).toHaveLength(1)
+    expect(kinds(steps[1].actions).filter((k) => k === 'captureStatus')).toHaveLength(1)
   })
 
   it('restarts the analyzer on the tick after idle ends', () => {
