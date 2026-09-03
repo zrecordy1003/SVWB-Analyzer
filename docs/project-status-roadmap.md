@@ -1,6 +1,6 @@
 # Project Status and Roadmap
 
-Last updated: 2026-09-02
+Last updated: 2026-09-03
 
 This document is the central project status record. It summarizes the current architecture and the
 future changes that should still be considered. More focused notes live in:
@@ -116,6 +116,13 @@ testable without a game, a database, or Electron.
   class-emblem protocol round trip, the update flow against `SVWB_UPDATE_SIM`, and the
   deck-versioning rules read back through the real preload bridge. 22 tests, ~51s. The build is a
   `setup` project the suite depends on, so it cannot run against stale bundles.
+- `pnpm typecheck` is three projects: `tsconfig.node.json` (main, preload),
+  `tsconfig.web.json` (renderer) and `tsconfig.tests.json` (`tests/`, which nothing checked at
+  all until 2026-09-03). The last uses `moduleResolution: bundler`, because that is what vitest
+  and Playwright actually do.
+- `.github/workflows/telemetry-worker.yml` type-checks `server/telemetry/` on any change to it
+  or to `src/shared/telemetry.ts`. Its own workflow: the Worker is a standalone pnpm project
+  whose install pulls wrangler and workerd, and GitHub's path filters are per-workflow.
 - `.github/workflows/ci.yml` runs on `windows-latest` as three parallel jobs: `typescript`
   (typecheck, lint, bundle build), `rust` (engine build, vitest, the vision addon build,
   `vision:verify`, the replay) and `e2e` (engine build, then the Playwright suite with
@@ -224,31 +231,40 @@ Still by hand, and still worth automating on top of that seam:
 - Templates are readable by the engine.
 - HUD launches and can hide/show; the analyzer can start/stop without crashing.
 
-### Renderer has no test coverage
+### Renderer has no COMPONENT test coverage
 
-Deliberate for now — the jsdom + vitest projects setup is decided but deferred. Revisit when the
+Still deliberate — the jsdom + vitest projects setup is decided but deferred. Revisit when the
 renderer stops being the part that changes most.
 
-## Priority 2: Schema and boundary integrity
+What changed is that it is no longer unchecked: `tests/renderer/` covers the pure helpers, the
+E2E suite drives real components through the real preload bridge, and `tsconfig.tests.json`
+type-checks all of it. Rendering a component in isolation is the gap, not "the renderer".
 
-### The schema is mirrored in three places
+## Priority 2: Schema and boundary integrity — done
 
-`resources/migrations/*.sql` is the source of truth, but it is hand-mirrored in
-`tools/engine/src/store.rs` (Rust writes) and `src/main/data/db/client.ts` (`MatchRow`). The Rust
-side is checked by a cargo test against the shipped migrations; the TypeScript side is checked by a
-comment. Add an equivalent assertion so a new column cannot land on one side only.
+All three items here are closed. Kept rather than deleted, because two of them were findings
+about _documentation being wrong_, which is a failure mode this project keeps hitting.
 
-### The column-ownership contract is stated but not enforced
+### The schema is mirrored in three places — done
 
-`store.rs`'s header says the engine and the UI "touch different columns". They do not: the engine
-writes `updatedAt` (which is what the UI's optimistic lock compares against) and can null
-`my_deckId`, a user-edited column. Either enforce the split or correct the stated contract — a
-contract that is wrong is worse than one that is absent.
+`TABLE_COLUMNS` in `client.ts` lists every column as values. A `satisfies` clause and a
+`NoUncheckedColumn` type refuse a wrong or a missing name at compile time, and
+`tests/main/dbSchemaMirror.test.ts` compares the lists against `pragma_table_info` on a database
+brought up by `svwb-engine migrate`. Migrations, the list and the interfaces must all agree;
+removing one column makes both halves fail, and both name it.
 
-### `update_match` is not atomic
+### The column-ownership contract is stated but not enforced — corrected
 
-It issues up to eight independent `UPDATE`s. A crash part-way leaves a half-applied patch. Wrap it
-in a transaction.
+The claim was false, and the claim is what got fixed rather than the code: both sides write
+`updatedAt` on purpose (it is what the UI's optimistic lock compares against) and the engine
+clears `my_deckId` for deckless modes. `store.rs`'s header now states the real division. It also
+still described the UI as reading through Prisma, which has not been true since Kysely replaced
+it.
+
+### `update_match` is not atomic — was already fixed
+
+A stale entry, and worth recording as one. `store.rs` takes `unchecked_transaction()` at the top
+of `update_match` and commits at the end, and has for some time.
 
 ## Priority 3: Host-side structure
 
@@ -314,10 +330,13 @@ only need updating when the UI, class/mode icons, result screens or number regio
 screenshot samples from before and after every such change; everything under
 `tests/fixtures/captures/` is asserted.
 
-### `tests/fixtures/analyzer/manifest.json` is still an empty harness
+### `tests/fixtures/analyzer/manifest.json` was an empty harness — deleted
 
-Either populate it or delete it — the real fixture coverage lives in `tools/engine/tests/fixtures.rs`
-and the capture directories, and an empty second harness only suggests coverage that is not there.
+`cases` was `[]` from the day it was added, so the test reading it asserted nothing; it had
+already lost a second case guarded by `it.skipIf(cases.length === 0)`, which skipped in exactly
+the situation where it would have failed. Removed along with `tests/analyzer/fixtures.test.ts`
+and `tests/helpers/analyzerFixtures.ts`. The still-true half of its README is now
+`tests/fixtures/README.md`.
 
 ## Priority 6: Telemetry and DAU
 
@@ -341,6 +360,32 @@ What exists:
   moving the endpoint means a release, and the old one has to keep answering meanwhile.
   `server/telemetry/smoke.mjs` (`pnpm smoke`) drives a running Worker over real HTTP and D1 to
   cover the SQL and routing the vitest suites cannot reach.
+
+The read side and the storage were audited before going public (2026-09-03), and three things
+came out of it that are worth stating here rather than only in commit messages:
+
+- **`/v1/meta` was publishing an individual.** It is public and unauthenticated, and with one
+  contributing install every cell on it was that person's own match record. A cell is now
+  published only once `META_MIN_INSTALLS_PER_CELL` separate installs stand behind it, and what
+  is withheld is counted (`sampling.suppressedCells`) rather than silently missing.
+- **One grinder was the meta.** The aggregate was a plain `SUM(count)`. No install now counts
+  for more than `META_MAX_PER_INSTALL_CELL` in any one cell, applied per (install, cell) across
+  the window, scaling the win count rather than truncating it - truncation drags a lopsided
+  record toward even, which manufactures a signal instead of damping one. Each cell also carries
+  `installs`, `rawWins` and `rawTotal`, so the cap can be audited from the document.
+- **Nothing was ever deleted.** A nightly `scheduled` handler keeps 120 days of `buckets` and
+  `match_days` and 400 of `activity`; `installs` is never pruned.
+
+Also: two rate limiters on `/v1/ingest` (per IP and per install) and one on `/v1/meta`, declared
+as optional bindings that fail OPEN - telemetry going quiet is a worse bug than accepting too
+much for an afternoon, and the cost is that a limiter which is not working is silent, so the
+README carries a curl loop that proves it after a deploy. `/v1/meta` honours
+`Cache-Control: no-cache`, without which a deploy does not change what the public sees for
+fifteen minutes and `smoke.mjs` cannot assert anything about the document's content.
+
+`installs.first_seen` and `installs.uploads` had both been written since the first migration and
+read by nothing. `/v1/admin/overview` now reports new installs per day and upload volume per
+active install, which are the two operational questions active-install counts cannot answer.
 
 What is deliberately not done yet:
 
@@ -449,23 +494,42 @@ Use fixture tests before changing recognition thresholds.
 
 ## Current Assessment
 
-The perception layer is in good shape: one process owns capture through persistence, the state
-machine is a pure function with scenario tests tied to real past incidents, and the fixture and
-replay suites are substantial.
+The perception layer is in good shape and always was: one process owns capture through
+persistence, the state machine is a pure function with scenario tests tied to real past
+incidents, and the fixture and replay suites are substantial.
 
-The weak half is still the Electron host, but less of it than before. The E2E suite runs in CI now,
-so window creation, the preload bridge, the protocol handler, the update flow and the versioning
-rules are verified on every push - and it earned that place immediately by catching a chunk cycle
-that stopped the renderer dead while the build reported success. What remains untested is the
-stateful interior: the 1s poll loop in `index.ts` and the engine supervisor, which is where the
-remaining hard-to-reproduce bugs will come from. The renderer still has no data layer, which is
-what is driving component size.
+What has changed is that the things _around_ it are now checked. The E2E suite runs in CI and
+has already earned its place twice - catching a chunk cycle that stopped the renderer dead while
+the build reported success, and catching a telemetry guard that was inert because
+`document.hidden` reads `false` in a window that has never been shown. `tests/` is type-checked,
+which found three real defects on its first run. The UI's schema mirror is asserted rather than
+requested in a comment. The Worker has a type gate.
 
-Two things stand ahead of any further recognition work:
+A pattern worth naming, because it recurred at every level: **the documentation was wrong more
+often than the code was.** `update_match` was already transactional, `store.rs` still described
+a Prisma that had been deleted and a column-ownership split that never existed,
+`telemetry.ts` said the setting defaulted to off when it had defaulted to on for a day,
+`pnpm-workspace.yaml`'s placeholder was long since filled in, and `test/` was a directory git
+does not track. Three of the entries in this file were stale in the same way. When something
+here says a thing is broken, check the tree before believing it.
 
-1. Extract the poll loop into a pure `decide(prevState, observation) -> actions` and test it. E2E
-   cannot reach those branches without a running game; a pure function needs neither.
-2. Move the UI's SQLite reads off the main process's event loop (see
-   `docs/performance-improvement-notes.md`). It is the one remaining architectural performance
-   problem rather than a constant factor, and it is why a slow query costs HUD focus tracking and
-   engine event handling and not just the screen that asked.
+The second pattern: **several tests were vacuous**, and none of them looked it. A skipped case
+guarded by the condition that would have failed it; `expect.poll(...).not.toBe(true)` passing on
+its first sample; a smoke assertion that read a cached response predating the code under test; a
+threshold assertion that was true only against an empty database. Every one of those was written
+in good faith. The lesson taken was to mutation-test anything load-bearing - remove the code and
+watch the test go red - which is now done for the schema mirror, the notice guard and the tests
+typecheck.
+
+Two things stand ahead of any further recognition work, both untouched:
+
+1. **The poll loop and the engine supervisor have no unit tests.** `index.ts`'s 1s poll holds
+   six pieces of mutable state in one closure and decides capture attach/detach, analyzer
+   lifecycle, idle shutdown and notification debouncing. E2E cannot reach most of its branches
+   without a running game; extracting a pure `decide(prevState, observation) -> actions` would
+   make it testable with the vitest setup that already exists.
+2. **The UI's SQLite reads run on the main process's event loop.** better-sqlite3 is
+   synchronous, so a slow query costs HUD focus tracking and engine event handling as well as
+   the screen that asked. See `docs/performance-improvement-notes.md`. It is the one remaining
+   architectural performance problem rather than a constant factor, and it wants its own branch:
+   it changes the execution environment of all 84 IPC handlers.
