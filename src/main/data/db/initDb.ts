@@ -17,6 +17,8 @@ import path from 'node:path'
 
 import { ENGINE_BINARY } from '../../../shared/engineBinary.js'
 import { configureDbPath } from './client.js'
+import { RemoteSqliteDialect } from './remoteDriver.js'
+import { createWorkerTransport } from './workerTransport.js'
 
 function getDbPath(): string {
   const dir = path.join(app.getPath('userData'), 'db')
@@ -48,6 +50,14 @@ export async function initDatabase(): Promise<void> {
   )
   console.log('[DB] migrations:', out.trim())
 
-  // The UI's data layer opens lazily on first use; it only needs the path.
-  configureDbPath(dbPath)
+  /**
+   * The queries run in `src/dbworker`, not here.
+   *
+   * `better-sqlite3` is synchronous, so every UI query used to execute on the
+   * same event loop as the 16ms focus ticker, the 1s game poll and the
+   * engine's event stream - see `src/dbworker/index.ts` for the whole
+   * argument. The data layer still opens lazily on first use; what changed is
+   * where the file is opened.
+   */
+  configureDbPath(dbPath, new RemoteSqliteDialect(createWorkerTransport(), dbPath))
 }

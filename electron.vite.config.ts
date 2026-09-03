@@ -8,7 +8,25 @@ export default defineConfig({
     build: {
       sourcemap: false,
       minify: true,
-      target: 'node22'
+      target: 'node22',
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          /**
+           * The database's own process.
+           *
+           * Built alongside main rather than as a fourth `electron-vite`
+           * section, because it IS a main-process bundle - Node target, native
+           * modules externalised - and putting it here means it lands next to
+           * `index.js` in both development and a package, so
+           * `workerTransport.ts` needs no `app.isPackaged` branch to find it.
+           */
+          dbworker: resolve(__dirname, 'src/dbworker/index.ts')
+        },
+        output: {
+          entryFileNames: '[name].js'
+        }
+      }
     }
   },
 

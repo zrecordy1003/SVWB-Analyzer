@@ -11,7 +11,7 @@ import os from 'os'
 import path from 'path'
 
 import { ENGINE_BINARY } from '../../src/shared/engineBinary'
-import { configureDbPath, getDb, resetDbForTests } from '../../src/main/data/db/client'
+import { configureDbPathInProcess, getDb, resetDbForTests } from '../../src/main/data/db/client'
 import type { Database } from '../../src/main/data/db/client'
 import type { Kysely } from 'kysely'
 
@@ -51,7 +51,11 @@ export async function createMigratedTestDb(): Promise<TestDb> {
   const migrationsDir = path.join(ROOT, 'resources', 'migrations')
 
   migrateWithEngine(dbPath, migrationsDir)
-  configureDbPath(dbPath)
+  // In-process on purpose: the app runs its queries in `src/dbworker`, and
+  // forking a utility process per test case to check a query would be a poor
+  // trade. The driver itself has `tests/main/remoteDriver.test.ts`, and every
+  // E2E case exercises the real one.
+  configureDbPathInProcess(dbPath)
 
   return { dir, dbPath, migrationsDir }
 }

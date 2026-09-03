@@ -17,7 +17,7 @@
  * truth - this file declares no schema, it only describes the existing one.
  */
 import SQLite from 'better-sqlite3'
-import { Kysely, SqliteDialect, type Generated, type Selectable } from 'kysely'
+import { Kysely, SqliteDialect, type Dialect, type Generated, type Selectable } from 'kysely'
 
 import type { Deck, DeckCategory, GameMode, Match, Tag } from '../../../shared/domain.js'
 
@@ -312,9 +312,38 @@ let _db: Kysely<Database> | null = null
 
 /** Set by `initDatabase()`, which runs the engine's migrations first. */
 let _dbPath: string | null = null
+let _dialect: Dialect | null = null
 
-export function configureDbPath(path: string): void {
+/**
+ * Where the database is, and how to reach it.
+ *
+ * The dialect is REQUIRED, and that is the point. The app passes
+ * `RemoteSqliteDialect` so its queries run in `src/dbworker` rather than on
+ * the main process's event loop - and if this took an optional dialect,
+ * forgetting it would fall back to an in-process connection that works
+ * perfectly while quietly undoing the whole reason the worker exists. A
+ * regression that still passes every test is the worst kind, so the loud
+ * option is the default one and the quiet one has to be asked for by name.
+ */
+export function configureDbPath(path: string, dialect: Dialect): void {
   _dbPath = path
+  _dialect = dialect
+}
+
+/**
+ * An in-process connection, for tests.
+ *
+ * `tests/helpers/db.ts` brings up a scratch file and reads it directly;
+ * making 34 test files fork a utility process to check a query would be a
+ * poor trade, and the driver has its own cases
+ * (`tests/main/remoteDriver.test.ts`) plus the whole E2E suite running
+ * through the real one.
+ *
+ * Named for what it is so it cannot be reached for by accident.
+ */
+export function configureDbPathInProcess(path: string): void {
+  _dbPath = path
+  _dialect = null
 }
 
 /**
@@ -334,9 +363,16 @@ export function getDb(): Kysely<Database> {
   if (!_dbPath) {
     throw new Error('database path not set. Call initDatabase() first.')
   }
+  if (_dialect) {
+    // Out of process. Nothing else in this file applies: the pragmas and the
+    // handle live with the driver that owns them.
+    _db = new Kysely<Database>({ dialect: _dialect })
+    return _db
+  }
+  // In-process, which only `configureDbPathInProcess` can arrange.
   const sqlite = new SQLite(_dbPath)
   // WAL matches the engine's writer side; busy_timeout covers the moment a user
-  // edit lands while the engine is mid-commit.
+  // edit lands while the engine is mid-commit. The worker sets the same three.
   sqlite.pragma('journal_mode = WAL')
   sqlite.pragma('foreign_keys = ON')
   sqlite.pragma('busy_timeout = 5000')
@@ -349,6 +385,9 @@ export function getDb(): Kysely<Database> {
 export async function resetDbForTests(): Promise<void> {
   await closeDb()
   _dbPath = null
+  // Dropped as well, or a case that configured a remote dialect would leave
+  // the next one talking to a worker that is gone.
+  _dialect = null
 }
 
 export async function closeDb(): Promise<void> {

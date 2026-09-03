@@ -49,17 +49,46 @@ export type SvwbFixtures = {
   window: Page
 }
 
+/**
+ * The main window, once it can actually be talked to.
+ *
+ * Two waits, and the second one was a latent flake for a long time. A window's
+ * `url()` is set when the load STARTS, so matching on it can resolve before
+ * the preload script has run `contextBridge.exposeInMainWorld` - and a spec
+ * whose first act is `invoke(...)` then fails with
+ * `Cannot read properties of undefined (reading 'ipcRenderer')`.
+ *
+ * It went unnoticed because the race was usually won: startup did enough work
+ * between the two that the bridge was always ready first. Moving the database
+ * into its own process (`src/dbworker`) shifted that timing and the same specs
+ * started losing it two runs in three - the bug was in this function all along
+ * and every seed-then-read spec was exposed to it.
+ */
 async function mainWindowOf(app: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
   const deadline = Date.now() + timeoutMs
   let seen: string[] = []
+  let main: Page | undefined
   while (Date.now() < deadline) {
     const windows = app.windows()
     seen = windows.map((w) => w.url())
-    const main = windows.find((w) => w.url().includes('renderer/index.html'))
-    if (main) return main
+    main = windows.find((w) => w.url().includes('renderer/index.html'))
+    if (main) break
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
-  throw new Error(`main window never appeared. Windows seen: ${JSON.stringify(seen)}`)
+  if (!main) {
+    throw new Error(`main window never appeared. Windows seen: ${JSON.stringify(seen)}`)
+  }
+
+  // The preload bridge, which is what every spec reaches for first.
+  await main.waitForFunction(
+    () =>
+      Boolean(
+        (window as unknown as { electron?: { ipcRenderer?: unknown } }).electron?.ipcRenderer
+      ),
+    undefined,
+    { timeout: Math.max(1000, deadline - Date.now()) }
+  )
+  return main
 }
 
 export const test = base.extend<SvwbFixtures>({
