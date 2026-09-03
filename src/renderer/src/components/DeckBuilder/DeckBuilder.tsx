@@ -318,7 +318,7 @@ export default function DeckBuilder({
     setError(null)
     try {
       const [res, settings] = await Promise.all([
-        window.electron.ipcRenderer.invoke('cards:pool', {
+        invokeIpc('cards:pool', {
           classId,
           battleFormat: Number(battleFormat)
         }),
@@ -457,7 +457,7 @@ export default function DeckBuilder({
     setSyncing(true)
     setError(null)
     try {
-      const res = await window.electron.ipcRenderer.invoke('cards:syncPool', {
+      const res = await invokeIpc('cards:syncPool', {
         classId,
         battleFormat: Number(battleFormat)
       })

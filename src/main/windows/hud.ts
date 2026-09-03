@@ -1,6 +1,8 @@
 import { BrowserWindow, app, globalShortcut, screen, ipcMain } from 'electron'
 import path from 'path'
 import { store } from '../store.js'
+import { handleIpc } from '../ipc/typed.js'
+import type { HudState } from '../../shared/types.js'
 import { is } from '@electron-toolkit/utils'
 
 let hudWin: BrowserWindow | null = null
@@ -108,11 +110,6 @@ export function syncHudWithGame(gameFocused: boolean): void {
     hideTimer = null
     if (hudWin && !hudWin.isDestroyed() && !hudWin.isFocused()) hudWin.hide()
   }, HIDE_DELAY_MS)
-}
-
-type HudState = {
-  opacity: number
-  compact: boolean
 }
 
 function getHudState(): HudState {
@@ -389,26 +386,26 @@ export function createHudWindow(): BrowserWindow {
     ipcMain.removeHandler('hud:close')
     ipcMain.removeAllListeners('hud:dragMove')
 
-    ipcMain.handle('hud:setOpacity', (_e, v: number) => {
+    handleIpc('hud:setOpacity', (_e, v) => {
       if (!hudWin) return
       const val = Math.min(1, Math.max(0.2, v))
       hudWin.setOpacity(val)
       store.set('hudOpacity', val)
       return val
     })
-    ipcMain.handle('hud:setCompact', (_e, compact: boolean) => setCompact(compact))
-    ipcMain.handle('hud:getState', () => getHudState())
-    ipcMain.handle('hud:setContentHeight', (_e, height: number) =>
+    handleIpc('hud:setCompact', (_e, compact) => setCompact(compact))
+    handleIpc('hud:getState', () => getHudState())
+    handleIpc('hud:setContentHeight', (_e, height) =>
       Number.isFinite(height) ? fitHeight(height) : null
     )
-    ipcMain.handle('hud:setIgnoreMouse', (_e, ignore: boolean) => setIgnoreMouse(ignore !== false))
-    ipcMain.handle('hud:show', () => setVisibility(true))
-    ipcMain.handle('hud:hide', () => setVisibility(false))
-    ipcMain.handle('hud:close', () => hudWin?.close())
-    ipcMain.handle('hud:dragStart', () => startManualDrag())
+    handleIpc('hud:setIgnoreMouse', (_e, ignore) => setIgnoreMouse(ignore !== false))
+    handleIpc('hud:show', () => setVisibility(true))
+    handleIpc('hud:hide', () => setVisibility(false))
+    handleIpc('hud:close', () => hudWin?.close())
+    handleIpc('hud:dragStart', () => startManualDrag())
     // fire-and-forget: a drag position has no reply worth waiting a round trip for
     ipcMain.on('hud:dragMove', () => moveManualDrag())
-    ipcMain.handle('hud:dragEnd', () => endManualDrag())
+    handleIpc('hud:dragEnd', () => endManualDrag())
 
     ipcRegistered = true
   }

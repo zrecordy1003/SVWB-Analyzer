@@ -19,6 +19,7 @@ import { createAppTray } from './windows/tray.js'
 import { attachSmartClose } from './windows/smartClose.js'
 import { openExitConfirmDialog } from './windows/exitConfirmDialog.js'
 import { broadcast } from './utils/broadcast.js'
+import { handleIpc } from './ipc/typed.js'
 import { registerCardImageProtocol, registerCardImageScheme } from './protocol/cardImageProtocol.js'
 
 // Image recognition is handled by a self-contained Rust addon
@@ -641,18 +642,18 @@ app.whenReady().then(async () => {
 
   // These two stay here: they close over this file's analyzer accessor and the
   // last status the game poll broadcast, neither of which belongs in ipc/.
-  ipcMain.handle('battle:getStatus', async () => {
+  handleIpc('battle:getStatus', async () => {
     await ensureAnalyzer()
     return _getBattleStatus?.()
   })
 
   // `game:status` is only broadcast on change, so a window that opens between
   // transitions needs to be able to ask.
-  ipcMain.handle('game:getStatus', () => lastGameStatus)
+  handleIpc('game:getStatus', () => lastGameStatus)
 
   // The HUD's "完整對戰歷史" link. Registered here rather than in windows/hud.ts
   // because this file is the only holder of the main window.
-  ipcMain.handle('hud:openMatchHistory', () => {
+  handleIpc('hud:openMatchHistory', () => {
     if (!revealMainWindow()) return false
     mainWindow!.webContents.send('app:navigate', 'MatchList')
     return true
@@ -671,7 +672,7 @@ app.whenReady().then(async () => {
    * links only, so no call site - or injected markup - can reach `file:`,
    * `javascript:` or a registered protocol handler.
    */
-  ipcMain.handle('app:openLink', (_e, url: unknown) => {
+  handleIpc('app:openLink', (_e, url: unknown) => {
     if (typeof url !== 'string') return false
     let parsed: URL
     try {

@@ -20,10 +20,8 @@
  *
  * Separate from `decks.ts` so this stage can land beside work in that file.
  */
-import { ipcMain } from 'electron'
 import { sql } from 'kysely'
 
-import type { GameMode } from '../../shared/domain.js'
 import { cardKindFromType } from '../../shared/deckImport.js'
 import type {
   CardDeckStat,
@@ -32,6 +30,8 @@ import type {
   CardStatsResult
 } from '../../shared/cardStats.js'
 import { getDb } from '../data/db/client.js'
+import { handleIpc } from './typed.js'
+import type { CardStatsPayload } from '../../shared/cards.js'
 import { filterExpressions, type QueryPayload } from './matches.js'
 import { wrapRes as wrap, type Res } from '../../shared/ipc.js'
 
@@ -40,11 +40,7 @@ import { wrapRes as wrap, type Res } from '../../shared/ipc.js'
  * 卡片 page has an "every mode" option the list does not) and `limit` (the
  * "most recent N matches" cap). Paging fields are meaningless for an aggregate.
  */
-export type CardStatsPayload = Omit<QueryPayload, 'mode' | 'cursor' | 'pageIndex' | 'pageSize'> & {
-  mode?: GameMode | 'all' | null
-  /** Keep only the `limit` most recent matches that pass every other filter. */
-  limit?: number | null
-}
+export type { CardStatsPayload } from '../../shared/cards.js'
 
 /** One deck row's identity, for the per-card drill-down. */
 export type DeckMeta = {
@@ -266,7 +262,7 @@ export function registerCardStatsIpc(): void {
    * to families by default (deckScope.ts), which is what makes "this deck's
    * cards" include the versions before the current one.
    */
-  ipcMain.handle(
+  handleIpc(
     'cards:stats',
     async (_e, input: CardStatsPayload = {}): Promise<Res<CardStatsResult>> =>
       wrap(async () => {

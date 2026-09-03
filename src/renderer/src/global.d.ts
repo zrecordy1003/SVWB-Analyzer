@@ -1,9 +1,25 @@
 import { IpcRenderer } from '@electron-toolkit/preload'
-import type { ClassName, GameMode } from '@shared/domain'
-import type { ProvenanceStats, RangeKey, RankedWinrateByOpponent } from '@shared/types'
-import type { SupportPromptPayload } from '@shared/support'
+import type { GameMode } from '@shared/domain'
+import type { RankedWinrateQuery } from '@shared/types'
+import type { IpcArgs, IpcChannel, IpcResult } from '@shared/ipc'
 
 export {}
+
+/**
+ * What a channel's bridge method resolves to, taken from `@shared/ipc`.
+ *
+ * This file used to restate every one of these by hand, and the drift is why
+ * the contract exists: `matches.fetchRecent` was declared `Promise<any[]>`,
+ * `hud.setOpacity` was `Promise<number>` where the handler returns
+ * `number | undefined` when there is no HUD window, `updates.check` was
+ * `{ ok: boolean; info?: any }` rather than the union it actually answers
+ * with, and `getRankedWinrate`'s parameter object was a THIRD copy of a type
+ * that is declared once in `@shared/types`.
+ *
+ * Anything below still written out by hand is a channel not yet in the
+ * contract - `settings:*` and `diagnostics:*` - and is marked as such.
+ */
+type Answer<C extends IpcChannel> = Promise<IpcResult<C>>
 
 declare global {
   /**
@@ -31,30 +47,33 @@ declare global {
     electron: {
       ipcRenderer: IpcRenderer
     }
+    /** NOT in the contract yet: a generic key/value bridge, see `@shared/ipc`. */
     settings: SettingsAPI
-    appInfo: { getVersion(): Promise<string> }
+    appInfo: { getVersion(): Answer<'app:getVersion'> }
     telemetry: {
-      status(): Promise<import('@shared/telemetry').TelemetryStatus>
+      status(): Answer<'telemetry:status'>
       /** Persists the setting and starts or stops the uploads. Resolves to the new status. */
-      setEnabled(enabled: boolean): Promise<import('@shared/telemetry').TelemetryStatus>
+      setEnabled(...args: IpcArgs<'telemetry:setEnabled'>): Answer<'telemetry:setEnabled'>
       /** Exactly what an upload would send right now. Does not mint an install id. */
-      preview(): Promise<import('@shared/telemetry').TelemetryPayload>
-      uploadNow(): Promise<import('@shared/telemetry').TelemetryStatus>
+      preview(): Answer<'telemetry:preview'>
+      uploadNow(): Answer<'telemetry:uploadNow'>
       /**
        * Whether the one-time notice is due. Marks it shown - which is also what
        * unblocks uploading, so calling this is what lets the first upload go.
+       * Refuses, without consuming anything, from a window that is not visible.
        */
-      noticeDue(): Promise<boolean>
+      noticeDue(): Answer<'telemetry:noticeDue'>
     }
     support: {
       /**
        * The milestone to show, or null. Marks it shown server-side, so a second
        * call in the same install returns null for that milestone.
        */
-      check(): Promise<SupportPromptPayload | null>
+      check(): Answer<'support:check'>
       /** 「不再顯示」: never prompt again. */
-      optOut(): Promise<void>
+      optOut(): Answer<'support:optOut'>
     }
+    /** NOT in the contract yet: needs `DiagnosticsSummary` moved to `@shared`. */
     diagnostics: {
       summary(): Promise<{
         eventCount: number
@@ -75,13 +94,9 @@ declare global {
     }
     updates: {
       /** `from` names the calling surface; its events come back tagged with it. */
-      check(
-        from: import('@shared/updates').UpdateSource
-      ): Promise<{ ok: boolean; info?: any; error?: string }>
-      download(
-        from: import('@shared/updates').UpdateSource
-      ): Promise<{ ok: boolean; error?: string }>
-      install(): Promise<{ ok: boolean; error?: string }>
+      check(...args: IpcArgs<'update:check'>): Answer<'update:check'>
+      download(...args: IpcArgs<'update:download'>): Answer<'update:download'>
+      install(): Answer<'update:install'>
       onChecking(cb: (p: UpdateEvent) => void): () => void
       onAvailable(
         cb: (
@@ -99,48 +114,35 @@ declare global {
       ): () => void
     }
     hud: {
-      show(): Promise<void>
-      hide(): Promise<void>
-      getState(): Promise<{ opacity: number; compact: boolean }>
-      setOpacity(v: number): Promise<number>
-      setCompact(b: boolean): Promise<boolean>
+      show(): Answer<'hud:show'>
+      hide(): Answer<'hud:hide'>
+      getState(): Answer<'hud:getState'>
+      /** Resolves to the clamped value, or `undefined` when there is no HUD window. */
+      setOpacity(...args: IpcArgs<'hud:setOpacity'>): Answer<'hud:setOpacity'>
+      setCompact(...args: IpcArgs<'hud:setCompact'>): Answer<'hud:setCompact'>
       /** Report measured content height; resolves to the height actually applied. */
-      setContentHeight(h: number): Promise<number | null>
+      setContentHeight(...args: IpcArgs<'hud:setContentHeight'>): Answer<'hud:setContentHeight'>
       /**
        * Let the pointer through to the game underneath (`true`) or take it back
        * for the HUD's own controls (`false`); resolves to the state applied.
        */
-      setIgnoreMouse(ignore: boolean): Promise<boolean>
+      setIgnoreMouse(...args: IpcArgs<'hud:setIgnoreMouse'>): Answer<'hud:setIgnoreMouse'>
       /** Manual dragging: press reported by the title row, cursor followed by main. */
-      dragStart(): Promise<void>
+      dragStart(): Answer<'hud:dragStart'>
+      /** Fire-and-forget: a drag position has no reply worth a round trip. */
       dragMove(x: number, y: number): void
-      dragEnd(): Promise<void>
+      dragEnd(): Answer<'hud:dragEnd'>
       /** Raise the main window and take it to the match list. */
-      openMatchHistory(): Promise<boolean>
-      onState(cb: (state: { opacity: number; compact: boolean }) => void): () => void
+      openMatchHistory(): Answer<'hud:openMatchHistory'>
+      onState(cb: (state: IpcResult<'hud:getState'>) => void): () => void
     }
     matches: {
-      fetchRecent(n: number, mode?: GameMode | 'all'): Promise<any[]>
+      fetchRecent(n: number, mode?: GameMode | 'all'): Answer<'matches:fetchRecent'>
       /** Mode of the newest completed match, unfiltered. See matches:latestMode. */
-      latestMode(): Promise<GameMode | null>
-      getRankedWinrate(params: {
-        myClass: ClassName
-        /** `'all'` drops the mode filter; omitted still means ranked. */
-        gameMode?: GameMode | 'all'
-        rangeKey?: RangeKey
-        start?: Date | number | string
-        end?: Date | number | string
-        myDeckIds?: number[]
-        /** `'family'` (default) expands each id to every version of that deck. */
-        myDeckScope?: 'family' | 'deck'
-        tagIds?: number[]
-        crMin?: number
-        crMax?: number
-        /** Keep only the N most recent matches that pass every other filter. */
-        limit?: number
-      }): Promise<RankedWinrateByOpponent>
+      latestMode(): Answer<'matches:latestMode'>
+      getRankedWinrate(params: RankedWinrateQuery): Answer<'stats:getRankedWinrateByOpponent'>
       /** Aggregate of the provenance columns. See main/data/provenanceStats.ts. */
-      provenanceStats(): Promise<ProvenanceStats>
+      provenanceStats(): Answer<'matches:provenanceStats'>
     }
   }
 }

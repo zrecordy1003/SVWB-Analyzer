@@ -47,6 +47,10 @@ import type {
   PortalLang
 } from './decks.js'
 import type { DeckImportPreview, ParsedDeckInput, StoredDeckCard } from './deckImport.js'
+import type { CardStatsResult } from './cardStats.js'
+import type { CardPoolResult, CardPoolStatusRow, CardStatsPayload } from './cards.js'
+import type { BattleStatus, GameStatus, HudState } from './types.js'
+import type { UpdateSource } from './updates.js'
 import type { SupportPromptPayload } from './support.js'
 import type { TelemetryPayload, TelemetryStatus } from './telemetry.js'
 import type {
@@ -209,6 +213,65 @@ export type IpcContract = {
   'decks:publishCode': (input: {
     deckId: number
   }) => Res<{ hash: string; deckCode: string; shareUrl: string; ttlMs: number }>
+
+  // ------------------------------------------------------------------ cards
+  'cards:pool': (input: { classId: number; battleFormat: number }) => Res<CardPoolResult>
+  'cards:syncPool': (input: {
+    classId: number
+    battleFormat: number
+  }) => Res<{ cardCount: number; syncedAt: number }>
+  'cards:poolStatus': () => Res<CardPoolStatusRow[]>
+  'cards:stats': (input?: CardStatsPayload) => Res<CardStatsResult>
+
+  // -------------------------------------------------------------------- hud
+  //
+  // None of these can fail in a way the UI can act on, so none of them use the
+  // envelope: the window is either there or the call is a no-op.
+  'hud:getState': () => HudState
+  /**
+   * The opacity that was applied, clamped - or `undefined` when there is no
+   * HUD window to apply it to. Every one of these returns nothing in that
+   * case; this is the one whose caller reads the value back, so it is the one
+   * where the `undefined` has to be stated.
+   */
+  'hud:setOpacity': (opacity: number) => number | undefined
+  'hud:setCompact': (compact: boolean) => boolean
+  /** The height that was applied, or null when the value was not a number. */
+  'hud:setContentHeight': (height: number) => number | null
+  'hud:setIgnoreMouse': (ignore: boolean) => boolean
+  'hud:show': () => void
+  'hud:hide': () => void
+  'hud:close': () => void
+  'hud:dragStart': () => void
+  'hud:dragEnd': () => void
+
+  // ----------------------------------------------------------------- app
+  'app:getVersion': () => string
+
+  // ----------------------------------------------------------------- window
+  'battle:getStatus': () => BattleStatus | undefined
+  /** The last broadcast status, for a window that opened between transitions. */
+  'game:getStatus': () => GameStatus | null
+  'hud:openMatchHistory': () => boolean
+  /** Refuses anything but http/https, and says so by returning false. */
+  'app:openLink': (url: unknown) => boolean
+
+  // ---------------------------------------------------------------- updates
+  /**
+   * `info` is present only on the real updater's path.
+   *
+   * The dev simulator answers `{ ok: true }` with nothing else, while the real
+   * `autoUpdater` branch adds `info: r?.updateInfo`. Both registrations are
+   * for the same channel - only one is ever installed - and the divergence is
+   * harmless because nothing reads the reply's `info`: the details reach the
+   * renderer on the `update:available` broadcast instead. Declared as optional
+   * rather than tidied, because pretending the two agree would be the lie.
+   */
+  'update:check': (
+    from: UpdateSource
+  ) => { ok: true; info?: unknown } | { ok: false; error: string }
+  'update:download': (from: UpdateSource) => { ok: true } | { ok: false; error: string }
+  'update:install': () => { ok: true } | { ok: false; error: string }
 }
 
 /**

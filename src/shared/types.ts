@@ -162,6 +162,19 @@ export type RankedWinrateQuery = {
   limit?: number
 }
 
+/**
+ * What the HUD's own controls read and write.
+ *
+ * Two settings, and they live here because the HUD renderer asks for them over
+ * `hud:getState` and is told about changes on the `hud:state` broadcast - a
+ * tray click or the global shortcut can move them without the renderer
+ * touching anything.
+ */
+export type HudState = {
+  opacity: number
+  compact: boolean
+}
+
 export type QueryPayload = {
   myClassIds?: ClassName[]
   oppoClassIds?: ClassName[]

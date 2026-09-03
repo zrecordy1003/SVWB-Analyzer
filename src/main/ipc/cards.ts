@@ -11,15 +11,16 @@
  * (`data/cardPoolBootstrap.ts`) and the user's own refresh button share one
  * write path without either of them being able to turn a render into a request.
  */
-import { ipcMain } from 'electron'
 
 import type { PoolCard } from '../../shared/deckImport.js'
+import type { CardPoolResult, CardPoolStatusRow } from '../../shared/cards.js'
 import { cardKindFromType, CLASS_ID_TO_NAME } from '../../shared/deckImport.js'
 import { syncCardPoolSlice } from '../data/cardPool.js'
 import { getDb } from '../data/db/client.js'
 import { SvwbApiError, type PortalLang } from '../data/svwbApi.js'
 import { store } from '../store.js'
 import type { Res } from '../../shared/ipc.js'
+import { handleIpc } from './typed.js'
 
 /**
  * This module's own `wrap`, and NOT the shared `wrapRes`.
@@ -45,13 +46,7 @@ const currentLang = (): PortalLang =>
   (store.get('settings')?.cardLang as PortalLang | undefined) ?? 'cht'
 
 /** The pool as the renderer consumes it, plus how fresh it is. */
-export type CardPoolResult = {
-  cards: PoolCard[]
-  /** Null when this slice has never been fetched, so the UI can offer to fetch it. */
-  syncedAt: number | null
-  /** The language the stored text is in, which may differ from the current setting. */
-  lang: string | null
-}
+export type { CardPoolResult } from '../../shared/cards.js'
 
 function assertKnownClass(classId: unknown): number {
   const id = Number(classId)
@@ -76,7 +71,7 @@ export function registerCardsIpc(): void {
    * Returns neutral cards alongside the class's own, because that is what a
    * deck may contain and what the portal itself returns together.
    */
-  ipcMain.handle(
+  handleIpc(
     'cards:pool',
     async (_e, input: { classId: number; battleFormat: number }): Promise<Res<CardPoolResult>> =>
       wrap(async () => {
@@ -148,7 +143,7 @@ export function registerCardsIpc(): void {
    * bootstrap - the upsert semantics are subtle enough that two copies would
    * eventually disagree.
    */
-  ipcMain.handle(
+  handleIpc(
     'cards:syncPool',
     async (
       _e,
@@ -167,19 +162,9 @@ export function registerCardsIpc(): void {
   )
 
   /** Every slice we hold, for a settings screen or a diagnosis. */
-  ipcMain.handle(
+  handleIpc(
     'cards:poolStatus',
-    async (): Promise<
-      Res<
-        {
-          classId: number
-          battleFormat: number
-          lang: string
-          cardCount: number
-          syncedAt: number
-        }[]
-      >
-    > =>
+    async (): Promise<Res<CardPoolStatusRow[]>> =>
       wrap(async () =>
         db
           .selectFrom('CardPoolSync')

@@ -1,5 +1,6 @@
 import { app, ipcMain } from 'electron'
 import { store } from '../store.js'
+import { handleIpc } from './typed.js'
 import { disableAutoLaunch, enableAutoLaunch } from '../startOnBoot/startOnBoot.js'
 
 /**
@@ -11,7 +12,7 @@ import { disableAutoLaunch, enableAutoLaunch } from '../startOnBoot/startOnBoot.
  * game status); everything here only needed the shared store.
  */
 export function registerSettingsIpc(): void {
-  ipcMain.handle('app:getVersion', () => app.getVersion())
+  handleIpc('app:getVersion', () => app.getVersion())
 
   ipcMain.handle('settings:get', (_event, key: string) => store.get(key as never))
   ipcMain.handle('settings:set', (_event, key: string, value: unknown) =>

@@ -5,13 +5,18 @@ import { Box, Typography, Stack, Chip } from '@mui/material'
 
 import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
 import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined'
+import { invokeIpc } from '@renderer/ipc'
+import type { BattleStatus } from '@shared/types'
 
-interface BattleState {
-  inBattle: boolean
-  ownClass: string | null
-  enemyClass: string | null
-  playOrder: string | null
-}
+/**
+ * The shared shape, not a local restatement.
+ *
+ * There used to be an `interface BattleState` here with `ownClass`,
+ * `enemyClass` and `playOrder` all typed `string | null` - wider than the real
+ * `ClassName | null` and `PlayOrder | null` - and it did not have `mode` at
+ * all. It only compiled because the channel returned `any`.
+ */
+type BattleState = BattleStatus
 
 // interface StatusHeaderProps {
 //   inBattle: boolean
@@ -24,7 +29,11 @@ const BattleStatus = (): React.JSX.Element => {
     inBattle: false,
     ownClass: null,
     enemyClass: null,
-    playOrder: null
+    playOrder: null,
+    // The initial value was missing this, which the local `BattleState` did not
+    // have either - so nothing noticed. `null` is the correct resting value and
+    // a meaningful one: see the field's own comment in `@shared/types`.
+    mode: null
   })
 
   const rippleSx = {
@@ -91,8 +100,12 @@ const BattleStatus = (): React.JSX.Element => {
 
   useEffect(() => {
     if (isRecognizing) {
-      window.electron?.ipcRenderer.invoke('battle:getStatus').then((state: BattleState) => {
-        setBattleState(state)
+      invokeIpc('battle:getStatus').then((state) => {
+        // `undefined` when the analyzer has not been started - there is no
+        // battle to describe, so leave what is on screen alone rather than
+        // blanking it. The typed contract is what surfaced that this was being
+        // handed straight to `setState`.
+        if (state) setBattleState(state)
       })
     }
   }, [isRecognizing])

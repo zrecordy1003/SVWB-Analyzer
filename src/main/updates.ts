@@ -18,9 +18,10 @@
  * reach from a packaged build sitting on the latest version - can be looked at
  * in `pnpm dev`.
  */
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { store } from './store.js'
 import type { ReleaseNote, UpdateProgress, UpdateSource, UpdateSummary } from '../shared/updates.js'
+import { handleIpc } from './ipc/typed.js'
 
 let wired = false
 
@@ -177,7 +178,7 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
   )
 
   // ---- IPC（Renderer 主動控制）----
-  ipcMain.handle('update:check', async (_e, from: UpdateSource) => {
+  handleIpc('update:check', async (_e, from: UpdateSource) => {
     source = asSource(from)
     try {
       const r = await autoUpdater.checkForUpdates()
@@ -187,7 +188,7 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
     }
   })
 
-  ipcMain.handle('update:download', async (_e, from: UpdateSource) => {
+  handleIpc('update:download', async (_e, from: UpdateSource) => {
     source = asSource(from)
     try {
       await autoUpdater.downloadUpdate()
@@ -197,7 +198,7 @@ export async function setupAutoUpdates(win: BrowserWindow): Promise<void> {
     }
   })
 
-  ipcMain.handle('update:install', async () => {
+  handleIpc('update:install', async () => {
     try {
       setImmediate(() => autoUpdater.quitAndInstall(false, true))
       return { ok: true }
@@ -323,19 +324,19 @@ function wireSimulator(win: BrowserWindow, scenario: string | undefined): void {
     })
   }
 
-  ipcMain.handle('update:check', async (_e, from: UpdateSource) => {
+  handleIpc('update:check', async (_e, from: UpdateSource) => {
     source = asSource(from)
     runCheck()
     return { ok: true }
   })
 
-  ipcMain.handle('update:download', async (_e, from: UpdateSource) => {
+  handleIpc('update:download', async (_e, from: UpdateSource) => {
     source = asSource(from)
     runDownload()
     return { ok: true }
   })
 
-  ipcMain.handle('update:install', async () => {
+  handleIpc('update:install', async () => {
     console.log('[Update][sim] quitAndInstall() - no-op in dev')
     return { ok: true }
   })
