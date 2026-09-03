@@ -107,6 +107,7 @@ declare global {
         frameCount: number
         bytes: number
         latestAt: string | null
+        logBytes: number
       }>
       /** Resolves to the written path, or null if the user cancelled. */
       exportBundle(): Promise<string | null>
@@ -116,6 +117,7 @@ declare global {
         frameCount: number
         bytes: number
         latestAt: string | null
+        logBytes: number
       }>
       onRecorded(cb: (payload: unknown) => void): () => void
     }

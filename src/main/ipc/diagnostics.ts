@@ -28,7 +28,13 @@ function environment(): BundleEnvironment {
   }
 }
 
-const EMPTY: DiagnosticsSummary = { eventCount: 0, frameCount: 0, bytes: 0, latestAt: null }
+const EMPTY: DiagnosticsSummary = {
+  eventCount: 0,
+  frameCount: 0,
+  bytes: 0,
+  latestAt: null,
+  logBytes: 0
+}
 
 export function registerDiagnosticsIpc(): void {
   ipcMain.handle('diagnostics:summary', async (): Promise<DiagnosticsSummary> => {

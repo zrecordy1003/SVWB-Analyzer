@@ -11,12 +11,24 @@ import JSZip from 'jszip'
 
 const EVENTS_FILES = ['events.jsonl', 'events.previous.jsonl']
 const FRAMES_DIR = 'frames'
+/** Written by `runtimeLog.ts`, and never gated on the diagnostics setting. */
+const LOG_FILES = ['engine.log', 'engine.previous.log']
 
 export type DiagnosticsSummary = {
   eventCount: number
   frameCount: number
   bytes: number
   latestAt: string | null
+  /**
+   * Size of the engine log, if any.
+   *
+   * Reported separately from `bytes` because it decides whether there is
+   * anything to export at all. The export used to refuse when no anomaly had
+   * been recorded, which is precisely the state a user is in when the engine
+   * never started - they were told "沒有可匯出的紀錄" while holding the only
+   * file that could explain it.
+   */
+  logBytes: number
 }
 
 export type EventRecord = { at?: string; kind?: string; label?: string } & Record<string, unknown>
@@ -69,18 +81,31 @@ function directoryBytes(dir: string): number {
   return total
 }
 
+/** The log files that exist, newest generation first. */
+function listLogs(dir: string): string[] {
+  return LOG_FILES.filter((name) => fs.existsSync(path.join(dir, name)))
+}
+
+function logBytes(dir: string): number {
+  let total = 0
+  for (const name of listLogs(dir)) total += fs.statSync(path.join(dir, name)).size
+  return total
+}
+
 export function summarise(dir: string): DiagnosticsSummary {
   const events = readEvents(dir)
   return {
     eventCount: events.length,
     frameCount: listFrames(dir).filter((f) => f.endsWith('.png')).length,
     bytes: directoryBytes(dir),
-    latestAt: events.length > 0 ? (events[events.length - 1].at ?? null) : null
+    latestAt: events.length > 0 ? (events[events.length - 1].at ?? null) : null,
+    logBytes: logBytes(dir)
   }
 }
 
 export function clearStore(dir: string): void {
   for (const name of EVENTS_FILES) fs.rmSync(path.join(dir, name), { force: true })
+  for (const name of LOG_FILES) fs.rmSync(path.join(dir, name), { force: true })
   fs.rmSync(path.join(dir, FRAMES_DIR), { recursive: true, force: true })
   fs.mkdirSync(path.join(dir, FRAMES_DIR), { recursive: true })
 }
@@ -108,7 +133,8 @@ const KIND_EXPLANATIONS: Record<string, string> = {
 export function buildReportMarkdown(
   events: EventRecord[],
   frames: string[],
-  env: BundleEnvironment
+  env: BundleEnvironment,
+  logs: string[] = []
 ): string {
   const byKind = new Map<string, number>()
   for (const e of events) {
@@ -159,6 +185,27 @@ export function buildReportMarkdown(
     lines.push('```')
   }
 
+  if (logs.length > 0) {
+    lines.push(
+      '',
+      '## 引擎啟動記錄',
+      '',
+      `\`${logs.join('`、`')}\` 是辨識引擎的啟動與結束記錄，不受「記錄辨識異常」開關影響。`,
+      '',
+      '判讀順序：找 `[Startup]` 那幾行確認 exe 與模板路徑存在、架構是否為 x64；',
+      '再找 `[Engine] ready` ——**有這行才代表辨識真的跑起來了**。',
+      '若看到 `exited` 或 `failed to start` 而沒有 `ready`，緊接在它上面的 `[Engine]`',
+      '訊息就是原因。'
+    )
+    if (events.length === 0 && frameCount === 0) {
+      lines.push(
+        '',
+        '> 這份回報沒有任何異常事件或畫面，只有上面的啟動記錄。這通常不代表一切正常，',
+        '> 而是代表引擎從未產出任何辨識結果——請優先看啟動記錄。'
+      )
+    }
+  }
+
   if (frameCount > 0) {
     lines.push(
       '',
@@ -177,14 +224,18 @@ export function buildReportMarkdown(
 export async function buildBundle(dir: string, env: BundleEnvironment): Promise<Buffer | null> {
   const events = readEvents(dir)
   const frames = listFrames(dir)
-  if (events.length === 0 && frames.length === 0) return null
+  const logs = listLogs(dir)
+  // A log alone is worth exporting, and is the only thing there is to export
+  // when the engine never started - the case this guard used to refuse.
+  if (events.length === 0 && frames.length === 0 && logs.length === 0) return null
 
   const zip = new JSZip()
-  zip.file('report.md', buildReportMarkdown(events, frames, env))
+  zip.file('report.md', buildReportMarkdown(events, frames, env, logs))
   zip.file(
     'report.json',
     `${JSON.stringify({ generatedAt: new Date().toISOString(), ...env, events }, null, 2)}\n`
   )
+  for (const name of logs) zip.file(name, fs.readFileSync(path.join(dir, name)))
   const framesFolder = zip.folder(FRAMES_DIR)
   for (const name of frames) {
     framesFolder?.file(name, fs.readFileSync(path.join(dir, FRAMES_DIR, name)))

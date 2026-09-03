@@ -92,6 +92,7 @@ type StopAnalyzerFn = (opts?: { timeoutMs?: number }) => Promise<void> | void
 let _getBattleStatus: GetBattleStatusFn | null = null
 let _startAnalyzer: StartAnalyzerFn | null = null
 let _stopAnalyzer: StopAnalyzerFn | null = null
+let _isEngineReady: (() => boolean) | null = null
 
 async function ensureAnalyzer(): Promise<void> {
   if (_getBattleStatus && _startAnalyzer && _stopAnalyzer) return
@@ -101,10 +102,12 @@ async function ensureAnalyzer(): Promise<void> {
     getBattleStatus: GetBattleStatusFn
     startEngine: StartAnalyzerFn
     stopEngine: StopAnalyzerFn
+    isEngineReady: () => boolean
   }
   _getBattleStatus = mod.getBattleStatus
   _startAnalyzer = mod.startEngine
   _stopAnalyzer = mod.stopEngine
+  _isEngineReady = mod.isEngineReady
 }
 
 // --- DB on-demand（第一次用到才 init） ---
@@ -384,7 +387,16 @@ function startPollingForGame(): void {
 
       // The full status, for the analyzer page's own display. Not part of the
       // decision - it is forwarded whatever the state machine concludes.
-      if (svwbStatus) win.webContents.postMessage('svwb:status', svwbStatus)
+      //
+      // `engineReady` rides along on this poll rather than on a channel of its
+      // own so it cannot go stale or be missed by a renderer that mounted late.
+      // Without it the badge reported only this process's window scan, and so
+      // stayed green through a recognition engine that had died on startup.
+      if (svwbStatus)
+        win.webContents.postMessage('svwb:status', {
+          ...svwbStatus,
+          engineReady: _isEngineReady?.() ?? false
+        })
 
       const bx = svwbStatus?.bounds?.x
       const by = svwbStatus?.bounds?.y

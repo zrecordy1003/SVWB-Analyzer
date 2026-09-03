@@ -32,9 +32,15 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
     )
   }
 
-  const { running, bounds } = svwbStatus!
+  const { running, bounds, engineReady } = svwbStatus!
   const isMinimized = bounds?.x === -32000 && bounds?.y === -32000
   const resolution = computeResolutionStatus(bounds)
+  // Worth its own state, because "game found" and "recognition running" are
+  // independent and the badge used to conflate them: the window scan runs in
+  // the main process and stays green through an engine that died on startup,
+  // which is exactly the case that produced no diagnostics to look at either.
+  const engineDown = running && !isMinimized && engineReady === false
+  const ENGINE_DOWN_HINT = '辨識引擎未啟動，這場不會被記錄。請到「設定 → 辨識診斷」匯出診斷包回報'
 
   const TooltipStyles = {
     tooltip: {
@@ -67,7 +73,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
             </Box>
           </Tooltip>
         )}
-        {running && !isMinimized && (
+        {running && !isMinimized && !engineDown && (
           <Tooltip
             title="遊戲執行中"
             placement="right"
@@ -78,6 +84,21 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
           >
             <Box display="flex" alignItems="center" justifyContent="center">
               <SportsEsportsIcon color="success" />
+            </Box>
+          </Tooltip>
+        )}
+
+        {engineDown && (
+          <Tooltip
+            title={ENGINE_DOWN_HINT}
+            placement="right"
+            slotProps={{ ...TooltipStyles }}
+            slots={{
+              transition: Zoom
+            }}
+          >
+            <Box display="flex" alignItems="center" justifyContent="center">
+              <WarningIcon color="error" />
             </Box>
           </Tooltip>
         )}
@@ -121,11 +142,20 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
           </Fade>
         </Box>
       )}
-      {running && !isMinimized && (
+      {running && !isMinimized && !engineDown && (
         <Box display="flex" alignItems="center" color={running ? 'success.main' : 'error.main'}>
           <SportsEsportsIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
             <Typography>{running ? '遊戲執行中' : '未偵測到遊戲'}</Typography>
+          </Fade>
+        </Box>
+      )}
+
+      {engineDown && (
+        <Box display="flex" alignItems="center" color="error.main">
+          <WarningIcon sx={{ mr: 1 }} />
+          <Fade in={open} timeout={200}>
+            <Typography>{ENGINE_DOWN_HINT}</Typography>
           </Fade>
         </Box>
       )}

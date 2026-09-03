@@ -11,6 +11,13 @@ interface svwbStatus {
   running: boolean
   hwnd: number | null
   bounds?: bounds
+  /**
+   * Whether the recognition engine reported itself ready.
+   *
+   * Separate from `running`, which only says the game window was found - a
+   * check that happens in the main process and knows nothing about the engine.
+   */
+  engineReady?: boolean
 }
 
 export const useSvwbStatus = (): svwbStatus | undefined => {

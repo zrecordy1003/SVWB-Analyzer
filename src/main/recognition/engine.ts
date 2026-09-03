@@ -45,6 +45,7 @@ import {
   type DiagnosticKind
 } from './diagnosticsRecorder.js'
 import { getDiagnosticsDir } from '../paths.js'
+import { configureRuntimeLog, logRuntime, logRuntimeLines } from './runtimeLog.js'
 import { noteMatchFinished } from '../telemetry/telemetry.js'
 
 // Re-exported rather than redefined. The two copies of this interface had
@@ -66,6 +67,16 @@ type MatchPatch = {
 let engineProcess: ChildProcess | null = null
 let starting = false
 let battleStatus: BattleStatus = IDLE_STATUS
+/**
+ * Whether the engine has reported `ready` - loaded its templates and begun.
+ *
+ * Distinct from `engineProcess !== null`, which is true for a process that has
+ * been spawned and is about to die: an exe that cannot find its templates, or
+ * that a security product kills on sight, still gets a `ChildProcess` object.
+ * Only `ready` proves recognition is actually running, so that is what the
+ * window badge reports.
+ */
+let engineReady = false
 
 function getEnginePath(): string {
   return app.isPackaged
@@ -99,6 +110,56 @@ function setStatus(next: BattleStatus): void {
   broadcast('battle:status', next)
 }
 
+/**
+ * Write down everything about this machine that has ever explained a silent
+ * failure, before the engine is asked to start.
+ *
+ * Every field here earned its place by being the thing somebody had to ask a
+ * user for over chat, one round trip at a time:
+ *
+ *  - `arch`, because the shipped natives are x64 and an arm64 Windows finds no
+ *    prebuild.
+ *  - `exists` on the exe and the templates, because a path that resolves
+ *    differently in a packaged build produces a spawn error with no clue in it.
+ *  - The paths in full, because a non-ASCII profile name is a real failure mode
+ *    and is invisible in any summary that omits them.
+ *  - `elevated`, because Windows Graphics Capture cannot attach to a window
+ *    owned by a process at a higher integrity level: a game started as
+ *    administrator is unreachable from an app that was not.
+ */
+function logStartupEnvironment(): void {
+  const enginePath = getEnginePath()
+  const templatesPath = getTemplatesPath()
+
+  logRuntime(
+    'Startup',
+    `version=${app.getVersion()} arch=${process.arch} platform=${process.platform} ` +
+      `os=${process.getSystemVersion?.() ?? 'unknown'} packaged=${app.isPackaged}`
+  )
+  logRuntime('Startup', `exe=${enginePath} exists=${fs.existsSync(enginePath)}`)
+  logRuntime('Startup', `templates=${templatesPath} exists=${fs.existsSync(templatesPath)}`)
+  logRuntime('Startup', `diagnostics=${getDiagnosticsDir()} db=${getDbPath()}`)
+  logRuntime('Startup', `elevated=${isProbablyElevated()}`)
+}
+
+/**
+ * Whether this process looks like it is running as administrator.
+ *
+ * Node exposes no such check, so this is the usual heuristic: `System32\config`
+ * is readable only with administrative rights. A heuristic is enough for what it
+ * is for - the report only needs to say whether the app and the game are on the
+ * same side of the line, and the answer is read by a human, not branched on.
+ */
+function isProbablyElevated(): string {
+  if (process.platform !== 'win32') return 'n/a'
+  try {
+    fs.accessSync(path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'config'))
+    return 'true'
+  } catch {
+    return 'false'
+  }
+}
+
 export function startEngine(_mainWindow: BrowserWindow): void {
   if (starting || engineProcess) {
     console.log('[Engine] already running, skip')
@@ -107,6 +168,12 @@ export function startEngine(_mainWindow: BrowserWindow): void {
   starting = true
 
   try {
+    // Before anything else, so a failure in any of the steps below still leaves
+    // a record. Unlike `configureDiagnostics`, this ignores the diagnostics
+    // setting - see runtimeLog.ts on why.
+    configureRuntimeLog(getDiagnosticsDir())
+    logStartupEnvironment()
+
     // Opt-out, so an unset value counts as enabled - this Store has no defaults,
     // and a never-written key reads as undefined.
     configureDiagnostics({
@@ -148,22 +215,34 @@ export function startEngine(_mainWindow: BrowserWindow): void {
       { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true }
     )
     engineProcess = child
+    logRuntime('Engine', `spawned pid=${child.pid ?? 'none'}`)
 
-    child.once('exit', (code) => {
-      console.log('[Engine] exited:', code)
+    child.once('exit', (code, signal) => {
+      // An exit before `ready` is the failure this log exists for: the reason is
+      // on stderr, immediately above this line.
+      logRuntime(
+        'Engine',
+        `exited code=${code} signal=${signal ?? 'none'} reachedReady=${engineReady}`
+      )
       engineProcess = null
+      engineReady = false
       setStatus(IDLE_STATUS)
       // Counters that never reached their flush window would otherwise be lost.
       flushDiagnostics()
       void disposeNumberReader()
     })
     child.once('error', (err) => {
-      console.error('[Engine] failed to start:', err)
+      // ENOENT means the exe is not where `getEnginePath` says; EACCES and EPERM
+      // are what a security product blocking it looks like from here.
+      const code = (err as NodeJS.ErrnoException).code ?? 'none'
+      logRuntime('Engine', `failed to start: code=${code} ${err.message}`)
       engineProcess = null
+      engineReady = false
     })
     // The engine's stderr is for humans only; anything the host must act on
-    // arrives as an event.
-    child.stderr?.on('data', (chunk) => console.log('[Engine]', String(chunk).trimEnd()))
+    // arrives as an event. It is the only place that says WHY a start failed, so
+    // it goes to the file rather than to a console nobody is watching.
+    child.stderr?.on('data', (chunk) => logRuntimeLines('Engine', String(chunk)))
 
     const lines = readline.createInterface({ input: child.stdout! })
     lines.on('line', (line) => {
@@ -177,6 +256,12 @@ export function startEngine(_mainWindow: BrowserWindow): void {
       }
       void handle(event, child)
     })
+  } catch (e) {
+    // `spawn` can throw synchronously - a path Windows rejects outright does
+    // not reach the 'error' handler. Recorded, then rethrown unchanged so this
+    // stays a logging change and nothing downstream sees new behaviour.
+    logRuntime('Engine', `start threw: ${(e as Error).message}`)
+    throw e
   } finally {
     starting = false
   }
@@ -217,11 +302,26 @@ export function isEngineRunning(): boolean {
   return engineProcess !== null
 }
 
+/**
+ * Whether recognition is actually running, as opposed to merely spawned.
+ *
+ * The window badge asks this because a green "game detected" light was never
+ * evidence of recognition working: that light comes from the window scan, which
+ * runs entirely in this process and stays green while the engine is dead.
+ */
+export function isEngineReady(): boolean {
+  return engineReady
+}
+
 export function stopEngine(): void {
   const child = engineProcess
   if (!child) return
   // Cleared up front, so the second teardown pass finds nothing to write to.
   engineProcess = null
+  engineReady = false
+  // Distinguishes an orderly shutdown from a crash in the log: an `exited` line
+  // with no `stopping` above it was not asked for.
+  logRuntime('Engine', 'stopping')
 
   try {
     // Asking first lets the engine finish the tick it is in. Closing stdin is
@@ -274,7 +374,10 @@ function harvestDigits(pngBase64: string, text: string | null): void {
 async function handle(event: Record<string, unknown>, child: ChildProcess): Promise<void> {
   switch (event.event) {
     case 'ready':
-      console.log(`[Engine] ready, ${event.templatesLoaded} templates`)
+      // The one positive signal in the log: reaching this means the exe ran,
+      // found its templates and is watching for frames.
+      engineReady = true
+      logRuntime('Engine', `ready templatesLoaded=${event.templatesLoaded}`)
       break
 
     case 'readNumber': {

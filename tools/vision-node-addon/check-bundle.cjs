@@ -45,7 +45,10 @@ async function main() {
   console.log('empty store')
   check('nothing to export yields null', (await mod.buildBundle(store, env)) === null)
   const empty = mod.summarise(store)
-  check('summary reports zero', empty.eventCount === 0 && empty.frameCount === 0)
+  check(
+    'summary reports zero',
+    empty.eventCount === 0 && empty.frameCount === 0 && empty.logBytes === 0
+  )
 
   console.log('\nseeded store')
   fs.writeFileSync(
@@ -124,11 +127,53 @@ async function main() {
     .async('nodebuffer')
   check('frame bytes survive the round trip', png.length === 4100, `${png.length} bytes`)
 
+  // The case the export used to refuse, and the reason it now does not. A user
+  // whose engine never starts has no anomalies and no frames - recognition
+  // never ran, so it never doubted anything - and the startup log is the only
+  // thing that can explain it. They were shown "沒有可匯出的紀錄" instead.
+  console.log('\nlog-only store')
+  const logStore = path.join(work, 'log-only')
+  fs.mkdirSync(path.join(logStore, 'frames'), { recursive: true })
+  fs.writeFileSync(
+    path.join(logStore, 'engine.log'),
+    [
+      '2026-09-03T01:00:00.000Z [Startup] version=9.9.9 arch=x64 platform=win32 packaged=true',
+      '2026-09-03T01:00:00.001Z [Engine] spawned pid=4242',
+      '2026-09-03T01:00:00.500Z [Engine] cannot start capture: attach failed',
+      '2026-09-03T01:00:00.600Z [Engine] exited code=1 signal=none reachedReady=false'
+    ].join('\n') + '\n'
+  )
+
+  const logOnly = mod.summarise(logStore)
+  check('log bytes reported', logOnly.logBytes > 0, `${logOnly.logBytes} bytes`)
+  check('no anomalies beside it', logOnly.eventCount === 0 && logOnly.frameCount === 0)
+
+  const logBundle = await mod.buildBundle(logStore, env)
+  check(
+    'a log alone is still exportable',
+    Buffer.isBuffer(logBundle) && logBundle.length > 0,
+    `${logBundle?.length} bytes`
+  )
+  const logRound = await JSZip.loadAsync(logBundle)
+  check('zip carries engine.log', Object.keys(logRound.files).includes('engine.log'))
+  check(
+    'log content survives the round trip',
+    (await logRound.file('engine.log').async('string')).includes('cannot start capture')
+  )
+  const logMd = await logRound.file('report.md').async('string')
+  check('report.md points at the startup log', logMd.includes('引擎啟動記錄'))
+  check(
+    'report.md says an empty report is not a healthy one',
+    logMd.includes('引擎從未產出任何辨識結果')
+  )
+
   console.log('\nclearStore')
   mod.clearStore(store)
   const cleared = mod.summarise(store)
   check('store is emptied', cleared.eventCount === 0 && cleared.frameCount === 0)
   check('frames dir is recreated, not left missing', fs.existsSync(frames))
+  mod.clearStore(logStore)
+  check('the log is cleared too', mod.summarise(logStore).logBytes === 0)
 
   fs.rmSync(work, { recursive: true, force: true })
   cleanupTranspiled()

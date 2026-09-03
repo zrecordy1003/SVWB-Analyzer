@@ -20,6 +20,8 @@ type Summary = {
   frameCount: number
   bytes: number
   latestAt: string | null
+  /** Size of the engine's own startup log, which is written unconditionally. */
+  logBytes: number
 }
 
 const formatBytes = (bytes: number): string => {
@@ -86,17 +88,24 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
     }
   }
 
-  const nothingRecorded = !summary || (summary.eventCount === 0 && summary.frameCount === 0)
+  const noAnomalies = !summary || (summary.eventCount === 0 && summary.frameCount === 0)
+  // The engine log is written whatever this toggle says, so there is almost
+  // always something worth handing over - and when recognition never started,
+  // it is the ONLY thing worth handing over. Gating the button on anomalies
+  // alone is what turned "the engine never ran" into "沒有可匯出的紀錄".
+  const nothingToExport = !summary || (noAnomalies && summary.logBytes === 0)
 
   const statusLine = enabled
     ? summary === null
       ? '讀取中…'
-      : nothingRecorded
-        ? '目前沒有記錄到異常。'
+      : noAnomalies
+        ? summary.logBytes > 0
+          ? '目前沒有記錄到異常，但已有引擎啟動記錄可供回報。'
+          : '目前沒有記錄到異常。'
         : `已記錄 ${summary.eventCount} 筆事件、${summary.frameCount} 張畫面（約 ${formatBytes(summary.bytes)}）${
             summary.latestAt ? `，最近一筆：${new Date(summary.latestAt).toLocaleString()}` : ''
           }`
-    : '目前已關閉，不會產生任何紀錄。'
+    : '目前已關閉，不會記錄辨識異常（引擎啟動記錄仍會保留）。'
 
   return (
     <Box display="flex" flexDirection="column" gap={1.5}>
@@ -133,7 +142,7 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
           size="small"
           startIcon={busy ? <CircularProgress size={16} /> : <IosShareIcon />}
           onClick={handleExport}
-          disabled={busy || nothingRecorded}
+          disabled={busy || nothingToExport}
         >
           匯出診斷包
         </Button>
@@ -151,7 +160,7 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
           color="error"
           startIcon={<DeleteSweepIcon />}
           onClick={handleClear}
-          disabled={busy || nothingRecorded}
+          disabled={busy || nothingToExport}
         >
           清除紀錄
         </Button>
