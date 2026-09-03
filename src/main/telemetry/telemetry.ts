@@ -4,9 +4,19 @@
  *
  * Three rules, in order of importance.
  *
- * It is off until a person turns it on. `settings.telemetry` defaults to
- * false, the one-time toast asks rather than assumes, and a build with no
- * endpoint configured sends nothing whatever the setting says.
+ * Nothing leaves a machine that has not been told. Since 1.3.0
+ * `settings.telemetry` defaults to TRUE and an existing install is flipped to
+ * true once (`telemetryDefaultFlipped` in store.ts), so the notice - not the
+ * setting - is what keeps the promise: `performUpload` refuses while
+ * `telemetryPromptShown` is false, and `telemetry:noticeDue` is the only thing
+ * that sets it. A build with no endpoint configured sends nothing whatever the
+ * setting says, and shows no notice either.
+ *
+ * (This paragraph used to say the setting defaulted to false. It did until
+ * 2026-09-02; the code moved and the comment did not. Default-on is a
+ * participation decision - a buried opt-in switch gets single-digit uptake and
+ * a matchup table built from single digits is worse than no table - and it is
+ * NOT a licence to send before saying so.)
  *
  * It can never hurt the app. Every network path here swallows its own
  * failure, records it for the settings page, and moves on. No upload is ever

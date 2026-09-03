@@ -25,6 +25,7 @@ export function SegmentedControl<T extends string>({
   onChange,
   height = 32,
   minSegmentWidth = 84,
+  error = false,
   'aria-label': ariaLabel
 }: {
   options: Segment<T>[]
@@ -33,6 +34,12 @@ export function SegmentedControl<T extends string>({
   height?: number
   /** 每一段的最小寬度。標籤短（兩個字）的時候放小一點，免得整條吃掉半個工作列。 */
   minSegmentWidth?: number
+  /**
+   * 必填卻還沒選——跟 `Select`／`ClassField` 的 `error` 是同一件事，畫法卻不能
+   * 照抄：這裡沒有邊框以外的地方可以變色，浮片本來就只在選了之後才畫。所以
+   * 交給外框自己在「還沒選」與「已經提交過一次」都成立時變紅。
+   */
+  error?: boolean
   'aria-label'?: string
 }): React.JSX.Element {
   const index = options.findIndex((option) => option.id === value)
@@ -51,7 +58,8 @@ export function SegmentedControl<T extends string>({
         borderRadius: 2,
         bgcolor: 'action.hover',
         border: '1px solid',
-        borderColor: 'divider'
+        borderColor: error ? 'error.main' : 'divider',
+        transition: 'border-color .15s'
       }}
     >
       {/* 浮片。用 transform 移動而不是換每段的底色：位置本身就是動畫，

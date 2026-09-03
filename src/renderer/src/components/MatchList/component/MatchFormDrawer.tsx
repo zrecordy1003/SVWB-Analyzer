@@ -306,11 +306,13 @@ const ClassField: React.FC<{
  */
 const ModeField: React.FC<{
   value: GameMode | null
+  error?: boolean
   onChange: (mode: GameMode | null) => void
-}> = ({ value, onChange }) => (
+}> = ({ value, error = false, onChange }) => (
   <Select
     value={value ?? ''}
     displayEmpty
+    error={error}
     inputProps={{ 'aria-label': '模式' }}
     IconComponent={KeyboardArrowDownRoundedIcon}
     renderValue={(selected) =>
@@ -869,7 +871,7 @@ const MatchFormDrawer: React.FC<Props> = ({
         return
       }
       if (!data.play_order) {
-        setFormError('先攻／後攻要選一個，空著會被當成後攻')
+        setFormError('先／後攻必填')
         return
       }
       if (!data.mode) {
@@ -1064,6 +1066,7 @@ const MatchFormDrawer: React.FC<Props> = ({
                   onChange={(next) => patch({ result: next === 'none' ? null : next === 'win' })}
                   height={36}
                   minSegmentWidth={64}
+                  error={!!formError && data.result == null}
                   aria-label="勝敗"
                 />
                 <RowLabel>先後攻</RowLabel>
@@ -1076,6 +1079,7 @@ const MatchFormDrawer: React.FC<Props> = ({
                   onChange={(next) => patch({ play_order: next })}
                   height={36}
                   minSegmentWidth={64}
+                  error={!!formError && !data.play_order}
                   aria-label="先攻或後攻"
                 />
               </FieldRow>
@@ -1145,7 +1149,11 @@ const MatchFormDrawer: React.FC<Props> = ({
                 {/* 模式在前、時間在後：模式決定這一筆進哪一份統計，也決定下面
                     有沒有牌組欄可填，是這一列裡真正要先決定的那個。 */}
                 <FieldRow label="模式" columns="1fr 1fr">
-                  <ModeField value={data.mode ?? null} onChange={(mode) => patch({ mode })} />
+                  <ModeField
+                    value={data.mode ?? null}
+                    error={!!formError && !data.mode}
+                    onChange={(mode) => patch({ mode })}
+                  />
                   <TextField
                     fullWidth
                     size="small"
