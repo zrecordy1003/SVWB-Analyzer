@@ -11,9 +11,15 @@
  * can act on return `Res<T>` through `wrapRes`, and adding a second mechanism
  * here would give two answers to the same question.
  */
-import { ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 
-import type { IpcArgs, IpcChannel, IpcResult } from '../../shared/ipc.js'
+import type {
+  IpcArgs,
+  IpcChannel,
+  IpcResult,
+  IpcSendArgs,
+  IpcSendChannel
+} from '../../shared/ipc.js'
 
 export function handleIpc<C extends IpcChannel>(
   channel: C,
@@ -23,4 +29,27 @@ export function handleIpc<C extends IpcChannel>(
   // signature is `(event, ...args: any[]) => any`, so the types stop here and
   // everything above this line has them.
   ipcMain.handle(channel, handler as (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown)
+}
+
+/**
+ * `ipcMain.on`, checked against `IpcSendContract`.
+ *
+ * The same guarantee for the fire-and-forget direction, which is where the
+ * `'s:startOnBoot'` / `'settings:startOnBoot'` mismatch lived: a channel that
+ * is not in the contract will not compile on either side, so the two names
+ * cannot drift apart.
+ */
+export function onIpc<C extends IpcSendChannel>(
+  channel: C,
+  listener: (event: IpcMainEvent, ...args: IpcSendArgs<C>) => void
+): void {
+  ipcMain.on(channel, listener as (event: IpcMainEvent, ...args: unknown[]) => void)
+}
+
+/** `ipcMain.once`, same contract. */
+export function onceIpc<C extends IpcSendChannel>(
+  channel: C,
+  listener: (event: IpcMainEvent, ...args: IpcSendArgs<C>) => void
+): void {
+  ipcMain.once(channel, listener as (event: IpcMainEvent, ...args: unknown[]) => void)
 }

@@ -1,6 +1,6 @@
 import { app, ipcMain } from 'electron'
 import { store } from '../store.js'
-import { handleIpc } from './typed.js'
+import { handleIpc, onIpc } from './typed.js'
 import { disableAutoLaunch, enableAutoLaunch } from '../startOnBoot/startOnBoot.js'
 
 /**
@@ -33,7 +33,21 @@ export function registerSettingsIpc(): void {
   ipcMain.handle('settings:has', (_event, key: string) => store.has(key as never))
   ipcMain.handle('settings:getAll', () => store.store)
 
-  ipcMain.on('settings:startOnBoot', (_event, enable: boolean) => {
+  /**
+   * Register or remove the login item.
+   *
+   * The Settings page sent `'s:startOnBoot'` at this for as long as the switch
+   * existed, and this listens on `'settings:startOnBoot'` - two bare strings
+   * that never had to match, so the switch persisted its own state, rendered
+   * as on next visit, and this never ran. It is in `IpcSendContract` now, so
+   * the two names cannot part company again.
+   *
+   * No user was affected in the end: the switch itself is commented out in
+   * `Settings.tsx`, so the path has been unreachable from the UI. That is why
+   * this is a note rather than a fix with a test behind it - there is nothing
+   * on screen to drive. Re-enable the control and it works.
+   */
+  onIpc('settings:startOnBoot', (_event, enable) => {
     if (enable) enableAutoLaunch()
     else disableAutoLaunch()
   })

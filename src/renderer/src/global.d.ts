@@ -29,15 +29,43 @@ declare global {
    */
   type UpdateEvent<T = unknown> = { source: import('@shared/updates').UpdateSource } & T
 
+  /**
+   * The settings bridge, typed by key.
+   *
+   * It used to be `get: <T = any>(key: string) => Promise<T>` - which cannot
+   * tell a typo from a key, or a boolean from a number, and made every caller
+   * assert its own answer. `AppStoreSchema` moved to `@shared/settings` so
+   * this could be keyed against it.
+   *
+   * `settings:*` is not in `@shared/ipc` on purpose: that contract maps a
+   * channel to ONE function type, and `settings:get` is not one function - its
+   * return depends on the key. A generic method is the right shape, and this is
+   * where it belongs.
+   *
+   * Dotted paths (`'settings.telemetry'`) are `electron-store`'s own syntax and
+   * reach a nested value, so the key is widened to allow them; a bare string
+   * still has to look like one of those rather than be anything at all.
+   */
   interface SettingsAPI {
-    get: <T = any>(key: string) => Promise<T>
-    set: (key: string, value: any) => Promise<void>
+    get<K extends keyof import('@shared/settings').AppStoreSchema>(
+      key: K
+    ): Promise<import('@shared/settings').AppStoreSchema[K]>
+    get<T = unknown>(key: `${string}.${string}`): Promise<T>
+    set<K extends keyof import('@shared/settings').AppStoreSchema>(
+      key: K,
+      value: import('@shared/settings').AppStoreSchema[K]
+    ): Promise<void>
+    set(key: `${string}.${string}`, value: unknown): Promise<void>
     /** Batch write; one IPC round trip for a group of related keys. */
-    setMany: (entries: Record<string, any>) => Promise<void>
-    delete: (key: string) => Promise<void>
-    clear: () => Promise<void>
-    has: (key: string) => Promise<boolean>
-    getAll: () => Promise<Record<string, any>>
+    setMany(entries: Record<string, unknown>): Promise<void>
+    delete(
+      key: keyof import('@shared/settings').AppStoreSchema | `${string}.${string}`
+    ): Promise<void>
+    clear(): Promise<void>
+    has(
+      key: keyof import('@shared/settings').AppStoreSchema | `${string}.${string}`
+    ): Promise<boolean>
+    getAll(): Promise<import('@shared/settings').AppStoreSchema>
   }
 
   interface Window {
@@ -47,7 +75,6 @@ declare global {
     electron: {
       ipcRenderer: IpcRenderer
     }
-    /** NOT in the contract yet: a generic key/value bridge, see `@shared/ipc`. */
     settings: SettingsAPI
     appInfo: { getVersion(): Answer<'app:getVersion'> }
     telemetry: {
@@ -129,8 +156,11 @@ declare global {
       setIgnoreMouse(...args: IpcArgs<'hud:setIgnoreMouse'>): Answer<'hud:setIgnoreMouse'>
       /** Manual dragging: press reported by the title row, cursor followed by main. */
       dragStart(): Answer<'hud:dragStart'>
-      /** Fire-and-forget: a drag position has no reply worth a round trip. */
-      dragMove(x: number, y: number): void
+      /**
+       * Fire-and-forget, and with no coordinates: main re-reads the cursor
+       * each tick so the window follows the real pointer.
+       */
+      dragMove(): void
       dragEnd(): Answer<'hud:dragEnd'>
       /** Raise the main window and take it to the match list. */
       openMatchHistory(): Answer<'hud:openMatchHistory'>

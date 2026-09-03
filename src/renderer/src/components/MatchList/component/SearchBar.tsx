@@ -83,10 +83,19 @@ type PersistShape = {
   crMax: number | null
 }
 
-async function settingsGet<T>(key: string): Promise<T | undefined> {
+/**
+ * `matchList.filters` is a nested path, not a declared schema key.
+ *
+ * `electron-store` takes dotted paths and this one lives outside
+ * `AppStoreSchema` entirely, which is why the key is typed as a path rather
+ * than as `keyof AppStoreSchema` - the bridge has an overload for exactly that
+ * case. The value still has to be named by the caller, because nothing knows
+ * the shape of a key the schema does not declare.
+ */
+async function settingsGet<T>(key: `${string}.${string}`): Promise<T | undefined> {
   return window.settings?.get<T>(key)
 }
-async function settingsSet<T>(key: string, val: T): Promise<void> {
+async function settingsSet<T>(key: `${string}.${string}`, val: T): Promise<void> {
   await window.settings?.set(key, val)
 }
 

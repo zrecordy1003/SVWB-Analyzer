@@ -150,8 +150,8 @@ const HudApp: React.FC = () => {
           console.warn('[HUD] failed to read window state:', error)
           return defaultHudState
         }) ?? Promise.resolve(defaultHudState),
-        window.settings.get<number | null>('hudStatsDays'),
-        window.settings.get<number>('hudRecentCount'),
+        window.settings.get('hudStatsDays'),
+        window.settings.get('hudRecentCount'),
         // Broadcast only fires on change, so the current value has to be pulled.
         window.electron?.ipcRenderer
           .invoke('game:getStatus')
@@ -388,7 +388,7 @@ const HudApp: React.FC = () => {
             // Only while this pointer is captured by the press above; hover
             // moves must not stream IPC.
             if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return
-            window.hud?.dragMove?.(e.screenX, e.screenY)
+            window.hud?.dragMove?.()
           }}
           onPointerUp={(e) => {
             ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)

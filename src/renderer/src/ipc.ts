@@ -15,11 +15,23 @@
  * been from the start - a per-channel wrapper adds a name to maintain and no
  * safety, whereas the contract adds the safety and no names.
  */
-import type { IpcArgs, IpcChannel, IpcResult } from '@shared/ipc'
+import type { IpcArgs, IpcChannel, IpcResult, IpcSendArgs, IpcSendChannel } from '@shared/ipc'
 
 export function invokeIpc<C extends IpcChannel>(
   channel: C,
   ...args: IpcArgs<C>
 ): Promise<IpcResult<C>> {
   return window.electron.ipcRenderer.invoke(channel, ...args) as Promise<IpcResult<C>>
+}
+
+/**
+ * Fire-and-forget to main, with the channel and its arguments checked.
+ *
+ * The reason this is not just `ipcRenderer.send`: the Settings page sent
+ * `'s:startOnBoot'` for as long as the switch existed while main listened on
+ * `'settings:startOnBoot'`, so the setting did nothing at all and nothing
+ * could have said so. See `IpcSendContract`.
+ */
+export function sendIpc<C extends IpcSendChannel>(channel: C, ...args: IpcSendArgs<C>): void {
+  window.electron.ipcRenderer.send(channel, ...args)
 }

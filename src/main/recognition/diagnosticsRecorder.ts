@@ -44,6 +44,22 @@ export type DiagnosticKind =
    * screens - the correction worked, but the guess should not have happened.
    */
   | 'mode-corrected'
+  /**
+   * The wait for the final result screen ran all the way to its backstop - ten
+   * minutes with no result screen, no next match and no replay. The player quit
+   * to the title screen, or the capture died. It is NOT what a slow reward
+   * screen produces any more; if this starts appearing again, one of the exits
+   * in `Machine::close_on_missing_final_screen` has stopped working.
+   */
+  | 'final-screen-never-seen'
+  /**
+   * The next match's versus screen closed a match that was still waiting for its
+   * result screen - the player skipped it and queued up again. The outcome is
+   * kept; the numbers on the screen they skipped are not.
+   */
+  | 'closed-by-next-match'
+  /** Capture stopped while a match was still waiting for its result screen. */
+  | 'closed-by-capture-stop'
 
 // Which kinds warrant a saved frame is decided by the engine, in
 // `tools/engine/src/diagnostics.rs`, because that is the process that writes

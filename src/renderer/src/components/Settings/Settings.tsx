@@ -5,34 +5,33 @@ import UpdateSettings from '../Update/UpdateSettings'
 import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
 import TelemetrySettings from './TelemetrySettings'
 import IOSSwitch from '../Common/IOSSwitch'
+import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
-type OnCloseBehavior = 'minimize' | 'exit'
-type ThemeType = 'system' | 'light' | 'dark'
-type PortalLang = 'ja' | 'en' | 'cht' | 'chs' | 'ko'
+/**
+ * `ClosePref` from `@shared/settings`, not a fourth spelling of it.
+ *
+ * This file had three local aliases restating shared types - this one,
+ * `PortalLang`, and a `ThemeType` that only appeared in commented-out
+ * controls. They were all invisible duplicates of declarations that already
+ * existed, which is the same thing the IPC contract was cleaning up one level
+ * down.
+ */
+type OnCloseBehavior = ClosePref
 
-interface AppSettingsInner {
-  hudShow: boolean
-  hudFollowGame: boolean
-  enableNotifications: boolean
-  onCloseBehavior: OnCloseBehavior
-  askBeforeExit: boolean
-  startOnBoot: boolean
-  reduceAnimations: boolean
-  autoCheckUpdates: boolean
-  autoDownloadUpdates: boolean
-  autoInstallUpdates: boolean
-  theme: ThemeType
-  /** Opt-out: local-only recording of recognition anomalies. */
-  diagnostics: boolean
-  /**
-   * Default on and no longer exposed in the UI - the 「卡片圖像」 switch that used
-   * to own it is gone. Kept in the shape so the stored value still round-trips
-   * for anyone who turned it off before, and so main's card-art path keeps
-   * reading the same key.
-   */
-  cardImages: boolean
-  cardLang: PortalLang
-}
+/**
+ * The shared shape, not a local copy.
+ *
+ * There was an `interface AppSettingsInner` here, and comparing it against
+ * `AppSettings` in `@shared/settings` is what turned up two things: it was
+ * missing `telemetry` (harmless, because `handleChange` writes one key at a
+ * time and never the whole object - had it written the object, it would have
+ * cleared the flag that gates uploading), and it declared four keys the schema
+ * did not have. Two of those - `startOnBoot`, `autoInstallUpdates` - are
+ * written by live switches and are in the schema now. The other two,
+ * `reduceAnimations` and `theme`, appear only in commented-out controls and
+ * are gone.
+ */
+type AppSettingsInner = SharedAppSettings
 
 interface AppSettings {
   settings: AppSettingsInner
@@ -47,12 +46,14 @@ const DEFAULT_SETTINGS: AppSettings = {
     onCloseBehavior: 'minimize',
     askBeforeExit: true,
     startOnBoot: false,
-    reduceAnimations: false,
     autoCheckUpdates: false,
     autoDownloadUpdates: false,
     autoInstallUpdates: false,
-    theme: 'system',
+    // `reduceAnimations` and `theme` were here too, and only ever reached
+    // commented-out controls - so they defaulted, persisted nothing and did
+    // nothing. Gone with the local type they were declared in.
     diagnostics: true,
+    telemetry: true,
     cardImages: true,
     cardLang: 'cht'
   }
@@ -70,7 +71,7 @@ const Settings: React.FC = () => {
   // 載入設定
   useEffect(() => {
     window.settings
-      .get<AppSettingsInner>('settings')
+      .get('settings')
       .then((saved) => {
         // saved 可能只有部分鍵（如你給的 JSON），要跟預設合併
         setSettings({
@@ -191,7 +192,10 @@ const Settings: React.FC = () => {
               checked={s.startOnBoot}
               onChange={(_, checked) => {
                 handleChange('startOnBoot', checked)
-                window.electron.ipcRenderer.send('s:startOnBoot', checked)
+                // Was `'s:startOnBoot'`, which main never listened on. Use
+                // `sendIpc` from `@renderer/ipc` when re-enabling this, so the
+                // name is checked; see the handler in main/ipc/settings.ts.
+                window.electron.ipcRenderer.send('settings:startOnBoot', checked)
               }}
             />
           }

@@ -291,6 +291,41 @@ export type IpcContract = {
  * both registrations have to move together.
  */
 
+/**
+ * Fire-and-forget, renderer to main. No reply, so no return type.
+ *
+ * This exists because of a bug it would have caught: the Settings page sent
+ * `'s:startOnBoot'` while main listened on `'settings:startOnBoot'`, so
+ * "start with Windows" persisted its switch, showed as on, and never once
+ * registered a login item. Nothing could have noticed - two bare strings that
+ * did not have to match.
+ *
+ * Only the renderer-to-main direction is here. The broadcasts the other way
+ * (`game:status`, `reference-data:changed`, `update:*`, ...) are still bare
+ * strings on both ends and want the same treatment; they are a larger set and
+ * their own change.
+ */
+export type IpcSendContract = {
+  'settings:startOnBoot': (enable: boolean) => void
+  /** Ask main to stop capture. Nothing waits on it. */
+  'stop-capture': () => void
+  /**
+   * A drag tick, with NO coordinates.
+   *
+   * The bridge used to declare `dragMove(x, y)` and send the pointer's screen
+   * position, which main's handler ignored: it re-reads the cursor itself, on
+   * purpose, because the window is re-anchored to the real cursor each tick
+   * rather than to a position that has already moved. Declaring arguments the
+   * receiver drops is the same kind of fiction as the mismatched name above.
+   */
+  'hud:dragMove': () => void
+  /** First paint. Main closes the splash and shows the window on it. */
+  'renderer:ready': () => void
+}
+
+export type IpcSendChannel = keyof IpcSendContract
+export type IpcSendArgs<C extends IpcSendChannel> = Parameters<IpcSendContract[C]>
+
 export type IpcChannel = keyof IpcContract
 export type IpcArgs<C extends IpcChannel> = Parameters<IpcContract[C]>
 /**

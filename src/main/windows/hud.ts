@@ -1,7 +1,7 @@
 import { BrowserWindow, app, globalShortcut, screen, ipcMain } from 'electron'
 import path from 'path'
 import { store } from '../store.js'
-import { handleIpc } from '../ipc/typed.js'
+import { handleIpc, onIpc } from '../ipc/typed.js'
 import type { HudState } from '../../shared/types.js'
 import { is } from '@electron-toolkit/utils'
 
@@ -404,7 +404,7 @@ export function createHudWindow(): BrowserWindow {
     handleIpc('hud:close', () => hudWin?.close())
     handleIpc('hud:dragStart', () => startManualDrag())
     // fire-and-forget: a drag position has no reply worth waiting a round trip for
-    ipcMain.on('hud:dragMove', () => moveManualDrag())
+    onIpc('hud:dragMove', () => moveManualDrag())
     handleIpc('hud:dragEnd', () => endManualDrag())
 
     ipcRegistered = true

@@ -94,7 +94,11 @@ const KIND_EXPLANATIONS: Record<string, string> = {
   'ranked-no-numbers': '階級對戰結束但完全沒讀到 BP/MP/CR',
   'tick-over-budget': '單次分析超過 500ms 預算',
   'weak-mode-accepted': '以未校準的廣場賽/自訂房探測判定模式（附畫面待覆核）',
-  'mode-corrected': '結算畫面的積分制度標籤推翻了先前的模式判定'
+  'mode-corrected': '結算畫面的積分制度標籤推翻了先前的模式判定',
+  'final-screen-never-seen':
+    '等了十分鐘都沒等到結算畫面，也沒有下一場或回放（多半是關掉遊戲或擷取中斷）',
+  'closed-by-next-match': '結算畫面還沒讀完就開了下一場，該場只留下勝負',
+  'closed-by-capture-stop': '結算畫面還沒讀完就停止擷取，該場只留下勝負'
 }
 
 /**

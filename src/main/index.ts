@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, ipcMain, Notification, powerMonitor } from 'electron'
+import { app, shell, BrowserWindow, Notification, powerMonitor } from 'electron'
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -19,7 +19,7 @@ import { createAppTray } from './windows/tray.js'
 import { attachSmartClose } from './windows/smartClose.js'
 import { openExitConfirmDialog } from './windows/exitConfirmDialog.js'
 import { broadcast } from './utils/broadcast.js'
-import { handleIpc } from './ipc/typed.js'
+import { handleIpc, onIpc, onceIpc } from './ipc/typed.js'
 import { registerCardImageProtocol, registerCardImageScheme } from './protocol/cardImageProtocol.js'
 
 // Image recognition is handled by a self-contained Rust addon
@@ -231,7 +231,7 @@ function createWindow(): void {
 
   mainWindow.removeMenu()
 
-  ipcMain.once('renderer:ready', () => {
+  onceIpc('renderer:ready', () => {
     const elapsed = Date.now() - splashShownAt
     // Nothing to wait for when there is no splash to give a minimum life to.
     const wait = startedHidden ? 0 : Math.max(0, MIN_SPLASH_MS - elapsed)
@@ -686,7 +686,7 @@ app.whenReady().then(async () => {
   })
 
   // 停止 capture
-  ipcMain.on('stop-capture', () => detachCapture())
+  onIpc('stop-capture', () => detachCapture())
 
   // 建立視窗
   //
