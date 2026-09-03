@@ -109,7 +109,12 @@ contextBridge.exposeInMainWorld('hud', {
   // Manual dragging: the OS drag region is inert on this click-through overlay,
   // so the title row reports the press and main follows the cursor.
   dragStart: () => ipcRenderer.invoke('hud:dragStart'),
-  dragMove: (x: number, y: number) => ipcRenderer.send('hud:dragMove', x, y),
+  /**
+   * No coordinates: main re-reads the cursor itself each tick, on purpose, so
+   * the window follows the real pointer rather than a position that has
+   * already moved. This used to forward `x, y` and the receiver dropped them.
+   */
+  dragMove: () => ipcRenderer.send('hud:dragMove'),
   dragEnd: () => ipcRenderer.invoke('hud:dragEnd'),
   openMatchHistory: () => ipcRenderer.invoke('hud:openMatchHistory'),
   onState: wrapOn('hud:state')
