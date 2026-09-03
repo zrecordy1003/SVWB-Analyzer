@@ -32,7 +32,7 @@
  * do not wait for the next launch. The server replaces the whole window on
  * every upload, so none of these need to know about the others.
  */
-import { app, BrowserWindow, ipcMain, net } from 'electron'
+import { app, BrowserWindow, net } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { getDb, nowMs } from '../data/db/client.js'
 import { store } from '../store.js'
@@ -44,6 +44,7 @@ import {
 } from '../../shared/telemetry.js'
 import { telemetryEndpoint } from './config.js'
 import { rollup, windowStartMs, type RollupRow } from './rollup.js'
+import { handleIpc } from '../ipc/typed.js'
 
 /** Let startup finish first: splash, engine, card pool bootstrap. */
 const FIRST_UPLOAD_DELAY_MS = 20_000
@@ -348,16 +349,16 @@ export async function getStatus(): Promise<TelemetryStatus> {
 // --------------------------------------------------------------------- ipc
 
 export function registerTelemetryIpc(): void {
-  ipcMain.handle('telemetry:status', () => getStatus())
+  handleIpc('telemetry:status', () => getStatus())
 
-  ipcMain.handle('telemetry:setEnabled', async (_e, enabled: unknown) => {
+  handleIpc('telemetry:setEnabled', async (_e, enabled) => {
     await setEnabled(enabled === true)
     return getStatus()
   })
 
-  ipcMain.handle('telemetry:preview', () => buildPayload({ mintInstallId: false }))
+  handleIpc('telemetry:preview', () => buildPayload({ mintInstallId: false }))
 
-  ipcMain.handle('telemetry:uploadNow', async () => {
+  handleIpc('telemetry:uploadNow', async () => {
     await uploadNow({ force: true })
     return getStatus()
   })
@@ -374,7 +375,7 @@ export function registerTelemetryIpc(): void {
    * nothing to announce, and marking it shown would let a later build with an
    * endpoint upload without ever having said anything.
    */
-  ipcMain.handle('telemetry:noticeDue', (event) => {
+  handleIpc('telemetry:noticeDue', (event) => {
     if (!isTelemetryEnabled()) return false
     if (noticeShown()) return false
     if (deps.endpoint() === null) return false

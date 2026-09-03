@@ -2,8 +2,8 @@ import type { Expression, ExpressionBuilder, SqlBool } from 'kysely'
 
 import { ClassName, GameMode, PlayOrder } from '../../shared/domain.js'
 import { getDb, type Database } from '../data/db/client.js'
-import { myDeckIdsExpression, type MyDeckScope } from './deckScope.js'
-import type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
+import { myDeckIdsExpression } from './deckScope.js'
+import type { RangeKey, RankedWinrateByOpponent, RankedWinrateQuery } from '../../shared/types.js'
 
 export type { RangeKey, RankedWinrateByOpponent } from '../../shared/types.js'
 
@@ -16,22 +16,9 @@ type SideStats = { first: Stat; second: Stat; all: Stat }
 // removing it is also the acceptance test that the overhead really left.
 
 /** 取得 ranked 對戰：指定 myClass、可選日期區間；依對手職業 × 先/後手 統計勝率 */
-export async function getRankedWinrateByOpponent(params: {
-  myClass: ClassName
-  /** `'all'` drops the mode filter entirely; omitted still means ranked. */
-  gameMode?: GameMode | 'all'
-  rangeKey?: RangeKey
-  start?: Date | number | string // inclusive；不給=不限
-  end?: Date | number | string // inclusive；不給=不限
-  myDeckIds?: number[]
-  /** Default 'family': a picked deck stands for every version of it. See deckScope.ts. */
-  myDeckScope?: MyDeckScope
-  tagIds?: number[]
-  crMin?: number
-  crMax?: number
-  /** Keep only the `limit` most recent matches that pass every other filter. */
-  limit?: number
-}): Promise<RankedWinrateByOpponent> {
+export async function getRankedWinrateByOpponent(
+  params: RankedWinrateQuery
+): Promise<RankedWinrateByOpponent> {
   const db = getDb()
   const { myClass, rangeKey } = params
 

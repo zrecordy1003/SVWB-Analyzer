@@ -5,15 +5,14 @@
  * `svwb-card://` protocol rather than IPC. What the UI does need is to be able
  * to say how much disk this is costing, and to take it all back.
  */
-import { ipcMain } from 'electron'
-
 import { cardImageCacheStats, clearCardImageCache } from '../data/cardImages.js'
 import { classIconCacheStats, clearClassIconCache } from '../data/classIcons.js'
 import { clearDeckCache } from '../data/svwbApi.js'
 import { getCardImageCacheRoot, getClassIconCacheRoot } from '../paths.js'
+import { handleIpc } from './typed.js'
 
 export function registerCardImagesIpc(): void {
-  ipcMain.handle('cardImages:stats', async (): Promise<{ files: number; bytes: number }> => {
+  handleIpc('cardImages:stats', async () => {
     try {
       // The emblems are counted in even though they are under 20KB against a
       // cache measured in hundreds of megabytes. Not for the number: this is
@@ -29,7 +28,7 @@ export function registerCardImagesIpc(): void {
     }
   })
 
-  ipcMain.handle('cardImages:clear', async (): Promise<{ ok: boolean }> => {
+  handleIpc('cardImages:clear', async () => {
     try {
       await clearCardImageCache(getCardImageCacheRoot())
       await clearClassIconCache(getClassIconCacheRoot())

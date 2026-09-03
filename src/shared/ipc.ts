@@ -35,7 +35,19 @@
  * both. Adding a channel means adding a line here first; the compiler then
  * says which side is missing.
  */
-import type { Tag } from './domain.js'
+import type { GameMode, Match, Tag } from './domain.js'
+import type { SupportPromptPayload } from './support.js'
+import type { TelemetryPayload, TelemetryStatus } from './telemetry.js'
+import type {
+  MatchDetail,
+  MatchEditInput,
+  MatchExtras,
+  MatchListPage,
+  QueryPayload,
+  ProvenanceStats,
+  RankedWinrateByOpponent,
+  RankedWinrateQuery
+} from './types.js'
 
 /**
  * The envelope the fallible handlers answer with.
@@ -84,7 +96,79 @@ export type IpcContract = {
   'tags:create': (name: string) => Tag
   'tags:update': (params: { id: number; name: string }) => Tag
   'tags:delete': (id: number) => { ok: true }
+
+  // ---------------------------------------------------------------- support
+  /** `null` when nothing is due, or the user has opted out. Marks it shown. */
+  'support:check': () => SupportPromptPayload | null
+  'support:optOut': () => void
+
+  // -------------------------------------------------------------- telemetry
+  'telemetry:status': () => TelemetryStatus
+  'telemetry:setEnabled': (enabled: boolean) => TelemetryStatus
+  /** What an upload would send right now. Does not mint an install id. */
+  'telemetry:preview': () => TelemetryPayload
+  'telemetry:uploadNow': () => TelemetryStatus
+  /**
+   * Whether the one-time notice should be shown, marking it shown on the way
+   * out. Refuses - without consuming anything - when the asking window is not
+   * on screen; see the handler.
+   */
+  'telemetry:noticeDue': () => boolean
+
+  // ------------------------------------------------------------ card images
+  'cardImages:stats': () => { files: number; bytes: number }
+  'cardImages:clear': () => { ok: boolean }
+
+  // ---------------------------------------------------------------- matches
+  'matches:count': (payload?: QueryPayload) => number
+  /** The match list's hot path: keyset pagination, relations loaded. */
+  'matches:queryList': (payload?: QueryPayload) => MatchListPage
+  'matches:getPage': (payload?: QueryPayload) => MatchDetail[]
+  'matches:getById': (id: number) => MatchDetail | null
+  'matches:getExtras': (id: number) => MatchExtras
+  'matches:fetchRecent': (n?: number, mode?: GameMode | 'all' | null) => Match[]
+  'matches:latestMode': () => GameMode | null
+  'matches:provenanceStats': () => ProvenanceStats
+  'matches:delete': (id: number) => boolean
+  'matches:updateBP': (matchId: number, bp: number | null) => MatchDetail
+  'matches:updateNote': (matchId: number, note: string | null) => MatchDetail
+  'matches:updateDeck': (matchId: number, side: 'my' | 'oppo', deckId: number | null) => MatchDetail
+  'matches:setTags': (matchId: number, tagNames: string[]) => MatchDetail
+  /**
+   * `Record<string, unknown>`, and honestly so: this handler validates its own
+   * input properly - `asClass`, the play-order check, `Number.isFinite` on the
+   * timestamp, clearing the deck for deckless modes - and the comment on
+   * `invalid()` is explicit that the write path must not trust the UI.
+   * Declaring a tidy type here would describe a narrower contract than the
+   * channel actually honours.
+   */
+  'matches:create': (payload: Record<string, unknown>) => MatchDetail | null
+  /**
+   * Typed, unlike `create`, and for the opposite reason: this handler checks
+   * each field for presence and writes it straight into the column without
+   * checking its type. See `MatchEditInput`.
+   */
+  'matches:updateWithExtras': (payload: MatchEditInput) => MatchDetail | null
+
+  'stats:getRankedWinrateByOpponent': (args: RankedWinrateQuery) => RankedWinrateByOpponent
 }
+
+/**
+ * Channels not yet in the contract, and why - so the gap is a decision rather
+ * than a to-do nobody wrote down.
+ *
+ * `settings:*` is a generic key/value bridge over `electron-store`. Typing it
+ * honestly means moving `AppStoreSchema` out of `src/main/store.ts` into
+ * `shared/`, which is a change to where the app's settings shape lives - worth
+ * doing, but not as a side effect of typing IPC.
+ *
+ * `diagnostics:*` needs `DiagnosticsSummary`, which lives in
+ * `src/main/recognition/diagnosticsBundle.ts` and has to move here first.
+ *
+ * `hud:*`, `update:*` and the handful in `index.ts` are next; `update:*` is
+ * registered twice - once by the real updater and once by the simulator - so
+ * both registrations have to move together.
+ */
 
 export type IpcChannel = keyof IpcContract
 export type IpcArgs<C extends IpcChannel> = Parameters<IpcContract[C]>

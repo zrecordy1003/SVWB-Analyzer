@@ -12,6 +12,7 @@ import ConfirmDialog from '../Common/ConfirmDialog'
 import VirtualMatchList from './component/VirtualMatchList'
 import { useDecksTags } from '../../hooks/useDecksTags'
 import { useInfiniteMatches } from './hooks/useInfiniteMatches'
+import { invokeIpc } from '@renderer/ipc'
 
 /**
  * 新增的紀錄會不會出現在目前這份清單裡。
@@ -149,7 +150,7 @@ const MatchList = (): React.JSX.Element => {
       const deck = allDecks.find((d) => d.id === deckId)
       if (!deck) return
       try {
-        await window.electron.ipcRenderer.invoke('matches:updateDeck', id, side, deckId)
+        await invokeIpc('matches:updateDeck', id, side, deckId)
         const current = rowsRef.current.find((r) => r.id === id)
         if (!current) return
         const picked = { id: deck.id, name: deck.name }
@@ -170,7 +171,7 @@ const MatchList = (): React.JSX.Element => {
       const id = confirmDelete.id
       setConfirmDelete({ open: false, id: null })
       if (!ok || !id) return
-      await window.electron.ipcRenderer.invoke('matches:delete', id)
+      await invokeIpc('matches:delete', id)
       removeRow(id)
     },
     [confirmDelete.id, removeRow]

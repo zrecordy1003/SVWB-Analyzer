@@ -840,8 +840,7 @@ const MatchFormDrawer: React.FC<Props> = ({
     // 而它現在夠顯眼，看起來就像開錯了紀錄。
     setData(null)
     setLoading(true)
-    window.electron.ipcRenderer
-      .invoke('matches:getById', matchId)
+    invokeIpc('matches:getById', matchId)
       .then((m) => setData(m))
       .finally(() => setLoading(false))
   }, [open, create, matchId])
@@ -887,9 +886,29 @@ const MatchFormDrawer: React.FC<Props> = ({
     try {
       const shared = {
         result: data.result ?? null,
-        play_order: data.play_order,
-        my_class: data.my_class as ClassName,
-        oppo_class: data.oppo_class as ClassName,
+        /**
+         * `undefined`, never `null`, for the three columns the schema declares
+         * NOT NULL.
+         *
+         * The handler's rule is presence: a field that is `undefined` leaves
+         * its column alone, and one that is present is written as given. So a
+         * `null` here would be an attempt to write NULL into `play_order`,
+         * `my_class` or `oppo_class` - and the edit path deliberately skips
+         * the create path's validation (see the comment above), so nothing
+         * upstream was stopping it. The two `as ClassName` casts that used to
+         * be here were what hid it.
+         *
+         * `||` rather than `??`, because the empty state of these selects is
+         * the EMPTY STRING, not null - so `??` would have let `my_class: ''`
+         * through to the column, and `'' as ClassName` was precisely what the
+         * old cast asserted. That is the corruption path this found.
+         *
+         * A loaded record always has all three, so in practice this changes
+         * nothing; it just stops being a cast standing where a check belongs.
+         */
+        play_order: data.play_order || undefined,
+        my_class: data.my_class || undefined,
+        oppo_class: data.oppo_class || undefined,
         mode: (data.mode ?? null) as GameMode | null,
         bp: data.bp ?? null,
         durationTime: data.durationTime ?? null,
@@ -905,18 +924,28 @@ const MatchFormDrawer: React.FC<Props> = ({
       }
 
       if (create) {
-        const created = await window.electron.ipcRenderer.invoke('matches:create', shared)
-        onCreated?.(created)
+        const created = await invokeIpc('matches:create', shared)
+        // `null` means the write landed but the reload found nothing, which is
+        // not something the list can do anything with - prepending it would put
+        // an empty card at the top. The typed contract is what surfaced that
+        // this was being passed straight through.
+        if (created) onCreated?.(created)
         onClose()
         return
       }
 
-      const updated = await window.electron.ipcRenderer.invoke('matches:updateWithExtras', {
+      // Past the `create` branch, so this is an existing match and its id is
+      // real. `MatchDraft` allows a null id because the create path needs one,
+      // and this states the invariant rather than asserting it away; an
+      // impossible value lands in the catch below as a save failure.
+      if (data.id == null) throw new Error('editing a match with no id')
+
+      const updated = await invokeIpc('matches:updateWithExtras', {
         ...shared,
         id: data.id,
         prevUpdatedAt: toISO(data.updatedAt)!
       })
-      onSaved?.(updated)
+      if (updated) onSaved?.(updated)
       onClose()
     } catch (e: any) {
       if (e?.code === 'CONFLICT' || String(e?.message).includes('CONFLICT_UPDATED_AT')) {
@@ -936,7 +965,7 @@ const MatchFormDrawer: React.FC<Props> = ({
     if (!data?.id) return
     setDeleting(true)
     try {
-      await window.electron.ipcRenderer.invoke('matches:delete', data.id)
+      await invokeIpc('matches:delete', data.id)
       onDeleted?.()
       setConfirmOpen(false)
       onClose()

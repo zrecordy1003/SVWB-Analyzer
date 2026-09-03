@@ -1,4 +1,4 @@
-import { ipcMain, shell } from 'electron'
+import { shell } from 'electron'
 import { store, type SupportState } from '../store.js'
 import { getDb } from '../data/db/client.js'
 import {
@@ -7,9 +7,9 @@ import {
   supportUrl,
   type SupportLink,
   type SupportMilestone,
-  type SupportPromptPayload,
   type SupportSource
 } from '../../shared/support.js'
+import { handleIpc } from '../ipc/typed.js'
 
 /**
  * The one-time support prompt.
@@ -70,7 +70,7 @@ export function registerSupportIpc(): void {
    * Resolves to the milestone to show, or null. Marks it shown on the way out,
    * so a second window (or a reload) cannot replay it.
    */
-  ipcMain.handle('support:check', async (): Promise<SupportPromptPayload | null> => {
+  handleIpc('support:check', async () => {
     const state = readState()
     if (state.optedOut) return null
 
@@ -90,7 +90,7 @@ export function registerSupportIpc(): void {
     return { reason, matchCount, launchCount }
   })
 
-  ipcMain.handle('support:optOut', () => {
+  handleIpc('support:optOut', () => {
     writeState({ ...readState(), optedOut: true })
   })
 }

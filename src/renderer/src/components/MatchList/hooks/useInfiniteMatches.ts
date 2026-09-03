@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { QueryPayload } from '@shared/types'
 import type { MatchRow } from '../types'
+import { invokeIpc } from '@renderer/ipc'
 
 const CHUNK_SIZE = 30
 
@@ -59,7 +60,7 @@ async function fetchListPage(
   cursor: MatchCursor | null = null
 ): Promise<MatchListPage> {
   const payload = { pageSize, cursor, ...buildPayload(f) }
-  return window.electron?.ipcRenderer.invoke('matches:queryList', payload)
+  return invokeIpc('matches:queryList', payload)
 }
 
 /**

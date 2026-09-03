@@ -1,4 +1,3 @@
-import { ipcMain } from 'electron'
 import { sql, type Expression, type ExpressionBuilder, type SqlBool } from 'kysely'
 import { ClassName, isDecklessMode } from '../../shared/domain.js'
 import type { Deck, GameMode, Match, PlayOrder, Tag } from '../../shared/domain.js'
@@ -13,11 +12,12 @@ import {
   type MatchRow
 } from '../data/db/client.js'
 import { provenancePatch, type ProvenanceSource } from '../data/provenance.js'
-import { summariseProvenance, type ProvenanceStats } from '../data/provenanceStats.js'
+import { summariseProvenance } from '../data/provenanceStats.js'
 import { getRankedWinrateByOpponent } from './helper.js'
-import { myDeckIdsExpression, type MyDeckScope } from './deckScope.js'
-import type { QueryPayload, RangeKey } from '../../shared/types.js'
+import { myDeckIdsExpression } from './deckScope.js'
+import type { QueryPayload } from '../../shared/types.js'
 import { broadcast } from '../utils/broadcast.js'
+import { handleIpc } from './typed.js'
 
 /**
  * Tell every window the match data moved.
@@ -249,7 +249,7 @@ export function registerMatchesIpc(): void {
     return Number(row.n)
   }
 
-  ipcMain.handle('matches:count', async (_e, payload: QueryPayload = {}) => countMatches(payload))
+  handleIpc('matches:count', async (_e, payload = {}) => countMatches(payload))
 
   /**
    * Match list's hot path: keyset pagination on the (playedAt, id) index.
@@ -258,7 +258,7 @@ export function registerMatchesIpc(): void {
    * equivalent is semantically identical but degrades to an index scan, which is
    * why the old code dropped to raw SQL here. It stays raw for the same reason.
    */
-  ipcMain.handle('matches:queryList', async (_e, p: QueryPayload = {}) => {
+  handleIpc('matches:queryList', async (_e, p = {}) => {
     const requestedPageSize =
       Number.isFinite(p.pageSize) && (p.pageSize ?? 10) > 0 ? Math.floor(p.pageSize!) : 10
     const pageSize = Math.min(requestedPageSize, 100)
@@ -311,7 +311,7 @@ export function registerMatchesIpc(): void {
     }
   })
 
-  ipcMain.handle('matches:getExtras', async (_e, id: number) => {
+  handleIpc('matches:getExtras', async (_e, id) => {
     const [match] = await loadWithRelations([id])
     return {
       note: match?.note ?? null,
@@ -319,7 +319,7 @@ export function registerMatchesIpc(): void {
     }
   })
 
-  ipcMain.handle('matches:getPage', async (_e, p: QueryPayload = {}) => {
+  handleIpc('matches:getPage', async (_e, p = {}) => {
     try {
       const pageIndex =
         Number.isFinite(p.pageIndex) && (p.pageIndex ?? 0) >= 0 ? Math.floor(p.pageIndex!) : 0
@@ -353,20 +353,17 @@ export function registerMatchesIpc(): void {
   // let the two drift in the first place.
 
   // HUD 先只抓階級對戰
-  ipcMain.handle(
-    'matches:fetchRecent',
-    async (_e, n: number = 5, mode?: GameMode | 'all' | null) => {
-      let query = db
-        .selectFrom('Match')
-        .selectAll()
-        // `mode` is absent on older rows, so filtering by it also drops those;
-        // that is intended - an unrecognised mode is not a match of any mode.
-        .where('result', 'is not', null)
-      if (mode && mode !== 'all') query = query.where('mode', '=', mode)
-      const rows = await query.orderBy('playedAt', 'desc').limit(n).execute()
-      return rows.map(matchFromRow)
-    }
-  )
+  handleIpc('matches:fetchRecent', async (_e, n = 5, mode) => {
+    let query = db
+      .selectFrom('Match')
+      .selectAll()
+      // `mode` is absent on older rows, so filtering by it also drops those;
+      // that is intended - an unrecognised mode is not a match of any mode.
+      .where('result', 'is not', null)
+    if (mode && mode !== 'all') query = query.where('mode', '=', mode)
+    const rows = await query.orderBy('playedAt', 'desc').limit(n).execute()
+    return rows.map(matchFromRow)
+  })
 
   /**
    * The mode of the most recently recorded match, unfiltered.
@@ -379,7 +376,7 @@ export function registerMatchesIpc(): void {
    * `null` when there are no completed matches, or when the newest one has no
    * recognised mode. Both mean the same thing to the caller: nothing to follow.
    */
-  ipcMain.handle('matches:latestMode', async () => {
+  handleIpc('matches:latestMode', async () => {
     const row = await db
       .selectFrom('Match')
       .select('mode')
@@ -390,26 +387,8 @@ export function registerMatchesIpc(): void {
     return (row?.mode ?? null) as GameMode | null
   })
 
-  ipcMain.handle(
-    'stats:getRankedWinrateByOpponent',
-    async (
-      _e,
-      args: {
-        myClass: ClassName
-        gameMode: GameMode | 'all'
-        rangeKey?: RangeKey
-        start?: string | number | Date
-        end?: string | number | Date
-        myDeckIds?: number[]
-        myDeckScope?: MyDeckScope
-        tagIds?: number[]
-        crMin?: number
-        crMax?: number
-        limit?: number
-      }
-    ) => {
-      return getRankedWinrateByOpponent(args)
-    }
+  handleIpc('stats:getRankedWinrateByOpponent', async (_e, args) =>
+    getRankedWinrateByOpponent(args)
   )
 
   /**
@@ -465,30 +444,24 @@ export function registerMatchesIpc(): void {
     return toPivotShape(reloaded)
   }
 
-  ipcMain.handle('matches:updateBP', async (_e, matchId: number, bp: number | null) => {
+  handleIpc('matches:updateBP', async (_e, matchId, bp) => {
     // 注意：不要用 if(bp)；0 要能過
     return updateAndReload(matchId, { bp })
   })
 
   // 更新備註（null/空字串 => 設為 null）
-  ipcMain.handle('matches:updateNote', async (_e, matchId: number, note: string | null) => {
+  handleIpc('matches:updateNote', async (_e, matchId, note) => {
     const clean = (note ?? '').trim()
     return updateAndReload(matchId, { note: clean.length ? clean : null })
   })
 
   // 設定單邊牌組：對局卡片上就地改牌組走這條，不必開編輯視窗
-  ipcMain.handle(
-    'matches:updateDeck',
-    async (_e, matchId: number, side: 'my' | 'oppo', deckId: number | null) => {
-      return updateAndReload(
-        matchId,
-        side === 'my' ? { my_deckId: deckId } : { oppo_deckId: deckId }
-      )
-    }
+  handleIpc('matches:updateDeck', async (_e, matchId, side, deckId) =>
+    updateAndReload(matchId, side === 'my' ? { my_deckId: deckId } : { oppo_deckId: deckId })
   )
 
   // 套用標籤清單（全量覆蓋）：傳入字串陣列，會 upsert Tag 並重建 MatchTag
-  ipcMain.handle('matches:setTags', async (_e, matchId: number, tagNames: string[]) => {
+  handleIpc('matches:setTags', async (_e, matchId, tagNames) => {
     const names = Array.from(
       new Set(
         (tagNames ?? [])
@@ -531,7 +504,7 @@ export function registerMatchesIpc(): void {
     return toPivotShape(reloaded)
   })
 
-  ipcMain.handle('matches:getById', async (_e, id: number) => {
+  handleIpc('matches:getById', async (_e, id) => {
     const [match] = await loadWithRelations([id])
     return match ? toPivotShape(match) : null
   })
@@ -552,7 +525,7 @@ export function registerMatchesIpc(): void {
    * 驗證放在這裡而不是只放在表單：`play_order`、`my_class`、`oppo_class` 三個
    * 欄位在 schema 是 NOT NULL，靠畫面擋等於把資料完整性交給 UI。
    */
-  ipcMain.handle('matches:create', async (_e, payload) => {
+  handleIpc('matches:create', async (_e, payload) => {
     const input = (payload ?? {}) as Record<string, unknown>
 
     const asClass = (value: unknown): ClassName | null =>
@@ -624,7 +597,7 @@ export function registerMatchesIpc(): void {
   })
 
   // 編輯（含 tags，同步集合；內含樂觀鎖）
-  ipcMain.handle('matches:updateWithExtras', async (_e, payload) => {
+  handleIpc('matches:updateWithExtras', async (_e, payload) => {
     const {
       id,
       prevUpdatedAt, // 來自前端的上一版 updatedAt（ISO 字串或 Date）
@@ -756,7 +729,7 @@ export function registerMatchesIpc(): void {
    * a path the user waits on, and an index over three mostly-NULL columns would
    * cost the engine's writes far more than it saves here.
    */
-  ipcMain.handle('matches:provenanceStats', async (): Promise<ProvenanceStats> => {
+  handleIpc('matches:provenanceStats', async () => {
     const sources = await db
       .selectFrom('Match')
       .select(['source', (eb) => eb.fn.countAll<number>().as('count')])
@@ -794,7 +767,7 @@ export function registerMatchesIpc(): void {
   })
 
   // 刪除（連動刪樞紐由外鍵級聯）
-  ipcMain.handle('matches:delete', async (_e, id: number) => {
+  handleIpc('matches:delete', async (_e, id) => {
     await db.deleteFrom('Match').where('id', '=', id).execute()
     notifyMatchesChanged()
     return true
