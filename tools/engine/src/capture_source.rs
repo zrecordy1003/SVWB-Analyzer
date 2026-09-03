@@ -28,9 +28,62 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
+use windows_capture::graphics_capture_api::GraphicsCaptureApi;
+use windows_capture::settings::{
+    CursorCaptureSettings, DrawBorderSettings, MinimumUpdateIntervalSettings,
+    SecondaryWindowSettings,
+};
+
 use crate::calibration::timing;
 use crate::frame::Frame;
 use crate::frame_source::{FrameError, FrameSource, SourceControl, TimedFrame};
+
+#[derive(Debug, Eq, PartialEq)]
+struct OptionalCaptureSettings {
+    cursor: CursorCaptureSettings,
+    border: DrawBorderSettings,
+    secondary_windows: SecondaryWindowSettings,
+    minimum_update_interval: MinimumUpdateIntervalSettings,
+}
+
+fn optional_settings_for_support(
+    cursor: bool,
+    border: bool,
+    secondary_windows: bool,
+    minimum_update_interval: bool,
+) -> OptionalCaptureSettings {
+    OptionalCaptureSettings {
+        cursor: if cursor {
+            CursorCaptureSettings::WithoutCursor
+        } else {
+            CursorCaptureSettings::Default
+        },
+        border: if border {
+            DrawBorderSettings::WithoutBorder
+        } else {
+            DrawBorderSettings::Default
+        },
+        secondary_windows: if secondary_windows {
+            SecondaryWindowSettings::Exclude
+        } else {
+            SecondaryWindowSettings::Default
+        },
+        minimum_update_interval: if minimum_update_interval {
+            MinimumUpdateIntervalSettings::Custom(timing::TICK)
+        } else {
+            MinimumUpdateIntervalSettings::Default
+        },
+    }
+}
+
+fn optional_settings_for_platform() -> OptionalCaptureSettings {
+    optional_settings_for_support(
+        GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false),
+        GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false),
+        GraphicsCaptureApi::is_secondary_windows_supported().unwrap_or(false),
+        GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false),
+    )
+}
 
 /// The newest captured frame, plus a sequence number so a reader can tell
 /// "new frame" from "the one I already took".
@@ -57,10 +110,11 @@ impl windows_capture::capture::GraphicsCaptureApiHandler for SlotWriter {
     type Flags = Arc<Shared>;
     type Error = Box<dyn std::error::Error + Send + Sync>;
 
-    fn new(
-        ctx: windows_capture::capture::Context<Self::Flags>,
-    ) -> Result<Self, Self::Error> {
-        Ok(Self { shared: ctx.flags, scratch: Vec::new() })
+    fn new(ctx: windows_capture::capture::Context<Self::Flags>) -> Result<Self, Self::Error> {
+        Ok(Self {
+            shared: ctx.flags,
+            scratch: Vec::new(),
+        })
     }
 
     fn on_frame_arrived(
@@ -70,7 +124,7 @@ impl windows_capture::capture::GraphicsCaptureApiHandler for SlotWriter {
     ) -> Result<(), Self::Error> {
         let width = frame.width();
         let height = frame.height();
-        let mut buffer = frame.buffer()?;
+        let buffer = frame.buffer()?;
         let bgra = buffer.as_nopadding_buffer(&mut self.scratch);
 
         // BGRA -> RGBA. The old tool wrote PNGs, which decode as RGB(A), so
@@ -103,10 +157,8 @@ impl windows_capture::capture::GraphicsCaptureApiHandler for SlotWriter {
     }
 }
 
-type Control = windows_capture::capture::CaptureControl<
-    SlotWriter,
-    Box<dyn std::error::Error + Send + Sync>,
->;
+type Control =
+    windows_capture::capture::CaptureControl<SlotWriter, Box<dyn std::error::Error + Send + Sync>>;
 
 /// A [`FrameSource`] over live Windows Graphics Capture.
 ///
@@ -120,7 +172,10 @@ pub struct CaptureSource {
 
 impl CaptureSource {
     pub fn new() -> Self {
-        Self { session: None, last_taken: 0 }
+        Self {
+            session: None,
+            last_taken: 0,
+        }
     }
 
     fn detach(&mut self) {
@@ -143,31 +198,38 @@ impl CaptureSource {
         }
         self.detach();
 
-        let window =
-            windows_capture::window::Window::from_raw_hwnd(hwnd as *mut std::ffi::c_void);
+        let window = windows_capture::window::Window::from_raw_hwnd(hwnd as *mut std::ffi::c_void);
         if !window.is_valid() {
             return Err("the supplied HWND is not a capturable top-level window".into());
         }
 
-        let shared = Arc::new(Shared { slot: Mutex::new(Slot::default()), arrived: Condvar::new() });
+        let shared = Arc::new(Shared {
+            slot: Mutex::new(Slot::default()),
+            arrived: Condvar::new(),
+        });
+        // Cursor, border, secondary-window and OS-side interval controls were
+        // introduced in different Windows releases. Passing a non-default
+        // value for an absent property makes windows-capture reject the whole
+        // session, so each preference is applied only when this OS advertises
+        // it. Frame cadence is still enforced by the single-frame slot and the
+        // analyzer tick on older systems.
+        let optional = optional_settings_for_platform();
         let settings = windows_capture::settings::Settings::new(
             window,
             // The cursor can sit on the numbers being read; the cursor PROBE
             // exists for the frames where the user parks it there anyway.
-            windows_capture::settings::CursorCaptureSettings::WithoutCursor,
-            windows_capture::settings::DrawBorderSettings::WithoutBorder,
-            windows_capture::settings::SecondaryWindowSettings::Exclude,
-            // WGC may deliver more; one per tick is all the analyzer reads.
-            windows_capture::settings::MinimumUpdateIntervalSettings::Custom(timing::TICK),
+            optional.cursor,
+            optional.border,
+            optional.secondary_windows,
+            optional.minimum_update_interval,
             windows_capture::settings::DirtyRegionSettings::Default,
             windows_capture::settings::ColorFormat::Bgra8,
             Arc::clone(&shared),
         );
 
-        let control = windows_capture::capture::GraphicsCaptureApiHandler::start_free_threaded(
-            settings,
-        )
-        .map_err(|e| format!("cannot start capture: {e}"))?;
+        let control =
+            windows_capture::capture::GraphicsCaptureApiHandler::start_free_threaded(settings)
+                .map_err(|e| format!("cannot start capture: {e}"))?;
         self.session = Some((hwnd, control, shared));
         Ok(())
     }
@@ -185,7 +247,7 @@ impl FrameSource for CaptureSource {
             return Err(FrameError::NotReady);
         };
 
-        let mut slot = shared.slot.lock().unwrap();
+        let slot = shared.slot.lock().unwrap();
         if slot.closed {
             // The game window is gone. Not `Exhausted` - the engine stays up and
             // the host re-attaches when the game comes back; ending the run here
@@ -210,7 +272,10 @@ impl FrameSource for CaptureSource {
         self.last_taken = slot.sequence;
         drop(slot);
 
-        Ok(TimedFrame { frame: Frame::from_image(&decoded), at: Instant::now() })
+        Ok(TimedFrame {
+            frame: Frame::from_image(&decoded),
+            at: Instant::now(),
+        })
     }
 
     fn describe(&self) -> String {
@@ -228,5 +293,36 @@ impl FrameSource for CaptureSource {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_optional_capture_features_fall_back_to_defaults() {
+        assert_eq!(
+            optional_settings_for_support(false, false, false, false),
+            OptionalCaptureSettings {
+                cursor: CursorCaptureSettings::Default,
+                border: DrawBorderSettings::Default,
+                secondary_windows: SecondaryWindowSettings::Default,
+                minimum_update_interval: MinimumUpdateIntervalSettings::Default,
+            }
+        );
+    }
+
+    #[test]
+    fn supported_optional_capture_features_keep_the_preferred_behavior() {
+        assert_eq!(
+            optional_settings_for_support(true, true, true, true),
+            OptionalCaptureSettings {
+                cursor: CursorCaptureSettings::WithoutCursor,
+                border: DrawBorderSettings::WithoutBorder,
+                secondary_windows: SecondaryWindowSettings::Exclude,
+                minimum_update_interval: MinimumUpdateIntervalSettings::Custom(timing::TICK),
+            }
+        );
     }
 }

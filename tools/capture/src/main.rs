@@ -3,7 +3,11 @@ use serde::Serialize;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "svwb-capture-tool", version, about = "Capture a Shadowverse: Worlds Beyond window")]
+#[command(
+    name = "svwb-capture-tool",
+    version,
+    about = "Capture a Shadowverse: Worlds Beyond window"
+)]
 struct Cli {
     /// Verified Win32 window handle supplied by the Electron main process.
     #[arg(long)]
@@ -73,7 +77,7 @@ mod native_capture {
     use windows_capture::capture::{Context, GraphicsCaptureApiHandler};
     use windows_capture::encoder::ImageFormat;
     use windows_capture::frame::Frame;
-    use windows_capture::graphics_capture_api::InternalCaptureControl;
+    use windows_capture::graphics_capture_api::{GraphicsCaptureApi, InternalCaptureControl};
     use windows_capture::settings::{
         ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
         MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -81,6 +85,64 @@ mod native_capture {
     use windows_capture::window::Window;
 
     type CaptureError = Box<dyn Error + Send + Sync>;
+
+    #[derive(Debug, Eq, PartialEq)]
+    struct OptionalCaptureSettings {
+        cursor: CursorCaptureSettings,
+        border: DrawBorderSettings,
+        secondary_windows: SecondaryWindowSettings,
+        minimum_update_interval: MinimumUpdateIntervalSettings,
+    }
+
+    fn optional_settings_for_support(
+        include_cursor: bool,
+        interval: Duration,
+        cursor: bool,
+        border: bool,
+        secondary_windows: bool,
+        minimum_update_interval: bool,
+    ) -> OptionalCaptureSettings {
+        OptionalCaptureSettings {
+            cursor: if cursor {
+                if include_cursor {
+                    CursorCaptureSettings::WithCursor
+                } else {
+                    CursorCaptureSettings::WithoutCursor
+                }
+            } else {
+                CursorCaptureSettings::Default
+            },
+            border: if border {
+                DrawBorderSettings::WithoutBorder
+            } else {
+                DrawBorderSettings::Default
+            },
+            secondary_windows: if secondary_windows {
+                SecondaryWindowSettings::Exclude
+            } else {
+                SecondaryWindowSettings::Default
+            },
+            minimum_update_interval: if minimum_update_interval {
+                MinimumUpdateIntervalSettings::Custom(interval)
+            } else {
+                MinimumUpdateIntervalSettings::Default
+            },
+        }
+    }
+
+    fn optional_settings_for_platform(
+        include_cursor: bool,
+        interval: Duration,
+    ) -> OptionalCaptureSettings {
+        optional_settings_for_support(
+            include_cursor,
+            interval,
+            GraphicsCaptureApi::is_cursor_settings_supported().unwrap_or(false),
+            GraphicsCaptureApi::is_border_settings_supported().unwrap_or(false),
+            GraphicsCaptureApi::is_secondary_windows_supported().unwrap_or(false),
+            GraphicsCaptureApi::is_minimum_update_interval_supported().unwrap_or(false),
+        )
+    }
 
     struct CaptureConfig {
         output: PathBuf,
@@ -98,7 +160,11 @@ mod native_capture {
         type Error = CaptureError;
 
         fn new(ctx: Context<Self::Flags>) -> Result<Self, Self::Error> {
-            emit_status("started", "capture session started", Some(&ctx.flags.output));
+            emit_status(
+                "started",
+                "capture session started",
+                Some(&ctx.flags.output),
+            );
             Ok(Self {
                 config: ctx.flags,
                 last_saved: None,
@@ -118,7 +184,11 @@ mod native_capture {
             }
 
             let save_result = (|| -> Result<(), CaptureError> {
-                let temporary = self.config.temporary.to_str().ok_or("temporary path is not UTF-8")?;
+                let temporary = self
+                    .config
+                    .temporary
+                    .to_str()
+                    .ok_or("temporary path is not UTF-8")?;
                 frame.save_as_image(temporary, ImageFormat::Png)?;
                 replace_file_atomically(&self.config.temporary, &self.config.output)?;
                 Ok(())
@@ -138,13 +208,20 @@ mod native_capture {
         }
 
         fn on_closed(&mut self) -> Result<(), Self::Error> {
-            emit_status("window_closed", "capture target closed", Some(&self.config.output));
+            emit_status(
+                "window_closed",
+                "capture target closed",
+                Some(&self.config.output),
+            );
             Ok(())
         }
     }
 
     pub fn run(cli: Cli) -> Result<(), CaptureError> {
-        let output_parent = cli.output.parent().ok_or("output path has no parent directory")?;
+        let output_parent = cli
+            .output
+            .parent()
+            .ok_or("output path has no parent directory")?;
         fs::create_dir_all(output_parent)?;
 
         let window = Window::from_raw_hwnd(cli.hwnd as *mut c_void);
@@ -152,22 +229,19 @@ mod native_capture {
             return Err("the supplied HWND is not a capturable top-level window".into());
         }
 
+        let interval = Duration::from_millis(cli.interval_ms);
+        let optional = optional_settings_for_platform(cli.include_cursor, interval);
         let config = CaptureConfig {
             temporary: temporary_path(&cli.output)?,
             output: cli.output,
-            interval: Duration::from_millis(cli.interval_ms),
-        };
-        let cursor = if cli.include_cursor {
-            CursorCaptureSettings::WithCursor
-        } else {
-            CursorCaptureSettings::WithoutCursor
+            interval,
         };
         let settings = Settings::new(
             window,
-            cursor,
-            DrawBorderSettings::WithoutBorder,
-            SecondaryWindowSettings::Exclude,
-            MinimumUpdateIntervalSettings::Custom(config.interval),
+            optional.cursor,
+            optional.border,
+            optional.secondary_windows,
+            optional.minimum_update_interval,
             DirtyRegionSettings::Default,
             ColorFormat::Bgra8,
             config,
@@ -192,7 +266,10 @@ mod native_capture {
         ];
         let mut last_error = None;
 
-        for delay in retry_delays.into_iter().chain(std::iter::once(Duration::ZERO)) {
+        for delay in retry_delays
+            .into_iter()
+            .chain(std::iter::once(Duration::ZERO))
+        {
             match unsafe {
                 MoveFileExW(
                     PCWSTR(from.as_ptr()),
@@ -218,5 +295,44 @@ mod native_capture {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn unsupported_optional_capture_features_fall_back_to_defaults() {
+            assert_eq!(
+                optional_settings_for_support(
+                    false,
+                    Duration::from_millis(500),
+                    false,
+                    false,
+                    false,
+                    false,
+                ),
+                OptionalCaptureSettings {
+                    cursor: CursorCaptureSettings::Default,
+                    border: DrawBorderSettings::Default,
+                    secondary_windows: SecondaryWindowSettings::Default,
+                    minimum_update_interval: MinimumUpdateIntervalSettings::Default,
+                }
+            );
+        }
+
+        #[test]
+        fn supported_optional_capture_features_keep_the_requested_behavior() {
+            let interval = Duration::from_millis(500);
+            assert_eq!(
+                optional_settings_for_support(true, interval, true, true, true, true),
+                OptionalCaptureSettings {
+                    cursor: CursorCaptureSettings::WithCursor,
+                    border: DrawBorderSettings::WithoutBorder,
+                    secondary_windows: SecondaryWindowSettings::Exclude,
+                    minimum_update_interval: MinimumUpdateIntervalSettings::Custom(interval),
+                }
+            );
+        }
     }
 }
