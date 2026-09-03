@@ -29,7 +29,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import readline from 'node:readline'
 
-import { ClassName, GameMode, PlayOrder } from '../../shared/domain.js'
 import type { BattleStatus } from '../../shared/types.js'
 import { ENGINE_BINARY } from '../../shared/engineBinary.js'
 
@@ -53,13 +52,10 @@ import { noteMatchFinished } from '../telemetry/telemetry.js'
 // silent, because the broadcast is untyped across the IPC boundary.
 export type { BattleStatus }
 
-const IDLE_STATUS: BattleStatus = {
-  inBattle: false,
-  ownClass: null,
-  enemyClass: null,
-  playOrder: null,
-  mode: null
-}
+// The mapping and the idle constant live in their own module so they can be
+// tested without a mock of Electron - see its header.
+export { IDLE_STATUS, statusFromEvent } from './battleStatusEvent.js'
+import { IDLE_STATUS, statusFromEvent } from './battleStatusEvent.js'
 
 /** The slice of the engine's match patch the notification reads. */
 type MatchPatch = {
@@ -304,16 +300,7 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
     case 'statusChanged':
       // Emitted by the engine on every battle-state change, already in the
       // shape the HUD consumes - see BattleStatus in the engine's protocol.
-      setStatus({
-        inBattle: Boolean(event.inBattle),
-        ownClass: (event.ownClass ?? null) as ClassName | null,
-        enemyClass: (event.enemyClass ?? null) as ClassName | null,
-        playOrder: (event.playOrder ?? null) as PlayOrder | null,
-        // The engine re-emits this event when a mode resolves mid-battle, so
-        // the HUD can retarget the moment 2Pick is recognised on the versus
-        // screen instead of waiting for the match to close.
-        mode: (event.mode ?? null) as GameMode | null
-      })
+      setStatus(statusFromEvent(event))
       break
 
     case 'matchUpdated':
