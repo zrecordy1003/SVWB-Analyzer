@@ -133,8 +133,11 @@ const HudApp: React.FC = () => {
 
     const battleHandler = (_event: unknown, msg: BattleStatus): void => setBattleStatus(msg)
     const gameHandler = (_event: unknown, msg: GameStatus): void => setGameStatus(msg)
+    const captureHandler = (_event: unknown, capturing: boolean): void =>
+      setGameStatus((current) => (current ? { ...current, capturing } : current))
     const unsubBattleStatus = window.electron.ipcRenderer.on('battle:status', battleHandler)
     const unsubGameStatus = window.electron.ipcRenderer.on('game:status', gameHandler)
+    const unsubCaptureStatus = window.electron.ipcRenderer.on('capture:status', captureHandler)
     // The tray entry and the global shortcuts change the same state, so the
     // buttons here have to follow rather than own it.
     const unsubHudState = window.hud?.onState?.((state) => {
@@ -174,6 +177,7 @@ const HudApp: React.FC = () => {
       mounted = false
       unsubBattleStatus()
       unsubGameStatus()
+      unsubCaptureStatus()
       unsubHudState?.()
     }
   }, [])
@@ -319,24 +323,30 @@ const HudApp: React.FC = () => {
   const isInBattle = battleStatus?.inBattle === true
 
   /**
-   * Three states, because "no matches recorded" and "the game was never found"
-   * look identical to a user and need completely different actions.
+   * Four states: finding a window, attaching to it and actually receiving a
+   * frame are separate facts and need different troubleshooting instructions.
    */
   const detection: { color: string; label: string; hint: string } = isInBattle
     ? { color: '#75E2A8', label: '對戰中', hint: '' }
     : gameStatus?.capturing
       ? { color: '#66D8F5', label: '待機中', hint: '已偵測到遊戲，等待對戰開始。' }
-      : gameStatus?.running
+      : gameStatus?.paused
         ? {
             color: '#F2C879',
             label: '已暫停',
             hint: '遊戲已最小化或不在前景，畫面擷取暫停中。'
           }
-        : {
-            color: 'rgba(214,226,244,0.42)',
-            label: '未偵測到遊戲',
-            hint: '請先啟動 Shadowverse: Worlds Beyond；偵測到之後才會開始記錄。'
-          }
+        : gameStatus?.running
+          ? {
+              color: '#F2C879',
+              label: '等待畫面',
+              hint: '已偵測到遊戲，但尚未收到擷取畫面；若持續顯示，請匯出診斷資料。'
+            }
+          : {
+              color: 'rgba(214,226,244,0.42)',
+              label: '未偵測到遊戲',
+              hint: '請先啟動 Shadowverse: Worlds Beyond；偵測到之後才會開始記錄。'
+            }
 
   return (
     <ThemeProvider theme={theme}>

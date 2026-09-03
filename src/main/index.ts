@@ -93,9 +93,10 @@ let _getBattleStatus: GetBattleStatusFn | null = null
 let _startAnalyzer: StartAnalyzerFn | null = null
 let _stopAnalyzer: StopAnalyzerFn | null = null
 let _isEngineReady: (() => boolean) | null = null
+let _isCaptureReceivingFrames: (() => boolean) | null = null
 
 async function ensureAnalyzer(): Promise<void> {
-  if (_getBattleStatus && _startAnalyzer && _stopAnalyzer) return
+  if (_getBattleStatus && _startAnalyzer && _stopAnalyzer && _isCaptureReceivingFrames) return
   // The recognition pipeline now lives in `svwb-engine`; this module only
   // supervises it. Same three functions, so nothing else in this file changes.
   const mod = (await import('./recognition/engine.js')) as {
@@ -103,11 +104,13 @@ async function ensureAnalyzer(): Promise<void> {
     startEngine: StartAnalyzerFn
     stopEngine: StopAnalyzerFn
     isEngineReady: () => boolean
+    isCaptureReceivingFrames: () => boolean
   }
   _getBattleStatus = mod.getBattleStatus
   _startAnalyzer = mod.startEngine
   _stopAnalyzer = mod.stopEngine
   _isEngineReady = mod.isEngineReady
+  _isCaptureReceivingFrames = mod.isCaptureReceivingFrames
 }
 
 // --- DB on-demand（第一次用到才 init） ---
@@ -395,7 +398,8 @@ function startPollingForGame(): void {
       if (svwbStatus)
         win.webContents.postMessage('svwb:status', {
           ...svwbStatus,
-          engineReady: _isEngineReady?.() ?? false
+          engineReady: _isEngineReady?.() ?? false,
+          capturing: _isCaptureReceivingFrames?.() ?? false
         })
 
       const bx = svwbStatus?.bounds?.x
@@ -405,6 +409,7 @@ function startPollingForGame(): void {
         running: !!svwbStatus?.running,
         bounds: typeof bx === 'number' && typeof by === 'number' ? { x: bx, y: by } : null,
         hwnd: svwbStatus?.hwnd ?? null,
+        receivingFrames: _isCaptureReceivingFrames?.() ?? false,
         systemIdle: await isSystemIdle(IDLE_THRESHOLD_SECONDS)
       })
       pollState = state
@@ -435,9 +440,6 @@ function startPollingForGame(): void {
             break
           case 'detachCapture':
             detachCapture()
-            break
-          case 'captureStatus':
-            win.webContents.send('capture:status', action.capturing)
             break
           case 'notifyMinimized':
             // The setting is checked here rather than in the decision, so that

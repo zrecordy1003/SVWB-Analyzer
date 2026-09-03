@@ -67,6 +67,12 @@ type MatchPatch = {
 let engineProcess: ChildProcess | null = null
 let starting = false
 let battleStatus: BattleStatus = IDLE_STATUS
+/** True only after the current capture session has delivered a decoded frame. */
+let captureReceivingFrames = false
+/** Last HWND requested by the poll; used to de-duplicate the runtime log. */
+let requestedCaptureHwnd: number | null = null
+/** Last repeated attach error, so a one-second retry cannot fill the log. */
+let lastCaptureFailure: string | null = null
 /**
  * Whether the engine has reported `ready` - loaded its templates and begun.
  *
@@ -108,6 +114,12 @@ export function getBattleStatus(): BattleStatus {
 function setStatus(next: BattleStatus): void {
   battleStatus = next
   broadcast('battle:status', next)
+}
+
+function setCaptureReceivingFrames(next: boolean): void {
+  if (captureReceivingFrames === next) return
+  captureReceivingFrames = next
+  broadcast('capture:status', next)
 }
 
 /**
@@ -226,6 +238,9 @@ export function startEngine(_mainWindow: BrowserWindow): void {
       )
       engineProcess = null
       engineReady = false
+      requestedCaptureHwnd = null
+      lastCaptureFailure = null
+      setCaptureReceivingFrames(false)
       setStatus(IDLE_STATUS)
       // Counters that never reached their flush window would otherwise be lost.
       flushDiagnostics()
@@ -238,6 +253,9 @@ export function startEngine(_mainWindow: BrowserWindow): void {
       logRuntime('Engine', `failed to start: code=${code} ${err.message}`)
       engineProcess = null
       engineReady = false
+      requestedCaptureHwnd = null
+      lastCaptureFailure = null
+      setCaptureReceivingFrames(false)
     })
     // The engine's stderr is for humans only; anything the host must act on
     // arrives as an event. It is the only place that says WHY a start failed, so
@@ -290,11 +308,23 @@ function send(command: Record<string, unknown>): void {
  * engine restart without the host having to track that it happened.
  */
 export function attachCapture(hwnd: number): void {
+  if (requestedCaptureHwnd !== hwnd) {
+    requestedCaptureHwnd = hwnd
+    lastCaptureFailure = null
+    setCaptureReceivingFrames(false)
+    logRuntime('Capture', `attach requested hwnd=${hwnd}`)
+  }
   send({ command: 'attach', hwnd })
 }
 
 /** Stop capturing (the game minimised or closed); the engine keeps running. */
 export function detachCapture(): void {
+  if (requestedCaptureHwnd !== null || captureReceivingFrames) {
+    logRuntime('Capture', `detach requested hwnd=${requestedCaptureHwnd ?? 'unknown'}`)
+  }
+  requestedCaptureHwnd = null
+  lastCaptureFailure = null
+  setCaptureReceivingFrames(false)
   send({ command: 'detach' })
 }
 
@@ -313,12 +343,20 @@ export function isEngineReady(): boolean {
   return engineReady
 }
 
+/** Whether the current capture session has delivered at least one real frame. */
+export function isCaptureReceivingFrames(): boolean {
+  return captureReceivingFrames
+}
+
 export function stopEngine(): void {
   const child = engineProcess
   if (!child) return
   // Cleared up front, so the second teardown pass finds nothing to write to.
   engineProcess = null
   engineReady = false
+  requestedCaptureHwnd = null
+  lastCaptureFailure = null
+  setCaptureReceivingFrames(false)
   // Distinguishes an orderly shutdown from a crash in the log: an `exited` line
   // with no `stopping` above it was not asked for.
   logRuntime('Engine', 'stopping')
@@ -432,13 +470,39 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
     }
 
     case 'captureChanged':
-      // `framesSeen` is the proof pixels flowed. "Attached but zero frames" is
-      // the shape of a capture problem the user reports as "nothing recorded".
-      console.log(
-        `[Engine] capture ${event.attached ? 'attached' : `detached after ${event.framesSeen} frames`}`
-      )
-      broadcast('capture:status', Boolean(event.attached))
+      if (event.attached) {
+        lastCaptureFailure = null
+        logRuntime(
+          'Capture',
+          `attach succeeded hwnd=${requestedCaptureHwnd ?? 'unknown'} framesSeen=0`
+        )
+      } else {
+        logRuntime('Capture', `detached framesSeen=${Number(event.framesSeen)}`)
+        requestedCaptureHwnd = null
+        setCaptureReceivingFrames(false)
+      }
       break
+
+    case 'captureFrameReceived':
+      // This is the positive proof: WGC delivered pixels and the engine decoded
+      // them. The source size makes DPI/letterbox reports diagnosable later.
+      logRuntime(
+        'Capture',
+        `first frame received source=${Number(event.width)}x${Number(event.height)} normalized=1280x720`
+      )
+      lastCaptureFailure = null
+      setCaptureReceivingFrames(true)
+      break
+
+    case 'captureAttachFailed': {
+      const failure = `hwnd=${Number(event.hwnd)} message=${String(event.message)}`
+      if (failure !== lastCaptureFailure) {
+        logRuntime('Capture', `attach failed ${failure}`)
+        lastCaptureFailure = failure
+      }
+      setCaptureReceivingFrames(false)
+      break
+    }
 
     case 'replaySuppressionChanged':
       console.log('[Engine] replay suppression:', event.suppressed)
@@ -466,7 +530,7 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
       break
 
     case 'failed':
-      console.error('[Engine] failure:', event.message)
+      logRuntime('Engine', `failure fatal=${Boolean(event.fatal)} message=${String(event.message)}`)
       if (event.fatal) stopEngine()
       break
 

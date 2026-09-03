@@ -246,6 +246,21 @@ pub enum Event {
     /// recorded" report needs resolved.
     CaptureChanged { attached: bool, frames_seen: u64 },
 
+    /// The first decoded frame after an attach reached the analyzer.
+    ///
+    /// A successful WGC attach only proves that Windows accepted the target;
+    /// this event is the positive proof that pixels actually crossed the
+    /// capture boundary. The dimensions are the source image before the
+    /// normalisation to the fixed 1280x720 recognition canvas.
+    CaptureFrameReceived { width: u32, height: u32 },
+
+    /// Windows Graphics Capture refused the requested target.
+    ///
+    /// Kept separate from a general recoverable `Failed` event so the host can
+    /// make the capture indicator truthful without guessing from an error
+    /// message.
+    CaptureAttachFailed { hwnd: u64, message: String },
+
     /// A score that came close to its threshold without clearing it.
     ///
     /// Silent unless inside the near-miss band, so this is safe to emit every
@@ -301,6 +316,31 @@ mod tests {
         assert_eq!(serde_json::to_string(&GameMode::WeekendPlaza).unwrap(), "\"weekendPlaza\"");
         assert_eq!(serde_json::to_string(&GameMode::TwoPick).unwrap(), "\"twoPick\"");
         assert_eq!(serde_json::to_string(&GameMode::Unknown).unwrap(), "\"unknown\"");
+    }
+
+    #[test]
+    fn capture_observability_events_use_the_host_protocol_shape() {
+        assert_eq!(
+            serde_json::to_value(Event::CaptureFrameReceived { width: 1920, height: 1080 })
+                .unwrap(),
+            serde_json::json!({
+                "event": "captureFrameReceived",
+                "width": 1920,
+                "height": 1080
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Event::CaptureAttachFailed {
+                hwnd: 42,
+                message: "access denied".into(),
+            })
+            .unwrap(),
+            serde_json::json!({
+                "event": "captureAttachFailed",
+                "hwnd": 42,
+                "message": "access denied"
+            })
+        );
     }
 
     /// An empty patch must not serialise into a wall of nulls; the host reads

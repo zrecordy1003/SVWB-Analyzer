@@ -34,6 +34,7 @@ function seen(over: Partial<PollObservation> = {}): PollObservation {
     running: true,
     bounds: { x: 100, y: 100 },
     hwnd: 4242,
+    receivingFrames: false,
     systemIdle: false,
     ...over
   }
@@ -63,15 +64,22 @@ describe('starting up', () => {
   it('brings the analyzer up before attaching capture', () => {
     const { actions, state } = decidePoll(initialPollState, seen())
     // The ordering this whole module exists to state.
-    expect(kinds(actions)).toEqual([
-      'broadcastStatus',
-      'startAnalyzer',
-      'attachCapture',
-      'captureStatus'
-    ])
+    expect(kinds(actions)).toEqual(['broadcastStatus', 'startAnalyzer', 'attachCapture'])
     expect(actions).toContainEqual({ type: 'attachCapture', hwnd: 4242 })
-    expect(actions).toContainEqual({ type: 'captureStatus', capturing: true })
-    expect(state).toMatchObject({ analyzerRunning: true, capturing: true })
+    expect(actions).toContainEqual({
+      type: 'broadcastStatus',
+      status: { running: true, paused: false, capturing: false }
+    })
+    expect(state).toMatchObject({ analyzerRunning: true, captureRequested: true })
+  })
+
+  it('reports capture only after the engine has received a frame', () => {
+    const first = decidePoll(initialPollState, seen())
+    const second = decidePoll(first.state, seen({ now: T0 + 1000, receivingFrames: true }))
+    expect(second.actions).toContainEqual({
+      type: 'broadcastStatus',
+      status: { running: true, paused: false, capturing: true }
+    })
   })
 
   it('says nothing at all when there is no game and nothing has changed', () => {
@@ -95,17 +103,11 @@ describe('starting up', () => {
 })
 
 describe('the window going away', () => {
-  it('detaches and tells the renderer when the game minimises', () => {
+  it('detaches when the game minimises', () => {
     const { steps } = run([seen(), minimized({ now: T0 + 1000 })])
-    expect(kinds(steps[1].actions)).toEqual([
-      'broadcastStatus',
-      'detachCapture',
-      'captureStatus',
-      'notifyMinimized'
-    ])
-    expect(steps[1].actions).toContainEqual({ type: 'captureStatus', capturing: false })
+    expect(kinds(steps[1].actions)).toEqual(['broadcastStatus', 'detachCapture', 'notifyMinimized'])
     // The analyzer stays up: warm standby, so coming back costs nothing.
-    expect(steps[1].state).toMatchObject({ analyzerRunning: true, capturing: false })
+    expect(steps[1].state).toMatchObject({ analyzerRunning: true, captureRequested: false })
   })
 
   it('treats a window with no readable bounds as uncapturable', () => {
@@ -120,7 +122,7 @@ describe('the window going away', () => {
   it('does not capture a running game whose hwnd is unknown', () => {
     const { actions, state } = decidePoll(initialPollState, seen({ hwnd: null }))
     expect(kinds(actions)).toEqual(['broadcastStatus', 'startAnalyzer'])
-    expect(state).toMatchObject({ capturing: false, analyzerRunning: true })
+    expect(state).toMatchObject({ captureRequested: false, analyzerRunning: true })
   })
 
   it('notifies once per minimise, not once per tick', () => {
@@ -236,7 +238,7 @@ describe('the analyzer outlives the game by half an hour', () => {
     ])
     expect(kinds(steps[1].actions)).toContain('stopAnalyzer')
     expect(kinds(steps[2].actions)).toContain('startAnalyzer')
-    expect(state).toMatchObject({ analyzerRunning: true, capturing: true })
+    expect(state).toMatchObject({ analyzerRunning: true, captureRequested: true })
   })
 
   /**
@@ -245,24 +247,16 @@ describe('the analyzer outlives the game by half an hour', () => {
    * The engine owns capture, so stopping the engine ends capture whether
    * anyone tracks it or not. Before this, the idle rule fired while the window
    * was still capturable, the capture block had already re-attached and left
-   * `capturing` true, and the renderer's indicator plus the HUD's
-   * `game:status.capturing` went on claiming capture was live for the whole
-   * idle period - with nothing to correct them, because the flag never
-   * changed.
+   * the attach request active. Capture truth now comes from the engine's first
+   * frame event; this state only guarantees a matching detach is sent.
    *
-   * `detachCapture` before `captureStatus`, and both after `stopAnalyzer`:
-   * tell the engine, then tell the screen.
+   * `detachCapture` after `stopAnalyzer`: tell the engine explicitly even
+   * though process shutdown also tears the Windows capture session down.
    */
   it('idling takes capture down with the analyzer, and says so', () => {
     const { state, steps } = run([seen(), seen({ now: T0 + 1000, systemIdle: true })])
-    expect(kinds(steps[1].actions)).toEqual([
-      'attachCapture',
-      'stopAnalyzer',
-      'detachCapture',
-      'captureStatus'
-    ])
-    expect(steps[1].actions).toContainEqual({ type: 'captureStatus', capturing: false })
-    expect(state).toMatchObject({ analyzerRunning: false, capturing: false })
+    expect(kinds(steps[1].actions)).toEqual(['attachCapture', 'stopAnalyzer', 'detachCapture'])
+    expect(state).toMatchObject({ analyzerRunning: false, captureRequested: false })
   })
 
   it('does not detach twice when the window was already uncapturable', () => {
@@ -271,7 +265,6 @@ describe('the analyzer outlives the game by half an hour', () => {
     // second detach on top of it.
     const { steps } = run([seen(), minimized({ now: T0 + THRESHOLD_MS })])
     expect(kinds(steps[1].actions).filter((k) => k === 'detachCapture')).toHaveLength(1)
-    expect(kinds(steps[1].actions).filter((k) => k === 'captureStatus')).toHaveLength(1)
   })
 
   it('restarts the analyzer on the tick after idle ends', () => {

@@ -106,8 +106,8 @@ where
             }
             // Retargeting is the source's business; a source with a fixed
             // target refuses, and the refusal goes back as a non-fatal failure
-            // rather than being swallowed - the host optimistically reports
-            // "capturing" on attach and needs to know when that was wrong.
+            // rather than being swallowed. A dedicated event lets the host
+            // distinguish this from an unrelated recoverable engine failure.
             Inbox::Command(Command::Attach { hwnd }) => {
                 match source.control(SourceControl::Attach { hwnd }) {
                     Ok(()) if attached_to == Some(hwnd) => {} // idempotent re-send
@@ -121,7 +121,7 @@ where
                     }
                     Err(why) => {
                         attached_to = None;
-                        channel.emit(&Event::Failed { message: why, fatal: false })?;
+                        channel.emit(&Event::CaptureAttachFailed { hwnd, message: why })?;
                     }
                 }
             }
@@ -164,10 +164,22 @@ where
             }
         };
 
+        // An accepted attach is not proof of capture. Emit this before reading
+        // the first frame so the host can tell a silent recognition miss from
+        // a WGC session that never delivered pixels at all.
+        if attached_to.is_some() && frames_this_session == 0 {
+            channel.emit(&Event::CaptureFrameReceived {
+                width: timed.frame.source_width(),
+                height: timed.frame.source_height(),
+            })?;
+        }
+
         // Only ask for digits when there could be digits; see `reading::read`
         // and `Phase::wants_numbers`.
         let wants_numbers = machine.phase().wants_numbers();
-        frames_this_session += 1;
+        if attached_to.is_some() {
+            frames_this_session += 1;
+        }
         let reading = reading::read(&timed.frame, store, channel, wants_numbers);
         // Emitted before the tick so a score that is about to stop clearing its
         // threshold is on record even if the decision it feeds goes the other way.

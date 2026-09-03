@@ -59,6 +59,8 @@ export type PollObservation = {
    */
   bounds: { x: number; y: number } | null
   hwnd: number | null
+  /** The engine has decoded at least one frame from its current attachment. */
+  receivingFrames: boolean
   /** `powerMonitor.getSystemIdleTime()` past the threshold. */
   systemIdle: boolean
 }
@@ -72,7 +74,8 @@ export type PollObservation = {
  * that it never started.
  */
 export type PollState = {
-  capturing: boolean
+  /** Whether an attach has been requested and still needs a matching detach. */
+  captureRequested: boolean
   analyzerRunning: boolean
   /** One-shot debounce for the minimised notification. */
   minimizedNoticeSent: boolean
@@ -85,7 +88,7 @@ export type PollState = {
 }
 
 export const initialPollState: PollState = {
-  capturing: false,
+  captureRequested: false,
   analyzerRunning: false,
   minimizedNoticeSent: false,
   lastRunningAt: null,
@@ -106,7 +109,6 @@ export type PollAction =
   | { type: 'stopAnalyzer' }
   | { type: 'attachCapture'; hwnd: number }
   | { type: 'detachCapture' }
-  | { type: 'captureStatus'; capturing: boolean }
   | { type: 'notifyMinimized' }
 
 export type PollDecision = { state: PollState; actions: PollAction[] }
@@ -115,7 +117,7 @@ const sameStatus = (a: GameStatus | null, b: GameStatus): boolean =>
   a !== null && a.running === b.running && a.paused === b.paused && a.capturing === b.capturing
 
 export function decidePoll(state: PollState, observation: PollObservation): PollDecision {
-  const { now, running, bounds, hwnd, systemIdle } = observation
+  const { now, running, bounds, hwnd, receivingFrames, systemIdle } = observation
   const actions: PollAction[] = []
 
   const hasBounds = bounds !== null
@@ -124,7 +126,9 @@ export function decidePoll(state: PollState, observation: PollObservation): Poll
   const paused = running && (!hasBounds || minimized)
   const capturable = running && !paused && hwnd !== null
 
-  const status: GameStatus = { running, paused, capturing: capturable }
+  // A visible window is merely a capture target. Only the engine's first-frame
+  // event proves that pixels have actually reached recognition.
+  const status: GameStatus = { running, paused, capturing: capturable && receivingFrames }
   if (!sameStatus(state.lastStatus, status)) {
     actions.push({ type: 'broadcastStatus', status })
   }
@@ -140,7 +144,7 @@ export function decidePoll(state: PollState, observation: PollObservation): Poll
     running && lastUnpausedAt !== null && now - lastUnpausedAt >= IDLE_THRESHOLD_MS
 
   let analyzerRunning = state.analyzerRunning
-  let capturing = state.capturing
+  let captureRequested = state.captureRequested
 
   /**
    * Capture follows the window, and it needs the analyzer first.
@@ -156,14 +160,10 @@ export function decidePoll(state: PollState, observation: PollObservation): Poll
       analyzerRunning = true
     }
     actions.push({ type: 'attachCapture', hwnd: hwnd as number })
-    if (!capturing) {
-      capturing = true
-      actions.push({ type: 'captureStatus', capturing: true })
-    }
-  } else if (capturing) {
+    captureRequested = true
+  } else if (captureRequested) {
     actions.push({ type: 'detachCapture' })
-    capturing = false
-    actions.push({ type: 'captureStatus', capturing: false })
+    captureRequested = false
   }
 
   /**
@@ -202,20 +202,18 @@ export function decidePoll(state: PollState, observation: PollObservation): Poll
        * The engine owns capture, so stopping the engine ends capture whether
        * anyone tracks that or not. What used to happen: the idle rule fires
        * while the window is still capturable, the capture block above has
-       * already re-attached and left `capturing` true, and so the renderer's
-       * indicator and the HUD's `game:status.capturing` both went on claiming
-       * capture was live for the whole idle period - with no `captureStatus`
-       * to correct them, because the flag never changed.
+       * already re-attached and left the request active. The engine's capture
+       * state is now independent and is cleared by `stopAnalyzer`; this flag
+       * only ensures the matching detach is still sent.
        *
-       * The two game-side routes cannot reach here with `capturing` true: both
+       * The two game-side routes cannot reach here with a request active: both
        * of them require the window to be uncapturable, which detached it
        * above. So in practice this is the idle route, which is exactly the one
        * that can stop the analyzer with a perfectly good window on screen.
        */
-      if (capturing) {
-        capturing = false
+      if (captureRequested) {
+        captureRequested = false
         actions.push({ type: 'detachCapture' })
-        actions.push({ type: 'captureStatus', capturing: false })
       }
     }
   } else if (running && !analyzerRunning) {
@@ -227,7 +225,7 @@ export function decidePoll(state: PollState, observation: PollObservation): Poll
 
   return {
     state: {
-      capturing,
+      captureRequested,
       analyzerRunning,
       minimizedNoticeSent,
       lastRunningAt,

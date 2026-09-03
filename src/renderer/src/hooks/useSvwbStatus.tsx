@@ -18,6 +18,8 @@ interface svwbStatus {
    * check that happens in the main process and knows nothing about the engine.
    */
   engineReady?: boolean
+  /** True only after the engine has decoded a frame from the current capture. */
+  capturing?: boolean
 }
 
 export const useSvwbStatus = (): svwbStatus | undefined => {
@@ -27,9 +29,16 @@ export const useSvwbStatus = (): svwbStatus | undefined => {
     const unsubStatus = window.electron?.ipcRenderer.on('svwb:status', (_event, status) => {
       setRunning(status)
     })
+    const unsubCapture = window.electron?.ipcRenderer.on(
+      'capture:status',
+      (_event, capturing: boolean) => {
+        setRunning((current) => (current ? { ...current, capturing } : current))
+      }
+    )
 
     return () => {
       unsubStatus()
+      unsubCapture()
     }
   }, [])
 

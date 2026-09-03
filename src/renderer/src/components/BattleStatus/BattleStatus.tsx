@@ -87,6 +87,12 @@ const BattleStatus = (): React.JSX.Element => {
         setIsRecognizing(!!status?.capturing)
       }
     )
+    // `game:status` is polled once per second; this engine-owned signal flips
+    // immediately when the first real frame arrives or capture ends.
+    const unsubCaptureStatus = window.electron?.ipcRenderer.on(
+      'capture:status',
+      (_e, capturing: boolean) => setIsRecognizing(capturing)
+    )
     void invokeIpc('game:getStatus')
       .then((status: { capturing?: boolean } | null) => setIsRecognizing(!!status?.capturing))
       .catch(() => setIsRecognizing(false))
@@ -94,6 +100,7 @@ const BattleStatus = (): React.JSX.Element => {
     return () => {
       unsubBattleInfo()
       unsubGameStatus()
+      unsubCaptureStatus()
     }
   }, [])
 

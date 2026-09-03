@@ -24,6 +24,8 @@ use crate::templates::SCALES;
 /// starved the renderer. Here the scope is the lifetime, so there is nothing to
 /// forget to call.
 pub struct Frame {
+    source_width: u32,
+    source_height: u32,
     pub(crate) levels: Vec<GrayImage>,
     pub(crate) integrals: Vec<Integral>,
 }
@@ -34,10 +36,20 @@ impl Frame {
     /// Preparing the coarse levels eagerly costs about a millisecond and lets
     /// any search pick its scale with no extra work per call.
     pub fn from_image(decoded: &DynamicImage) -> Self {
+        let source_width = decoded.width();
+        let source_height = decoded.height();
         let full = normalize_gray(&to_gray_opencv(decoded));
         let levels: Vec<GrayImage> = SCALES.iter().map(|&s| downscale(&full, s)).collect();
         let integrals = levels.iter().map(Integral::new).collect();
-        Self { levels, integrals }
+        Self { source_width, source_height, levels, integrals }
+    }
+
+    pub fn source_width(&self) -> u32 {
+        self.source_width
+    }
+
+    pub fn source_height(&self) -> u32 {
+        self.source_height
     }
 
     pub fn width(&self) -> u32 {

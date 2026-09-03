@@ -32,7 +32,7 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
     )
   }
 
-  const { running, bounds, engineReady } = svwbStatus!
+  const { running, bounds, engineReady, capturing } = svwbStatus!
   const isMinimized = bounds?.x === -32000 && bounds?.y === -32000
   const resolution = computeResolutionStatus(bounds)
   // Worth its own state, because "game found" and "recognition running" are
@@ -41,6 +41,9 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
   // which is exactly the case that produced no diagnostics to look at either.
   const engineDown = running && !isMinimized && engineReady === false
   const ENGINE_DOWN_HINT = '辨識引擎未啟動，這場不會被記錄。請到「設定 → 辨識診斷」匯出診斷包回報'
+  const capturePending = running && !isMinimized && !engineDown && capturing === false
+  const CAPTURE_PENDING_HINT =
+    '已偵測到遊戲，但尚未收到擷取畫面。若持續顯示，請到「設定 → 辨識診斷」匯出診斷包回報'
 
   const TooltipStyles = {
     tooltip: {
@@ -73,9 +76,9 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
             </Box>
           </Tooltip>
         )}
-        {running && !isMinimized && !engineDown && (
+        {running && !isMinimized && !engineDown && !capturePending && (
           <Tooltip
-            title="遊戲執行中"
+            title="畫面擷取正常"
             placement="right"
             slotProps={{ ...TooltipStyles }}
             slots={{
@@ -99,6 +102,21 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
           >
             <Box display="flex" alignItems="center" justifyContent="center">
               <WarningIcon color="error" />
+            </Box>
+          </Tooltip>
+        )}
+
+        {capturePending && (
+          <Tooltip
+            title={CAPTURE_PENDING_HINT}
+            placement="right"
+            slotProps={{ ...TooltipStyles }}
+            slots={{
+              transition: Zoom
+            }}
+          >
+            <Box display="flex" alignItems="center" justifyContent="center">
+              <WarningIcon color="warning" />
             </Box>
           </Tooltip>
         )}
@@ -142,11 +160,11 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
           </Fade>
         </Box>
       )}
-      {running && !isMinimized && !engineDown && (
+      {running && !isMinimized && !engineDown && !capturePending && (
         <Box display="flex" alignItems="center" color={running ? 'success.main' : 'error.main'}>
           <SportsEsportsIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
-            <Typography>{running ? '遊戲執行中' : '未偵測到遊戲'}</Typography>
+            <Typography>畫面擷取正常</Typography>
           </Fade>
         </Box>
       )}
@@ -156,6 +174,15 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
           <WarningIcon sx={{ mr: 1 }} />
           <Fade in={open} timeout={200}>
             <Typography>{ENGINE_DOWN_HINT}</Typography>
+          </Fade>
+        </Box>
+      )}
+
+      {capturePending && (
+        <Box display="flex" alignItems="center" color="warning.main">
+          <WarningIcon sx={{ mr: 1 }} />
+          <Fade in={open} timeout={200}>
+            <Typography>{CAPTURE_PENDING_HINT}</Typography>
           </Fade>
         </Box>
       )}

@@ -27,6 +27,7 @@ export interface GameStatus {
   running: boolean
   /** Running but minimised or without bounds, so capture is suspended. */
   paused: boolean
+  /** True only after the engine has decoded a frame from the current attachment. */
   capturing: boolean
 }
 
