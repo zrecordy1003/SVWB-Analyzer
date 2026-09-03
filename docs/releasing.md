@@ -44,7 +44,7 @@ pnpm run build:win
 - [ ] 遊戲關閉時不啟動擷取；`svwb-engine` 行程不常駐。
 - [ ] 遊戲視窗化、無邊框／全螢幕皆可開始擷取。
 - [ ] 遊戲最小化時擷取停止；恢復後自動重新 attach。
-- [ ] Electron terminal 出現 `[Engine] ready` 與 `[Engine] capture attached`；detach 時回報的 `framesSeen` 不為 0（attached 但零幀是擷取故障的樣子）。**打包後的版本沒有 terminal**，改看 `%APPDATA%\SVWB Analyzer\diagnostics\engine.log`：要有 `[Engine] ready`，且 `[Startup]` 各行的 `exists=` 皆為 `true`。
+- [ ] Electron terminal 出現 `[Engine] ready` 與 `[Engine] capture attached`；detach 時回報的 `framesSeen` 不為 0（attached 但零幀是擷取故障的樣子）。**打包後的版本沒有 terminal**，改看 `%APPDATA%\svwb-analyzer\diagnostics\engine.log`：要有 `[Engine] ready`，且 `[Startup]` 各行的 `exists=` 皆為 `true`。
 - [ ] 對戰開始只新增一筆 Match；BP、MP、CR、模式與勝敗都更新到同一筆。
 - [ ] 對局列表在對戰進行中就會即時更新，不會停在「未定」。
 - [ ] 勝利與敗北、階級與 2Pick 至少各驗證一場。
