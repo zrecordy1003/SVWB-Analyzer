@@ -31,18 +31,52 @@ test('the settings panel shows the exact payload an upload would send', async ({
   const label = window.getByText('分享對局數據')
   await expect(label).toBeVisible()
 
-  const disclose = window.getByRole('button', { name: '看會送出什麼' })
+  /**
+   * Scoped to the panel, because the same button exists twice.
+   *
+   * The first-run notice offers its own 「看會送出什麼」, and the notice mounts
+   * after `telemetry:noticeDue` answers over IPC - so whether it is on screen
+   * when this line runs is a matter of timing. Locally the click landed first
+   * and this read as a one-element locator; on a slower CI runner the notice
+   * won and Playwright refused the ambiguity outright:
+   *
+   *   strict mode violation: ... resolved to 2 elements
+   *   1) aka getByRole('alert').getByRole('button', ...)
+   *   2) aka getByRole('main').getByRole('button', ...)
+   *
+   * Which means the unscoped version was never right, only lucky - and it
+   * could have been clicking the notice's button, a different path, while
+   * claiming in its own name to be about the settings panel.
+   */
+  const panel = window.getByRole('main')
+  const disclose = panel.getByRole('button', { name: '看會送出什麼' })
   if ((await disclose.count()) === 0) {
     // No endpoint compiled in: the panel says so instead, and there is nothing
     // to disclose. Assert the explanation rather than skipping silently.
-    await expect(window.getByText('這個版本沒有設定統計伺服器，開關暫時無法使用。')).toBeVisible()
+    await expect(panel.getByText('這個版本沒有設定統計伺服器，開關暫時無法使用。')).toBeVisible()
     return
   }
+
+  /**
+   * And wait for the notice before clicking, rather than racing it.
+   *
+   * Reaching here means an endpoint IS compiled in, and on a fresh profile
+   * that makes the first-run notice due - so it is going to appear, the only
+   * question being whether before or after this click. Waiting for it pins the
+   * test to the harder of the two states instead of leaving which one it
+   * measures up to the host's speed, and it is the state CI runs in.
+   *
+   * It also asserts something worth asserting: that the notice does not sit on
+   * top of the control it is pointing people at.
+   */
+  await expect(
+    window.getByRole('alert').getByRole('button', { name: '看會送出什麼' })
+  ).toBeVisible()
 
   await disclose.click()
 
   // The payload arrives over IPC, so poll rather than read once.
-  const body = window.locator('pre')
+  const body = panel.locator('pre')
   await expect(body).toBeVisible()
   await expect
     .poll(async () => (await body.innerText()).trim().startsWith('{'), {
