@@ -268,15 +268,50 @@ of `update_match` and commits at the end, and has for some time.
 
 ## Priority 3: Host-side structure
 
-### The IPC contract is untyped where it matters
+### The IPC contract is untyped where it matters — done
 
-`src/renderer/src/global.d.ts` is hand-written and has no link to the `ipcMain.handle` return types
-it describes, so a change in main compiles clean in the renderer. Separately, the renderer bypasses
-preload in 26 places via `window.electron.ipcRenderer.invoke('decks:all')` and friends — every
-decks/tags/matches mutation channel has no preload wrapper at all.
+`src/shared/ipc.ts` declares each channel as a function type; `handleIpc` /
+`invokeIpc` are the two ends, and `IpcSendContract` / `onIpc` / `sendIpc` cover
+the fire-and-forget direction. 71 of the 81 distinct `invoke` channels and all
+4 renderer-to-main `send` channels are typed, and the renderer has **no** raw
+`ipcRenderer.invoke` left - the 33 call sites that skipped the preload bridge
+with a bare string are gone. `global.d.ts` derives from the contract rather
+than restating it.
 
-Suggested: one `src/shared/ipc.ts` declaring channel names with their payload and return types;
-preload generated from it, main registered against it. No framework needed.
+Remaining: `diagnostics:*` (4), which needs `DiagnosticsSummary` moved out of
+`recognition/diagnosticsBundle.ts`. And `settings:*` (7) is deliberately typed
+at the BRIDGE rather than in the contract - `settings:get`'s return depends on
+which key it was given, which needs a generic method, and a map of one function
+type per channel cannot express that. Worth knowing before trying to "finish"
+it.
+
+The compiler found nine defects on the way in, all of the same family - a
+`null`, an `undefined` or a wrong shape that nothing could see through an
+`any`:
+
+- `matches:create` can return `null`; the renderer passed it straight to a
+  callback declared as taking a match.
+- The edit dialog could write `NULL`, or the empty string, into `play_order`,
+  `my_class` and `oppo_class` - all three NOT NULL. Two `as ClassName` casts
+  were what hid it.
+- `battle:getStatus` returns `undefined` before the analyzer starts, and that
+  went into `setState`.
+- `hud:setOpacity` resolves to `number | undefined`, not `number`.
+- `update:check` answers two different shapes - the real updater adds `info`,
+  the dev simulator does not.
+- `matches.fetchRecent` was declared `Promise<any[]>`.
+- `DeckPicker`'s local `Category` had `sort` optional where the column is
+  `number | null`.
+- `BattleStatus.tsx`'s local `BattleState` was wider than the real thing and
+  had no `mode`, so its initial state was missing a field.
+- `settings.startOnBoot`: the page sent `'s:startOnBoot'` and main listens on
+  `'settings:startOnBoot'`. Unreachable today - the switch is commented out -
+  but it had never worked.
+
+And five type declarations that were duplicates of something in `shared/`:
+`RankedWinrateQuery` (restated in three places, wrong in four fields in one of
+them), `AppSettingsInner`, `Category`, `BattleState`, plus `OnCloseBehavior` /
+`PortalLang` / `ThemeType` as local aliases.
 
 ### Duplicated types - done
 
