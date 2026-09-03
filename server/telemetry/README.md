@@ -97,13 +97,13 @@ pnpm exec wrangler d1 execute svwb-telemetry --local --command \
 需要 Cloudflare 帳號（免費方案即可）。在這個目錄：
 
 ```bash
-pnpm install --frozen-lockfile --ignore-workspace
+pnpm install --frozen-lockfile
 pnpm exec wrangler login
 ```
 
-`--ignore-workspace` 不能省。這個目錄有自己的 `package.json` 與 lockfile，但 pnpm 會往上找
-workspace root、找到 repo 根的 `pnpm-workspace.yaml`——而這裡不是它的成員，所以少了這個旗標
-的 `pnpm install` 會去安裝根專案，這裡的 `node_modules` 依然是空的。
+**不要加 `--ignore-workspace`。** 這個目錄有自己的 `package.json` 與 lockfile，而讓 pnpm
+把它當成獨立專案、而不是往上安裝到 repo 根的，是這裡的 `pnpm-workspace.yaml`；那個旗標會讓
+pnpm 不讀它，連 wrangler 需要的 esbuild／workerd 都不會建。理由寫在那個檔案裡。
 
 建資料庫，把印出來的 `database_id` 貼進 `wrangler.toml`：
 

@@ -1,0 +1,29 @@
+# This file exists for two reasons, and neither of them is defining a workspace.
+#
+# 1. It makes THIS directory a pnpm root. `server/telemetry` is a standalone
+#    project with its own package.json and lockfile - deliberately not a member
+#    of the repo's workspace, so a push to the app never installs wrangler and
+#    workerd - but pnpm walks UP looking for a root and would otherwise find the
+#    repo's. An install here then installed the ROOT project and left this
+#    node_modules empty, which is how CI's first real run failed:
+#    «Cannot find type definition file for '@cloudflare/workers-types'».
+#    pnpm takes the NEAREST such file, so this one wins.
+#
+# 2. It is where pnpm reads settings from. `onlyBuiltDependencies` used to sit
+#    in package.json's `pnpm` field, which pnpm no longer reads at all:
+#    «The "pnpm" field in package.json is no longer read by pnpm». With the
+#    setting silently dropped, pnpm 11 refuses the install outright
+#    (ERR_PNPM_IGNORED_BUILDS) - pnpm 10 only warns, which is why this was
+#    invisible locally.
+#
+# `--ignore-workspace` looks like the fix for (1) and quietly undoes (2): with
+# that flag pnpm does not read this file, so the builds go back to being
+# ignored. Verified both ways against pnpm 11.10.0 in a clean checkout. Do not
+# add it back.
+#
+# `allowBuilds`, not `onlyBuiltDependencies`: that is the key pnpm 11 acts on,
+# and pnpm 10 honours it too. esbuild and workerd are wrangler's own binaries -
+# `wrangler deploy` cannot run without them - and nothing else here builds.
+allowBuilds:
+  esbuild: true
+  workerd: true
