@@ -1,0 +1,63 @@
+name: Telemetry Worker
+
+# The Cloudflare Worker that receives the uploads had no automatic gate at all.
+#
+# `pnpm typecheck` at the root covers `electron.vite.config.*`, `src/main/**`
+# and `src/renderer/src/**` - see tsconfig.node.json and tsconfig.web.json -
+# so `server/telemetry/` was never type-checked by anything except a person
+# remembering to run its own script. That matters more than it sounds:
+# `src/shared/telemetry.ts` is imported by BOTH the app and the Worker (on
+# purpose, so the whitelist the server validates against is the one the client
+# writes), and a change to it could therefore break the Worker with nothing to
+# say so until a deploy.
+#
+# Its own workflow rather than a job in ci.yml, because `server/telemetry` is a
+# standalone pnpm project - not a workspace member - and installing it pulls
+# wrangler and workerd. Paying that on every push to the app would be absurd,
+# and GitHub's path filters are per-workflow, not per-job.
+#
+# The Worker's PURE parts (`aggregate.ts`, `validate.ts`) are additionally
+# covered by `tests/main/telemetryServer.test.ts`, which runs in ci.yml's rust
+# job against the same `shared/telemetry.ts` constants. What only this workflow
+# reaches is `index.ts` - the routes, the SQL and the D1/Workers types.
+
+on:
+  push:
+    branches: [main, master, for_dev]
+    paths:
+      - 'server/telemetry/**'
+      - 'src/shared/telemetry.ts'
+      - '.github/workflows/telemetry-worker.yml'
+  pull_request:
+    paths:
+      - 'server/telemetry/**'
+      - 'src/shared/telemetry.ts'
+      - '.github/workflows/telemetry-worker.yml'
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    # ubuntu, unlike the rest of CI: nothing here is Windows-specific, and this
+    # is the one part of the repo that does not run on the user's machine at all.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server/telemetry
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.10.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck the Worker
+        run: pnpm typecheck

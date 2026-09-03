@@ -225,6 +225,13 @@ describe('buildOverview', () => {
       ],
       platforms30d: [{ platform: 'win32', installs: 25 }],
       activity: [{ date: '2026-09-02', installs: 3 }],
+      // One inside the 7-day window, one only inside the 30-day one, and one
+      // older than the series - the third must not reach either total.
+      newInstalls: [
+        { date: '2026-09-01', installs: 2 },
+        { date: '2026-08-20', installs: 5 },
+        { date: '2026-07-01', installs: 99 }
+      ],
       matchDays: [{ date: '2026-09-01', installs: 2, matches: 9, abandoned: 1, manual: 0 }],
       tiers: [
         { tier: 'clean', n: 8 },
@@ -243,11 +250,21 @@ describe('buildOverview', () => {
       date: '2026-09-02',
       activeInstalls: 3,
       recordingInstalls: 0,
+      newInstalls: 0,
       matches: 0,
       abandoned: 0,
       manual: 0
     })
-    expect(doc.series.at(-2)).toMatchObject({ date: '2026-09-01', matches: 9, abandoned: 1 })
+    expect(doc.series.at(-2)).toMatchObject({
+      date: '2026-09-01',
+      matches: 9,
+      abandoned: 1,
+      newInstalls: 2
+    })
+    // 7d is the last seven series days (2026-08-27..09-02), so the 08-20 row
+    // counts only towards 30d and the 07-01 row towards neither: it is outside
+    // the series the totals are summed from.
+    expect(doc.newInstalls).toEqual({ last7d: 2, last30d: 7 })
     expect(doc.matchesLast30d).toEqual({
       total: 9,
       byTier: { clean: 8, legacy: 1 },

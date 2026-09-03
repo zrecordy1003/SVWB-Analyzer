@@ -69,6 +69,10 @@ console.log(
   `Active installs: today ${overview.active.today} · 7d ${overview.active.last7d} · ` +
     `30d ${overview.active.last30d} · ever ${overview.installs}`
 )
+// `new` counts install IDS first seen in the period, so a reinstall or a
+// cleared profile reads as a new one - an upper bound on new users, not a
+// count of them.
+console.log(`New installs: 7d ${overview.newInstalls.last7d} · 30d ${overview.newInstalls.last30d}`)
 console.log('\nVersions (installs active in the period, by last reported version):')
 console.table(
   overview.versions.map((row) => ({
@@ -91,6 +95,7 @@ console.table(
   overview.series.map((row) => ({
     date: row.date,
     active: row.activeInstalls,
+    new: row.newInstalls,
     recording: row.recordingInstalls,
     matches: row.matches,
     abandoned: row.abandoned,

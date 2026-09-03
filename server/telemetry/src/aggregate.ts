@@ -97,6 +97,8 @@ export function buildMeta(
 // -------------------------------------------------------- /v1/admin/overview
 
 export type ActivityRow = { date: string; installs: number }
+/** `installs.first_seen` truncated to its UTC date, grouped. */
+export type NewInstallRow = { date: string; installs: number }
 export type VersionRow = { app_version: string; installs: number }
 export type PlatformRow = { platform: string; installs: number }
 export type MatchDayRow = {
@@ -116,6 +118,18 @@ export type OverviewDocument = {
   active: { today: number; last7d: number; last30d: number }
   /** Every install ever seen. */
   installs: number
+  /**
+   * Installs whose `first_seen` falls in the period - the growth number.
+   *
+   * Not derivable from `active`: an install that arrives and keeps running
+   * shows up in `active` every day thereafter, so a flat `active` line can
+   * mean either "the same people are staying" or "as many are leaving as
+   * arriving", and only this tells the two apart.
+   *
+   * Counts INSTALLS, not people. A reinstall, a cleared profile or a second
+   * machine is a new id here, so read it as an upper bound on new users.
+   */
+  newInstalls: { last7d: number; last30d: number }
   /** By the version each install last reported, among installs active in the period. */
   versions: Array<{ appVersion: string; active7d: number; active30d: number }>
   platforms: Array<{ platform: string; active30d: number }>
@@ -125,6 +139,8 @@ export type OverviewDocument = {
     activeInstalls: number
     /** Installs that had at least one match-day row for this date. */
     recordingInstalls: number
+    /** Installs seen for the first time on this date. */
+    newInstalls: number
     matches: number
     abandoned: number
     manual: number
@@ -156,6 +172,7 @@ export function buildOverview(input: {
   versions30d: readonly VersionRow[]
   platforms30d: readonly PlatformRow[]
   activity: readonly ActivityRow[]
+  newInstalls: readonly NewInstallRow[]
   matchDays: readonly MatchDayRow[]
   tiers: readonly TierRow[]
   modes: readonly ModeRow[]
@@ -179,18 +196,29 @@ export function buildOverview(input: {
   }
 
   const activity = new Map(input.activity.map((row) => [row.date, Number(row.installs) || 0]))
+  const fresh = new Map(input.newInstalls.map((row) => [row.date, Number(row.installs) || 0]))
   const matchDays = new Map(input.matchDays.map((row) => [row.date, row]))
-  const series = lastDates(input.now, 30).map((date) => {
+  const dates = lastDates(input.now, 30)
+  const series = dates.map((date) => {
     const day = matchDays.get(date)
     return {
       date,
       activeInstalls: activity.get(date) ?? 0,
       recordingInstalls: Number(day?.installs) || 0,
+      newInstalls: fresh.get(date) ?? 0,
       matches: Number(day?.matches) || 0,
       abandoned: Number(day?.abandoned) || 0,
       manual: Number(day?.manual) || 0
     }
   })
+
+  // Summed from the series rather than asked of the database twice, so the
+  // totals cannot disagree with the days they are the total of.
+  const sinceDay7 = dates[dates.length - 7]
+  const newInstalls = {
+    last7d: series.reduce((n, row) => (row.date >= sinceDay7 ? n + row.newInstalls : n), 0),
+    last30d: series.reduce((n, row) => n + row.newInstalls, 0)
+  }
 
   const byTier: Record<string, number> = {}
   let total = 0
@@ -207,6 +235,7 @@ export function buildOverview(input: {
     today: utcDate(input.now.getTime()),
     active: { today: input.activeToday, last7d: input.active7d, last30d: input.active30d },
     installs: input.installs,
+    newInstalls,
     versions: [...versions.values()].sort(
       (a, b) => b.active30d - a.active30d || (a.appVersion < b.appVersion ? 1 : -1)
     ),

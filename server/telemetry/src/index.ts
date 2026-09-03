@@ -22,6 +22,7 @@ import {
   buildMeta,
   buildOverview,
   type ActivityRow,
+  type NewInstallRow,
   type MatchDayRow,
   type MatrixRow,
   type ModeRow,
@@ -277,6 +278,7 @@ async function overview(request: Request, env: Env): Promise<Response> {
     versions30d,
     platforms30d,
     activity,
+    newInstalls,
     matchDays,
     tiers,
     modes
@@ -312,6 +314,19 @@ async function overview(request: Request, env: Env): Promise<Response> {
     env.DB.prepare(`SELECT date, COUNT(*) AS installs FROM activity WHERE date >= ?1 GROUP BY date`)
       .bind(since30)
       .all<ActivityRow>(),
+    // Growth. `first_seen` has been written since the first migration and was
+    // never read by anything until now, so a flat `active` line could not be
+    // told apart from equal churn in both directions.
+    //
+    // `substr` because `first_seen` is a full ISO timestamp and the series is
+    // keyed on the UTC date; the `>=` against a bare date works for the same
+    // lexical reason as `last_seen` above.
+    env.DB.prepare(
+      `SELECT substr(first_seen, 1, 10) AS date, COUNT(*) AS installs
+       FROM installs WHERE first_seen >= ?1 GROUP BY substr(first_seen, 1, 10)`
+    )
+      .bind(since30)
+      .all<NewInstallRow>(),
     env.DB.prepare(
       `SELECT date, COUNT(*) AS installs, SUM(matches) AS matches,
               SUM(abandoned) AS abandoned, SUM(manual) AS manual
@@ -339,6 +354,7 @@ async function overview(request: Request, env: Env): Promise<Response> {
       versions30d: versions30d.results,
       platforms30d: platforms30d.results,
       activity: activity.results,
+      newInstalls: newInstalls.results,
       matchDays: matchDays.results,
       tiers: tiers.results,
       modes: modes.results
