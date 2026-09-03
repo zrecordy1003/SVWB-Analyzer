@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { currentDecks } from '@renderer/components/DeckCards/deckVersions'
+import { invokeIpc } from '@renderer/ipc'
 import type { ClassName } from '@shared/domain'
 
 export type DeckLite = {
@@ -204,7 +205,7 @@ async function loadReferenceData(force = false, staleMs = 1000): Promise<Referen
   referenceInFlight = (async () => {
     const [{ deckVersions, categories }, tags] = await Promise.all([
       fetchDecks(),
-      window.electron.ipcRenderer.invoke('tags:list')
+      invokeIpc('tags:list')
     ])
 
     referenceCache = {
@@ -257,7 +258,7 @@ async function loadTags(force = false, staleMs = 1000): Promise<TagLite[]> {
   if (!force && tagsInFlight) return tagsInFlight
 
   tagsInFlight = (async () => {
-    const tags = (await window.electron.ipcRenderer.invoke('tags:list')) as TagLite[]
+    const tags = await invokeIpc('tags:list')
     referenceCache = {
       deckVersions: referenceCache?.deckVersions ?? [],
       decks: referenceCache?.decks ?? [],

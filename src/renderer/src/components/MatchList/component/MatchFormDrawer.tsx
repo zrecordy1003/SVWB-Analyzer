@@ -86,6 +86,7 @@ import {
   DROPDOWN_PAPER_SX
 } from '@renderer/components/Common/filters/dropdownSurface'
 import { classes, classesMap, isDecklessMode, modes } from '@renderer/map/classMap'
+import { invokeIpc } from '@renderer/ipc'
 import type { ClassName, Deck, GameMode, Match, PlayOrder, Tag } from '@shared/domain'
 
 import DeckPicker from './DeckPicker'
@@ -564,7 +565,7 @@ const TagEditor: React.FC<{
 
   // 初次載入全部標籤
   useEffect(() => {
-    void window.electron.ipcRenderer.invoke('tags:list').then((list: Tag[]) => setAll(list || []))
+    void invokeIpc('tags:list').then((list) => setAll(list || []))
   }, [])
 
   // 以名稱（不分大小寫）找重複
@@ -577,7 +578,7 @@ const TagEditor: React.FC<{
     if (!name) return null
     const existed = all.find((t) => t.name.toLowerCase() === name.toLowerCase())
     if (existed) return existed
-    const created: Tag = await window.electron.ipcRenderer.invoke('tags:create', name)
+    const created = await invokeIpc('tags:create', name)
     setAll((prev) => [...prev, created])
     return created
   }
@@ -599,10 +600,7 @@ const TagEditor: React.FC<{
     }
     try {
       setSaveBusy(true)
-      const updated: Tag = await window.electron.ipcRenderer.invoke('tags:update', {
-        id: editing.id,
-        name
-      })
+      const updated = await invokeIpc('tags:update', { id: editing.id, name })
       // 更新清單與目前選取
       setAll((prev) => prev.map((t) => (t.id === updated.id ? { ...t, name: updated.name } : t)))
       onChange(value.map((t) => (t.id === updated.id ? { ...t, name: updated.name } : t)))
@@ -619,7 +617,7 @@ const TagEditor: React.FC<{
     if (!deleting) return
     try {
       setDeleteBusy(true)
-      await window.electron.ipcRenderer.invoke('tags:delete', deleting.id)
+      await invokeIpc('tags:delete', deleting.id)
       setAll((prev) => prev.filter((t) => t.id !== deleting.id))
       const next = value.filter((t) => t.id !== deleting.id)
       if (next.length !== value.length) onChange(next)
