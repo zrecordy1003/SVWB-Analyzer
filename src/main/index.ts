@@ -19,6 +19,7 @@ import { createAppTray } from './windows/tray.js'
 import { attachSmartClose } from './windows/smartClose.js'
 import { openExitConfirmDialog } from './windows/exitConfirmDialog.js'
 import { broadcast } from './utils/broadcast.js'
+import { IDLE_THRESHOLD_SECONDS, decidePoll, initialPollState } from './gamePoll.js'
 import { handleIpc, onIpc, onceIpc } from './ipc/typed.js'
 import { registerCardImageProtocol, registerCardImageScheme } from './protocol/cardImageProtocol.js'
 
@@ -315,8 +316,9 @@ function createWindow(): void {
 }
 
 // 閒置秒數門檻（可改成從 settings 讀取）
-const IDLE_THRESHOLD_SECONDS = 1800
-// const IDLE_THRESHOLD_SECONDS = 10
+// `IDLE_THRESHOLD_SECONDS` now lives with the decision it belongs to, in
+// `gamePoll.ts` - lower it there to test the timeouts by hand, or write a case
+// against `decidePoll` and not have to.
 
 async function isSystemIdle(thresholdSec: number): Promise<boolean> {
   const pm: any = powerMonitor as any
@@ -359,15 +361,16 @@ let focusTimer: ReturnType<typeof setInterval> | null = null
 function startPollingForGame(): void {
   if (pollingTimer) return
 
-  let isCapturing = false
-  let isAnalyzerRunning = false
-  let isSentMinimizedInfo = false
-  let isSentIdleInfo = false
-
-  // 上次「遊戲有在跑」的時間（不論最小化）
-  let lastGameRunningAt: number | null = null
-  // 上次「遊戲在跑且可擷取（未最小化、具有 bounds）」的時間
-  let lastUnpausedAt: number | null = null
+  /**
+   * All of the poll's memory, in one value.
+   *
+   * It used to be six separate `let`s in this closure, and the decisions that
+   * read them were interleaved with the side effects that acted on them. Both
+   * halves are now `decidePoll` in `gamePoll.ts`, which is a pure function
+   * with `tests/main/gamePoll.test.ts` behind it; what is left here is reading
+   * the world, and doing what it says.
+   */
+  let pollState = initialPollState
 
   const poll = async (): Promise<void> => {
     if (pollingInFlight) return
@@ -379,138 +382,64 @@ function startPollingForGame(): void {
       const win = mainWindow ?? BrowserWindow.getAllWindows()[0]
       if (!win || win.isDestroyed() || win.webContents?.isDestroyed()) return
 
-      // 推送遊戲狀態給 UI
+      // The full status, for the analyzer page's own display. Not part of the
+      // decision - it is forwarded whatever the state machine concludes.
       if (svwbStatus) win.webContents.postMessage('svwb:status', svwbStatus)
 
-      const now = Date.now()
-      const isGameRunning = !!svwbStatus?.running
       const bx = svwbStatus?.bounds?.x
       const by = svwbStatus?.bounds?.y
-      const hasBounds = typeof bx === 'number' && typeof by === 'number'
-      const isMinimized = hasBounds && bx === -32000 && by === -32000
+      const { state, actions } = decidePoll(pollState, {
+        now: Date.now(),
+        running: !!svwbStatus?.running,
+        bounds: typeof bx === 'number' && typeof by === 'number' ? { x: bx, y: by } : null,
+        hwnd: svwbStatus?.hwnd ?? null,
+        systemIdle: await isSystemIdle(IDLE_THRESHOLD_SECONDS)
+      })
+      pollState = state
 
-      // 「擷取」的暫停條件（和之前相同）：最小化 / 無 Bounds 視為不可擷取
-      const treatAsPaused = isGameRunning && (!hasBounds || isMinimized)
-
-      // The HUD is a separate window, so `win.webContents.send` below never
-      // reaches it. Broadcast a compact status so the HUD can say *why* it has
-      // nothing to show - "game not detected" and "no matches yet" look
-      // identical otherwise, which is the worst message for a new user.
-      // Only on change: this poll runs every second and the state rarely moves.
-      const gameStatus: GameStatus = {
-        running: isGameRunning,
-        paused: treatAsPaused,
-        capturing: isGameRunning && !treatAsPaused && svwbStatus?.hwnd != null
-      }
-      if (
-        !lastGameStatus ||
-        lastGameStatus.running !== gameStatus.running ||
-        lastGameStatus.paused !== gameStatus.paused ||
-        lastGameStatus.capturing !== gameStatus.capturing
-      ) {
-        lastGameStatus = gameStatus
-        broadcast('game:status', gameStatus)
-      }
-
-      // 更新時間戳
-      if (isGameRunning) lastGameRunningAt = now
-      if (isGameRunning && !treatAsPaused) lastUnpausedAt = now
-
-      // 閒置是否已超過 30 分鐘
-      const idleTooLong = await isSystemIdle(IDLE_THRESHOLD_SECONDS) // 1800
-
-      const THRESHOLD_MS = IDLE_THRESHOLD_SECONDS * 1000
-      const gameClosedTooLong =
-        !isGameRunning && lastGameRunningAt !== null && now - lastGameRunningAt >= THRESHOLD_MS
-      const minimizedTooLong =
-        isGameRunning && lastUnpausedAt !== null && now - lastUnpausedAt >= THRESHOLD_MS
-
-      // ─────────────────────────────────────────────────
-      // 擷取（Capture）：維持原本行為（最小化/隱藏就停，恢復就啟）
-      // ─────────────────────────────────────────────────
-      const hwnd = svwbStatus.hwnd
-      const shouldCapture = isGameRunning && !treatAsPaused && hwnd !== null
-
-      // No `battle:recog` send here or in the else branch any more. It carried
-      // exactly `shouldCapture`, which is `gameStatus.capturing` above - so the
-      // renderer was told the same fact twice, once change-gated with a
-      // `game:getStatus` catch-up for a window that opens late, and once
-      // unconditionally on every one-second tick. The second one is gone;
-      // `BattleStatus` reads `game:status` like the HUD already did.
-      if (shouldCapture) {
-        // The engine owns capture now, so it must be up before the attach; the
-        // attach itself is idempotent and re-sent every poll, which is also
-        // what re-establishes capture after an engine restart.
-        if (!isAnalyzerRunning) {
-          await ensureAnalyzer()
-          _startAnalyzer?.(win)
-          isAnalyzerRunning = true
+      for (const action of actions) {
+        switch (action.type) {
+          case 'broadcastStatus':
+            // The HUD is a separate window, so `win.webContents.send` would
+            // never reach it. Broadcasting lets it say *why* it has nothing to
+            // show - "game not detected" and "no matches yet" look identical
+            // otherwise, which is the worst message for a new user.
+            lastGameStatus = action.status
+            broadcast('game:status', action.status)
+            break
+          case 'startAnalyzer':
+            await ensureAnalyzer()
+            _startAnalyzer?.(win)
+            break
+          case 'stopAnalyzer':
+            try {
+              await _stopAnalyzer?.()
+            } catch (e) {
+              console.log(e)
+            }
+            break
+          case 'attachCapture':
+            attachCapture(action.hwnd)
+            break
+          case 'detachCapture':
+            detachCapture()
+            break
+          case 'captureStatus':
+            win.webContents.send('capture:status', action.capturing)
+            break
+          case 'notifyMinimized':
+            // The setting is checked here rather than in the decision, so that
+            // the one-shot flag flips whether or not the notification is
+            // actually shown - turning notifications on mid-minimise does not
+            // produce one for a minimise that already happened.
+            if (store.get('settings.enableNotifications') === true) {
+              new Notification({
+                title: '［提醒］遊戲最小化 / 視窗不在前景',
+                body: '已暫停擷取畫面，分析仍在待命；超過 30 分鐘會自動關閉。'
+              }).show()
+            }
+            break
         }
-        attachCapture(hwnd)
-        if (!isCapturing) {
-          isCapturing = true
-          win.webContents.send('capture:status', true)
-        }
-      } else {
-        if (isCapturing) {
-          detachCapture()
-          isCapturing = false
-          win.webContents.send('capture:status', false)
-        }
-      }
-
-      // 通知（只在第一次偵測到事件時提醒一次）
-      if (isGameRunning) {
-        if (isSentMinimizedInfo && !isMinimized && hasBounds) isSentMinimizedInfo = false
-        if (!isSentMinimizedInfo && (isMinimized || !hasBounds)) {
-          isSentMinimizedInfo = true
-          store.get('settings.enableNotifications') === true &&
-            new Notification({
-              title: '［提醒］遊戲最小化 / 視窗不在前景',
-              body: '已暫停擷取畫面，分析仍在待命；超過 30 分鐘會自動關閉。'
-            }).show()
-        }
-      } else {
-        isSentMinimizedInfo = false
-      }
-
-      if (isGameRunning) {
-        if (isSentIdleInfo && !idleTooLong) isSentIdleInfo = false
-        if (!isSentIdleInfo && idleTooLong) {
-          isSentIdleInfo = true
-          // new Notification({
-          //   title: '［提醒］系統閒置已達 30 分鐘',
-          //   body: '將自動關閉分析以節省資源。恢復操作或開啟遊戲時會再啟動。'
-          // }).show()
-        }
-      } else {
-        isSentIdleInfo = false
-      }
-
-      // ─────────────────────────────────────────────────
-      // 分析（Analyzer）：只有「閒置≥30 分鐘」或「遊戲關閉≥30 分鐘」才關閉
-      // 啟動時機仍保持「看到遊戲在跑」才啟動
-      // ─────────────────────────────────────────────────
-      const shouldStopAnalyzer = idleTooLong || gameClosedTooLong || minimizedTooLong
-
-      if (shouldStopAnalyzer) {
-        if (isAnalyzerRunning) {
-          try {
-            await _stopAnalyzer?.()
-          } catch (e) {
-            console.log(e)
-          }
-          isAnalyzerRunning = false
-        }
-      } else {
-        // 未達關閉條件時：
-        // 只有在「遊戲正在執行」且尚未啟動時，才啟動分析
-        if (isGameRunning && !isAnalyzerRunning) {
-          await ensureAnalyzer()
-          _startAnalyzer?.(win)
-          isAnalyzerRunning = true
-        }
-        // 遊戲關閉但尚未滿 30 分鐘 → 保持「暖機待命」
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
