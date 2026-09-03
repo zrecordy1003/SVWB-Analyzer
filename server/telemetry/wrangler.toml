@@ -7,6 +7,13 @@ compatibility_date = "2025-09-01"
 [observability]
 enabled = true
 
+# The nightly prune (`scheduled` in src/index.ts). 04:17 UTC rather than
+# midnight: nothing depends on the hour, and an off-the-hour minute keeps this
+# out of the crowd of cron jobs every other Worker on the platform schedules at
+# :00, which is where the scheduling delays live.
+[triggers]
+crons = ["17 4 * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "svwb-telemetry"

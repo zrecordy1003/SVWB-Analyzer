@@ -50,6 +50,37 @@ Security → WAF → Rate limiting rules，新增一條
 
 `namespace_id` 是 Worker 內部的編號，彼此不能重複；改動它等於把該限制器的計數歸零。
 
+## 保留期限
+
+沒有任何東西被刪除過——`ingest` 只會覆寫同一個 `(installId, date)`，所以在這之前每張表都是
+只增不減。夜間的 `scheduled` handler（cron `17 4 * * *`）補上這件事：
+
+| 表           | 保留   | 理由                                                                                 |
+| ------------ | ------ | ------------------------------------------------------------------------------------ |
+| `buckets`    | 120 天 | 公開路徑最多問 90 天（`META_MAX_DAYS`），留餘裕給窗口變寬                            |
+| `match_days` | 120 天 | 同上                                                                                 |
+| `activity`   | 400 天 | 一天一列、很小，而它是唯一的長期使用量紀錄——丟掉去年就永遠答不出「上個賽季相比如何」 |
+| `installs`   | 永久   | 一個安裝一列，而裡面的 `first_seen` 就是全部的成長紀錄                               |
+
+三個 `DELETE` 不放在同一個 batch：batch 是原子的，而那是錯的性質——`activity` 的清理失敗沒有
+任何理由要把 `buckets` 的清理一起回滾。失敗會記 log 然後放過，和這個 Worker 其他地方一樣的理由。
+
+驗證。「不刪窗口內資料」那半由 `smoke.mjs` 蓋（比較方向寫反會刪光線上資料，而其他測試都讀自己
+剛寫的資料，全都不會發現）。「會刪掉尾巴」那半 smoke 碰不到——`/v1/ingest` 拒收 30 天前的日子，
+所以它造不出可清理的資料。手動驗一次：
+
+```bash
+pnpm exec wrangler d1 execute svwb-telemetry --local --command \
+  "INSERT INTO buckets (install_id,date,tier,mode,my_class,oppo_class,play_order,result,count) \
+   VALUES ('ancient','2020-01-01','clean','ranked','witch','elf','first','win',5)"
+pnpm exec wrangler dev --local --test-scheduled   # 另一個終端
+curl http://127.0.0.1:8787/cdn-cgi/handler/scheduled
+pnpm exec wrangler d1 execute svwb-telemetry --local --command \
+  "SELECT COUNT(*) FROM buckets WHERE date < '2021-01-01'"   # 應為 0
+```
+
+`/cdn-cgi/handler/scheduled` 是 wrangler dev 的觸發端點，部署後不存在；正式環境靠 cron。
+
 ## 資料表
 
 見 `migrations/0001_init.sql`。四張表回答兩個問題：

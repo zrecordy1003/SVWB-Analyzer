@@ -314,6 +314,7 @@ describe('buildOverview', () => {
         { app_version: '1.2.0', installs: 10 }
       ],
       platforms30d: [{ platform: 'win32', installs: 25 }],
+      uploads30d: { n: 250, c: 25 },
       activity: [{ date: '2026-09-02', installs: 3 }],
       // One inside the 7-day window, one only inside the 30-day one, and one
       // older than the series - the third must not reach either total.
@@ -355,6 +356,7 @@ describe('buildOverview', () => {
     // counts only towards 30d and the 07-01 row towards neither: it is outside
     // the series the totals are summed from.
     expect(doc.newInstalls).toEqual({ last7d: 2, last30d: 7 })
+    expect(doc.uploads).toEqual({ total30dActive: 250, perActiveInstall30d: 10 })
     expect(doc.matchesLast30d).toEqual({
       total: 9,
       byTier: { clean: 8, legacy: 1 },

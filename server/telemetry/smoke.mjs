@@ -279,9 +279,20 @@ const lonerCell = metaLoner.body.cells.find(
     c.oppoClass === LONER.oppoClass &&
     c.playOrder === LONER.playOrder
 )
+/**
+ * Conditional, and it has to be. `suppressedCells > 0` is NOT an invariant:
+ * this script has been run against the same local database many times, each
+ * run adding one more install to this pairing, so by the sixth run the pairing
+ * is legitimately over the floor and nothing anywhere is suppressed. Asserting
+ * it unconditionally failed while the code was correct - the second time this
+ * file made that mistake.
+ *
+ * What holds either way: the cell is published only with enough installs
+ * behind it, and if it is absent then it was suppressed and counted as such.
+ */
 check(
   "one person's own record is withheld, and counted as withheld",
-  (!lonerCell || lonerCell.installs >= floor) && metaLoner.body.sampling.suppressedCells > 0,
+  lonerCell ? lonerCell.installs >= floor : metaLoner.body.sampling.suppressedCells > 0,
   { lonerCell, sampling: metaLoner.body.sampling }
 )
 
@@ -369,6 +380,34 @@ check(
 check('the admin route is closed without a token', (await get('/v1/admin/overview')).status === 401)
 check('and to the wrong token', (await get('/v1/admin/overview', `${TOKEN}x`)).status === 401)
 check('and open with the right one', (await get('/v1/admin/overview', TOKEN)).status === 200)
+
+/* ------------------------------------------------------------ nightly prune
+ *
+ * The retention job cannot be reached over the public API - `/v1/ingest`
+ * refuses a day more than 30 days old, so this script cannot create data that
+ * is prunable in the first place. What it CAN check is the half that would be
+ * catastrophic: that the comparison runs the right way round. A `date >`
+ * where the code means `date <` deletes the live window instead of the tail,
+ * and every other test here would still pass afterwards because they read
+ * their own writes before it ran.
+ *
+ * `/cdn-cgi/handler/scheduled` is wrangler dev's trigger and does not exist on
+ * a deployed Worker, so this is localhost-only. The tail-deleting half is
+ * verified by hand against a seeded old row; see the README.
+ */
+if (/^https?:\/\/(127\.0\.0\.1|localhost)(:|$)/.test(BASE)) {
+  const before = await today()
+  const fired = await fetch(`${BASE}/cdn-cgi/handler/scheduled`)
+  check('the scheduled prune runs', fired.status === 200, fired.status)
+  const after = await today()
+  check(
+    'and leaves everything inside the retention window alone',
+    after.matches === before.matches &&
+      after.abandoned === before.abandoned &&
+      after.manual === before.manual,
+    { before, after }
+  )
+}
 
 check('a malformed body is a 4xx, not a 500', (await post('{')).status === 400)
 const wrongSchema = await post(payload(A, '1.3.0', (p) => (p.schema = 99)))

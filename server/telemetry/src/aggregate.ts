@@ -205,6 +205,7 @@ export type ActivityRow = { date: string; installs: number }
 /** `installs.first_seen` truncated to its UTC date, grouped. */
 export type NewInstallRow = { date: string; installs: number }
 export type VersionRow = { app_version: string; installs: number }
+export type UploadsRow = { n: number; c: number }
 export type PlatformRow = { platform: string; installs: number }
 export type MatchDayRow = {
   date: string
@@ -235,6 +236,19 @@ export type OverviewDocument = {
    * machine is a new id here, so read it as an upper bound on new users.
    */
   newInstalls: { last7d: number; last30d: number }
+  /**
+   * Upload volume, from `installs.uploads` - the other column that was written
+   * from the first migration and read by nothing.
+   *
+   * `perActiveInstall30d` is the operational one. The client aims for one
+   * upload shortly after launch, one every six hours it stays open, and one
+   * ten minutes after a match, with a 60s floor between attempts - so a figure
+   * far above that says the schedule is firing more than it should, and one
+   * near zero with a healthy `active` says uploads are being refused
+   * somewhere. Neither is visible from active-install counts alone, because a
+   * single upload a day and thirty both read as "active".
+   */
+  uploads: { total30dActive: number; perActiveInstall30d: number }
   /** By the version each install last reported, among installs active in the period. */
   versions: Array<{ appVersion: string; active7d: number; active30d: number }>
   platforms: Array<{ platform: string; active30d: number }>
@@ -273,6 +287,7 @@ export function buildOverview(input: {
   active7d: number
   active30d: number
   installs: number
+  uploads30d: UploadsRow | null
   versions7d: readonly VersionRow[]
   versions30d: readonly VersionRow[]
   platforms30d: readonly PlatformRow[]
@@ -341,6 +356,14 @@ export function buildOverview(input: {
     active: { today: input.activeToday, last7d: input.active7d, last30d: input.active30d },
     installs: input.installs,
     newInstalls,
+    uploads: {
+      total30dActive: Number(input.uploads30d?.n) || 0,
+      // Rounded to one place: it is a ratio read at a glance, and the extra
+      // digits would only invite reading precision into it that is not there.
+      perActiveInstall30d: input.uploads30d?.c
+        ? Math.round((Number(input.uploads30d.n) / Number(input.uploads30d.c)) * 10) / 10
+        : 0
+    },
     versions: [...versions.values()].sort(
       (a, b) => b.active30d - a.active30d || (a.appVersion < b.appVersion ? 1 : -1)
     ),

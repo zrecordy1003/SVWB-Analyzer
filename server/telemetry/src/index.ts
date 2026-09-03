@@ -23,6 +23,7 @@ import {
   buildOverview,
   type ActivityRow,
   type NewInstallRow,
+  type UploadsRow,
   type MatchDayRow,
   type MatrixRow,
   type ModeRow,
@@ -89,6 +90,34 @@ const META_MAX_PER_INSTALL_CELL = 10
  */
 const META_MIN_INSTALLS_PER_CELL = 5
 /** Bigger than any honest payload by an order of magnitude. */
+/**
+ * Retention. Nothing here was ever deleted before this: `ingest` only ever
+ * replaced the rows for one `(install, date)`, so every table grew for the
+ * life of the deployment.
+ *
+ * That was not going to fall over soon - a thousand installs write on the
+ * order of a few million bucket rows a year, and every read is bounded by a
+ * date window with an index in front of it - but the tail is data that nothing
+ * can ever ask for again: `META_MAX_DAYS` caps the public window at 90 and the
+ * maintainer view at 30, so a row older than that is unreachable by every
+ * route the Worker has.
+ *
+ * `buckets` and `match_days` keep 120 days: comfortably past the 90 the public
+ * route can ask for, so a widened window is a constant change and not a
+ * migration.
+ *
+ * `activity` keeps far longer, and deliberately - it is one small row per
+ * install per day and it is the only record of how usage moved over time. The
+ * growth series reads 30 days of it today; throwing away the previous year
+ * would make a question like "how did last season compare" permanently
+ * unanswerable for the sake of kilobytes.
+ *
+ * `installs` is never pruned. One row per install, and `first_seen` in it is
+ * the entire growth record.
+ */
+const RETAIN_MATCH_DAYS = 120
+const RETAIN_ACTIVITY_DAYS = 400
+
 const MAX_BODY_BYTES = 256 * 1024
 /** D1 binds at most 100 parameters per statement; a bucket row takes 9. */
 const BUCKET_ROWS_PER_STATEMENT = 11
@@ -158,6 +187,48 @@ export default {
       console.error('unhandled', e)
       return json({ ok: false, error: 'internal error' }, 500)
     }
+  },
+
+  /**
+   * The nightly prune. See `RETAIN_MATCH_DAYS` for what is kept and why.
+   *
+   * Deliberately plain `DELETE`s rather than anything clever: each one is a
+   * range scan on the index that already exists for the read path
+   * (`buckets_date_mode_tier`, `match_days_date`, `activity_date` all lead with
+   * `date`), and they are idempotent - a run that deleted nothing because
+   * yesterday's run already had is the normal case.
+   *
+   * Not a batch. A batch is atomic, which is the wrong property here: if the
+   * activity prune fails there is no reason to roll back the bucket prune, and
+   * either one succeeding on its own is progress. Failures are logged and
+   * swallowed for the same reason every other failure on this Worker is - a
+   * prune that cannot run must not turn into a 500 on the ingest path.
+   *
+   * The log line is counts only, which is the one thing worth having in
+   * `wrangler tail` and carries nothing about anybody.
+   */
+  async scheduled(_event: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
+    const now = new Date()
+    const matchCutoff = daysAgo(now, RETAIN_MATCH_DAYS)
+    const activityCutoff = daysAgo(now, RETAIN_ACTIVITY_DAYS)
+
+    const prunes: Array<[string, string, string]> = [
+      ['buckets', 'DELETE FROM buckets WHERE date < ?1', matchCutoff],
+      ['match_days', 'DELETE FROM match_days WHERE date < ?1', matchCutoff],
+      ['activity', 'DELETE FROM activity WHERE date < ?1', activityCutoff]
+    ]
+
+    const removed: Record<string, number> = {}
+    for (const [table, sql, cutoff] of prunes) {
+      try {
+        const result = await env.DB.prepare(sql).bind(cutoff).run()
+        removed[table] = Number(result.meta?.changes ?? 0)
+      } catch (e) {
+        console.error('prune failed', table, e)
+        removed[table] = -1
+      }
+    }
+    console.log('pruned', JSON.stringify({ matchCutoff, activityCutoff, removed }))
   }
 }
 
@@ -426,6 +497,7 @@ async function overview(request: Request, env: Env): Promise<Response> {
     active7d,
     active30d,
     installs,
+    uploads30d,
     versions7d,
     versions30d,
     platforms30d,
@@ -445,6 +517,11 @@ async function overview(request: Request, env: Env): Promise<Response> {
       .bind(since30)
       .first<{ n: number }>(),
     env.DB.prepare(`SELECT COUNT(*) AS n FROM installs`).first<{ n: number }>(),
+    // Volume, and the count to divide it by, in one statement so the two
+    // cannot be taken from different populations.
+    env.DB.prepare(`SELECT SUM(uploads) AS n, COUNT(*) AS c FROM installs WHERE last_seen >= ?1`)
+      .bind(since30)
+      .first<UploadsRow>(),
     env.DB.prepare(
       `SELECT app_version, COUNT(*) AS installs FROM installs
        WHERE last_seen >= ?1 GROUP BY app_version`
@@ -502,6 +579,7 @@ async function overview(request: Request, env: Env): Promise<Response> {
       active7d: Number(active7d?.n) || 0,
       active30d: Number(active30d?.n) || 0,
       installs: Number(installs?.n) || 0,
+      uploads30d,
       versions7d: versions7d.results,
       versions30d: versions30d.results,
       platforms30d: platforms30d.results,
