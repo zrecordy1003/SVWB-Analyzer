@@ -35,6 +35,27 @@ param(
 # `param` has to be the first statement in the file, so this cannot move up.
 $ErrorActionPreference = 'Stop'
 
+# ...with two exceptions below, and here is why they exist.
+#
+# Under 'Stop', PowerShell turns a native command's stderr into a TERMINATING
+# error whenever that stderr is redirected - which `*> $null` does. Both `gh`
+# probes here treat a non-zero exit as an expected answer rather than a
+# failure, and `gh release view` writes «release not found» to stderr when the
+# release is absent.
+#
+# Absent is the answer a FIRST PUBLISH wants. So the probe printed nothing,
+# threw, and killed the script before it could report anything - every first
+# publish aborted at that line, which is presumably why: this path had never
+# been run. `pnpm release:win:dry` reproduced it immediately.
+#
+# The relaxation is per-call and restored right after, so an unexpected failure
+# anywhere else still stops the script. It is written inline rather than as a
+# helper because a scriptblock passed to a helper is evaluated in the scope it
+# was DEFINED in, where the preference would still be 'Stop'.
+#
+# `git push` and `gh release create` further down do NOT need this: their
+# stderr is left alone, and unredirected stderr raises no error record.
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Set-Location $repoRoot
 
@@ -56,8 +77,12 @@ if (-not $gh) {
     Fail "GitHub CLI not found. Install it, or add gh.exe to PATH."
 }
 
+# A probe: a non-zero exit is the answer, not an error. See the note above.
+$ErrorActionPreference = 'Continue'
 & $gh auth status *> $null
-if ($LASTEXITCODE -ne 0) {
+$authed = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = 'Stop'
+if (-not $authed) {
     Fail "gh is not authenticated. Run: gh auth login"
 }
 
@@ -79,8 +104,14 @@ foreach ($f in @($exe, $blockmap, $latestYml)) {
 
 # --- the version must not already be published -------------------------
 
+# The other probe, and the one that used to abort every first publish: `gh`
+# writes «release not found» to stderr and exits 1, which is exactly the state
+# this script wants to find. See the note at the top.
+$ErrorActionPreference = 'Continue'
 & $gh release view $tag *> $null
-if ($LASTEXITCODE -eq 0) {
+$alreadyPublished = ($LASTEXITCODE -eq 0)
+$ErrorActionPreference = 'Stop'
+if ($alreadyPublished) {
     Fail @"
 $tag already exists on GitHub. Bump the version field in package.json and rebuild.
 Re-publishing a released version replaces its installer while existing users
