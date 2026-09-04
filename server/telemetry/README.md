@@ -17,10 +17,28 @@ app 端的對應程式在 `src/main/telemetry/`；wire format 在 `src/shared/te
 | ---- | -------------------- | ------------------------------------------------------------------- | -------------------------------------- |
 | POST | `/v1/ingest`         | app 上傳。以 `(installId, date)` 為鍵整批**覆寫**，重送冪等。       | 無認證；每 IP 60/分、每 installId 6/分 |
 | GET  | `/v1/meta`           | 公開彙總：ranked、`clean` tier、預設最近 14 天（`?days=1..90`）。   | 無認證；每 IP 120/分；邊緣快取 15 分   |
-| GET  | `/v1/admin/overview` | 維護者數字：活躍安裝數（今日／7 天／30 天）、各版本人數、每日序列。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
+| GET  | `/v1/admin/overview` | 維護者數字：活躍安裝數（今日／7 天／30 天）、各版本人數、每日序列、**CR 段位切分**。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
 | GET  | `/health`            | 存活檢查                                                            | 無                                     |
 
 `/v1/ingest` 沒有認證，因為 client 是開源的，任何金鑰都等於公開（`docs/meta-stats-plan.md` R-5）。
+
+### schema 版本
+
+`/v1/ingest` 同時收 **schema 1 與 2**，而這份清單只會變長、不會變短。端點是編譯進安裝檔的，
+所以一個永遠不更新的安裝會一直送它當年的 schema；把 1 從 `TELEMETRY_ACCEPTED_SCHEMAS` 拿掉
+不會「讓那些安裝升級」，只會讓它們**無聲地不再被計算**。
+
+schema 2 在每個 bucket 上加了 `crBand`。schema 1 的 bucket 沒有這個欄位，存成 `unknown`——
+跟一個 schema 2 客戶端「讀不到 CR」時送的值是同一個，而且這是**刻意**讓兩者無法區分的：
+兩者都沒有說出這場對局的階級。相對地，schema 2 少送 `crBand` 是**被拒收**的（`missing
+crBand`），因為 `unknown` 本來就是多數，一個悄悄不送這個欄位的客戶端會直接消失在裡面。
+
+### 為什麼 CR 段位不在 `/v1/meta`
+
+因為算術。公開的每一格要 `META_MIN_INSTALLS_PER_CELL` 個不同安裝，而目前過得了這個門檻的
+每一格都只有 5～11 個；再乘上段位數，公開矩陣會歸零。所以這個維度**現在就收**（歷史補不
+回來），但只在沒有門檻的 admin 路徑上切分。等安裝數長起來要在公開端點打開，是改常數、
+不用發版。
 
 第一層防線是統計性的：列舉值白名單、單日場次上限（`TELEMETRY_MAX_MATCHES_PER_DAY`）、body 大小
 上限、逐日拒收而非整包拒收，以及覆寫語意讓重送不會累加。但這些都攔不住「偽造大量 installId」——
@@ -83,12 +101,17 @@ pnpm exec wrangler d1 execute svwb-telemetry --local --command \
 
 ## 資料表
 
-見 `migrations/0001_init.sql`。四張表回答兩個問題：
+見 `migrations/0001_init.sql`（與 `0002_cr_band.sql`）。四張表回答兩個問題：
 
 - **誰在用什麼**：`installs`（每個安裝一列，最後回報的版本／平台）、`activity`（每個安裝每個
   _收到上傳的_ UTC 日一列）。「今日活躍」= `activity` 當日列數。
 - **記錄了什麼**：`match_days`（每個安裝每個 _對局發生的_ UTC 日一列，含總數）、`buckets`
-  （依 tier／模式／雙方職業／先後攻／勝負的計數）。
+  （依 tier／模式／雙方職業／先後攻／**CR 段位**／勝負的計數）。
+
+`0002` 是重建而不是 `ALTER TABLE ADD COLUMN`：段位是 bucket 身分的一部分（同一個對戰在不同
+CR 打的是兩個 bucket），所以要進 PRIMARY KEY，而 SQLite 改不動 primary key。既有列一律變成
+`unknown`，那就是它們的真相。對線上資料是安全的：ingest 是以 `(install_id, date)` 為鍵
+`DELETE` 再 `INSERT`，不是靠 PK upsert，所以擴 PK 不會留下孤兒列。
 
 兩組日期刻意分開：一個人今天打開程式，上傳的是過去 14 天的對局；活躍度看前者，對局趨勢看後者。
 
@@ -118,6 +141,16 @@ pnpm db:migrate
 pnpm exec wrangler secret put ADMIN_TOKEN
 pnpm deploy
 ```
+
+**順序不能顛倒**，而顛倒的代價是靜默的資料遺失：
+
+1. `pnpm db:migrate`（remote）——`buckets` 加上 `cr_band` 並擴 PK。
+2. `pnpm deploy`——這版才會收 schema 2。
+3. **最後**才發帶 schema 2 的 app。
+
+如果先發 app，那些安裝送出的 schema 2 會被舊 Worker 以 `unsupported schema 2` 全部 400 掉，
+而客戶端只會把失敗記在 log 裡；等你發現的時候那段時間的對局已經過了 30 天的收件窗口，
+補不回來了。反過來（先部署後發版）沒有任何代價：新 Worker 照樣收 schema 1。
 
 部署完成會印出 Worker 的網址。把它填進
 `src/main/telemetry/config.ts` 的 `BUILT_IN_ENDPOINT`，重新打包 app。**沒填之前 app 的開關是

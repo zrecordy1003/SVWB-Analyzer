@@ -26,6 +26,8 @@ import {
   type UploadsRow,
   type MatchDayRow,
   type MatrixRow,
+  type BandMatrixRow,
+  type CrBandRow,
   type ModeRow,
   type PlatformRow,
   type TierRow,
@@ -119,8 +121,16 @@ const RETAIN_MATCH_DAYS = 120
 const RETAIN_ACTIVITY_DAYS = 400
 
 const MAX_BODY_BYTES = 256 * 1024
-/** D1 binds at most 100 parameters per statement; a bucket row takes 9. */
-const BUCKET_ROWS_PER_STATEMENT = 11
+/**
+ * D1 binds at most 100 parameters per statement; a bucket row takes 10.
+ *
+ * Derived rather than written down, because the two have to move together:
+ * `cr_band` took the row from 9 columns to 10, and a hand-tuned 11 would have
+ * bound 110 parameters and failed every upload carrying more than ten buckets -
+ * which is most of them.
+ */
+const BUCKET_COLUMNS = 10
+const BUCKET_ROWS_PER_STATEMENT = Math.floor(100 / BUCKET_COLUMNS)
 
 const DAY_MS = 86_400_000
 
@@ -332,7 +342,9 @@ function dayStatements(
   )
   for (let i = 0; i < day.buckets.length; i += BUCKET_ROWS_PER_STATEMENT) {
     const chunk = day.buckets.slice(i, i + BUCKET_ROWS_PER_STATEMENT)
-    const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')
+    const placeholders = chunk
+      .map(() => `(${Array(BUCKET_COLUMNS).fill('?').join(', ')})`)
+      .join(', ')
     const values = chunk.flatMap((b) => [
       installId,
       day.date,
@@ -341,12 +353,15 @@ function dayStatements(
       b.myClass,
       b.oppoClass,
       b.playOrder,
+      // Always a string: `validateBucket` defaults a schema-1 bucket, which has
+      // no such field, to 'unknown'.
+      b.crBand,
       b.result,
       b.count
     ])
     out.push(
       env.DB.prepare(
-        `INSERT INTO buckets (install_id, date, tier, mode, my_class, oppo_class, play_order, result, count)
+        `INSERT INTO buckets (install_id, date, tier, mode, my_class, oppo_class, play_order, cr_band, result, count)
          VALUES ${placeholders}`
       ).bind(...values)
     )
@@ -505,7 +520,9 @@ async function overview(request: Request, env: Env): Promise<Response> {
     newInstalls,
     matchDays,
     tiers,
-    modes
+    modes,
+    crBands,
+    bandCells
   ] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) AS n FROM activity WHERE date = ?1`)
       .bind(today)
@@ -569,7 +586,42 @@ async function overview(request: Request, env: Env): Promise<Response> {
       .all<TierRow>(),
     env.DB.prepare(`SELECT mode, SUM(count) AS n FROM buckets WHERE date >= ?1 GROUP BY mode`)
       .bind(since30)
-      .all<ModeRow>()
+      .all<ModeRow>(),
+    /**
+     * The rank split, scoped to exactly what the public matrix counts
+     * (`META_MODE` and `META_TIERS`) so the two are comparable: the point of
+     * this view is "the same table, split by band", and a different mode or
+     * tier filter would make the bands add up to a different total than the
+     * public document reports.
+     *
+     * No per-install cap and no k-anonymity floor here. Both exist because
+     * `/v1/meta` is public; this route is bearer-authenticated and serves its
+     * owner, who needs the raw shape to decide whether a split is worth
+     * publishing at all. `installs` is still reported per row, because that is
+     * the number that says whether a cell could ever be published.
+     */
+    env.DB.prepare(
+      `SELECT cr_band,
+              COUNT(DISTINCT install_id) AS installs,
+              SUM(CASE WHEN result = 'win' THEN count ELSE 0 END) AS wins,
+              SUM(count) AS total
+       FROM buckets
+       WHERE date >= ?1 AND mode = ?2 AND tier IN (${META_TIERS.map(() => '?').join(', ')})
+       GROUP BY cr_band`
+    )
+      .bind(since30, META_MODE, ...META_TIERS)
+      .all<CrBandRow>(),
+    env.DB.prepare(
+      `SELECT cr_band, my_class, oppo_class, play_order,
+              COUNT(DISTINCT install_id) AS installs,
+              SUM(CASE WHEN result = 'win' THEN count ELSE 0 END) AS wins,
+              SUM(count) AS total
+       FROM buckets
+       WHERE date >= ?1 AND mode = ?2 AND tier IN (${META_TIERS.map(() => '?').join(', ')})
+       GROUP BY cr_band, my_class, oppo_class, play_order`
+    )
+      .bind(since30, META_MODE, ...META_TIERS)
+      .all<BandMatrixRow>()
   ])
 
   return json(
@@ -587,7 +639,9 @@ async function overview(request: Request, env: Env): Promise<Response> {
       newInstalls: newInstalls.results,
       matchDays: matchDays.results,
       tiers: tiers.results,
-      modes: modes.results
+      modes: modes.results,
+      crBands: crBands.results,
+      bandCells: bandCells.results
     }),
     200,
     { 'cache-control': 'no-store' }

@@ -16,13 +16,15 @@
  * vitest suite so the server's rules and the client's constants are checked in
  * the same run.
  */
+import { CR_BAND_UNKNOWN } from '../../../src/shared/crBands'
 import {
+  TELEMETRY_ACCEPTED_SCHEMAS,
   TELEMETRY_CLASSES,
+  TELEMETRY_CR_BANDS,
   TELEMETRY_MAX_MATCHES_PER_DAY,
   TELEMETRY_MODES,
   TELEMETRY_PLAY_ORDERS,
   TELEMETRY_RESULTS,
-  TELEMETRY_SCHEMA,
   TELEMETRY_TIERS,
   TELEMETRY_WINDOW_DAYS
 } from '../../../src/shared/telemetry'
@@ -33,6 +35,8 @@ export type ValidBucket = {
   myClass: string
   oppoClass: string
   playOrder: string
+  /** Always set. A schema-1 bucket has no such field and is stored as `unknown`. */
+  crBand: string
   result: string
   count: number
 }
@@ -71,6 +75,7 @@ const MAX_BUCKETS_PER_DAY =
   TELEMETRY_CLASSES.length *
   TELEMETRY_CLASSES.length *
   TELEMETRY_PLAY_ORDERS.length *
+  TELEMETRY_CR_BANDS.length *
   TELEMETRY_RESULTS.length
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -100,9 +105,15 @@ function dateMs(date: string): number | null {
   return ms
 }
 
-function validateBucket(raw: unknown): ValidBucket | string {
+/**
+ * @param schema the payload's declared schema, which decides whether `crBand`
+ *   is required. Absent-and-defaulted is correct for 1 and a client bug for 2,
+ *   and the two must not look the same: `unknown` is already the majority band,
+ *   so a client that quietly stopped sending the field would vanish into it.
+ */
+function validateBucket(raw: unknown, schema: number): ValidBucket | string {
   if (!isRecord(raw)) return 'bucket is not an object'
-  const { tier, mode, myClass, oppoClass, playOrder, result, count } = raw
+  const { tier, mode, myClass, oppoClass, playOrder, crBand, result, count } = raw
   if (typeof tier !== 'string' || !(TELEMETRY_TIERS as readonly string[]).includes(tier)) {
     return `unknown tier ${String(tier)}`
   }
@@ -121,13 +132,26 @@ function validateBucket(raw: unknown): ValidBucket | string {
   if (typeof result !== 'string' || !(TELEMETRY_RESULTS as readonly string[]).includes(result)) {
     return `unknown result ${String(result)}`
   }
+  let band: string
+  if (typeof crBand === 'undefined') {
+    if (schema >= 2) return 'missing crBand'
+    band = CR_BAND_UNKNOWN
+  } else if (typeof crBand === 'string' && TELEMETRY_CR_BANDS.includes(crBand)) {
+    band = crBand
+  } else {
+    return `unknown cr band ${String(crBand)}`
+  }
   if (!isCount(count, 1) || count > TELEMETRY_MAX_MATCHES_PER_DAY) {
     return `bad count ${String(count)}`
   }
-  return { tier, mode, myClass, oppoClass, playOrder, result, count }
+  return { tier, mode, myClass, oppoClass, playOrder, crBand: band, result, count }
 }
 
-function validateDay(raw: unknown, now: Date): ValidDay | { date: string; reason: string } {
+function validateDay(
+  raw: unknown,
+  now: Date,
+  schema: number
+): ValidDay | { date: string; reason: string } {
   const date = isRecord(raw) && typeof raw.date === 'string' ? raw.date : '(invalid)'
   const fail = (reason: string): { date: string; reason: string } => ({ date, reason })
 
@@ -151,7 +175,7 @@ function validateDay(raw: unknown, now: Date): ValidDay | { date: string; reason
   const seen = new Set<string>()
   let matches = 0
   for (const entry of raw.buckets) {
-    const bucket = validateBucket(entry)
+    const bucket = validateBucket(entry, schema)
     if (typeof bucket === 'string') return fail(bucket)
     const key = [
       bucket.tier,
@@ -159,6 +183,7 @@ function validateDay(raw: unknown, now: Date): ValidDay | { date: string; reason
       bucket.myClass,
       bucket.oppoClass,
       bucket.playOrder,
+      bucket.crBand,
       bucket.result
     ].join('|')
     if (seen.has(key)) return fail('duplicate bucket')
@@ -174,9 +199,20 @@ function validateDay(raw: unknown, now: Date): ValidDay | { date: string; reason
 
 export function validatePayload(body: unknown, now: Date): Verdict {
   if (!isRecord(body)) return { ok: false, status: 400, error: 'body is not an object' }
-  if (body.schema !== TELEMETRY_SCHEMA) {
+  /**
+   * Both live schemas, and this list only ever grows.
+   *
+   * The endpoint is compiled into the installer, so an install that never
+   * updates keeps sending its schema forever. Dropping 1 here would not
+   * "migrate" those installs; it would silently stop counting them.
+   */
+  if (
+    typeof body.schema !== 'number' ||
+    !(TELEMETRY_ACCEPTED_SCHEMAS as readonly number[]).includes(body.schema)
+  ) {
     return { ok: false, status: 400, error: `unsupported schema ${String(body.schema)}` }
   }
+  const schema = body.schema
   const { installId, appVersion, platform, arch, locale, days } = body
   if (typeof installId !== 'string' || !UUID_RE.test(installId)) {
     return { ok: false, status: 400, error: 'bad installId' }
@@ -204,7 +240,7 @@ export function validatePayload(body: unknown, now: Date): Verdict {
   const rejected: Array<{ date: string; reason: string }> = []
   const dates = new Set<string>()
   for (const raw of days) {
-    const day = validateDay(raw, now)
+    const day = validateDay(raw, now, schema)
     if ('reason' in day) {
       rejected.push(day)
       continue

@@ -11,9 +11,15 @@
  *   history, collapsed into counting buckets. See docs/meta-stats-plan.md D-1.
  *
  * A bucket is a count keyed on the statistical dimensions only. There is no
- * deck name, note, tag, timestamp, BP, MP or CR anywhere in this payload; the
- * finest thing it can say is "this install won 3 ranked games as witch against
- * dragon going first on 2026-09-02".
+ * deck name, note, tag, timestamp, BP or MP anywhere in this payload, and no
+ * CR *value*: schema 2 carries the five-band `crBand` the match was played in,
+ * never the number. The distinction is the whole privacy argument. A CR value
+ * changes every game and is close to unique, so a series of them per install
+ * reconstructs a ladder trajectory that can be matched against the in-game
+ * leaderboard; a band is one more categorical dimension, the same shape as
+ * class or play order. The finest thing this payload can say is "this install
+ * won 3 ranked games as witch against dragon going first at CR 1750-1849 on
+ * 2026-09-02".
  *
  * Every day in the window is sent every time, including empty ones. The server
  * replaces its rows for `(installId, date)` wholesale, so a match the user
@@ -25,8 +31,22 @@
  * so the whitelist it validates against is the one the client writes.
  */
 import { ClassName, GameMode, PlayOrder } from './domain.js'
+import { CR_BAND_KEYS } from './crBands.js'
 
-export const TELEMETRY_SCHEMA = 1 as const
+/**
+ * 2 added `crBand` to every bucket.
+ *
+ * The server accepts 1 and 2 and will have to keep doing so: the endpoint is
+ * compiled into the installer, so an install that never updates sends 1
+ * forever. A schema-1 bucket is stored with `crBand = 'unknown'`, which is the
+ * same value a schema-2 client sends for a match whose CR was never read - so
+ * the two are indistinguishable downstream, and that is correct. Neither says
+ * anything about the rank it was played at.
+ */
+export const TELEMETRY_SCHEMA = 2 as const
+
+/** Schemas the server still ingests. Dropping one silently discards uploads. */
+export const TELEMETRY_ACCEPTED_SCHEMAS = [1, 2] as const
 
 /** How many UTC days, today included, each upload covers. */
 export const TELEMETRY_WINDOW_DAYS = 14
@@ -62,6 +82,9 @@ export type TelemetryResult = (typeof TELEMETRY_RESULTS)[number]
 export const TELEMETRY_CLASSES: readonly string[] = Object.values(ClassName)
 export const TELEMETRY_MODES: readonly string[] = Object.values(GameMode)
 export const TELEMETRY_PLAY_ORDERS: readonly string[] = Object.values(PlayOrder)
+/** `CR_BANDS`' keys plus `unknown`. Defined in `crBands.ts`; see the note there
+ *  about why a cut point must never be moved once it has shipped. */
+export const TELEMETRY_CR_BANDS: readonly string[] = CR_BAND_KEYS
 
 export type TelemetryBucket = {
   tier: TelemetryTier
@@ -70,6 +93,17 @@ export type TelemetryBucket = {
   myClass: string
   oppoClass: string
   playOrder: string
+  /**
+   * Which `CR_BANDS` band the match was played in, or `'unknown'`.
+   *
+   * `unknown` is a real value with a real meaning and will be the majority for
+   * a long time: CR is only on the ranked screen, the engine does not always
+   * read it, and `legacy` rows predate the field entirely. Summing every band
+   * therefore reproduces the unsplit numbers exactly - which is the property
+   * that lets the server keep serving an unsplit public aggregate while this
+   * dimension accumulates.
+   */
+  crBand: string
   result: TelemetryResult
   count: number
 }

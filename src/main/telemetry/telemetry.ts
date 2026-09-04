@@ -164,6 +164,10 @@ async function readWindowRows(now: number): Promise<RollupRow[]> {
       'mode',
       'playedAt',
       'source',
+      // Read, banded by `rollup`, and never sent as a number. See the header
+      // comment there - this select is the only reason CR leaves the table at
+      // all, and `crBandOf` is where the value stops.
+      'current_cr',
       'edited_fields',
       'recog_flags'
     ])

@@ -216,6 +216,21 @@ export type MatchDayRow = {
 }
 export type TierRow = { tier: string; n: number }
 export type ModeRow = { mode: string; n: number }
+export type CrBandRow = {
+  cr_band: string
+  installs: number
+  wins: number
+  total: number
+}
+export type BandMatrixRow = {
+  cr_band: string
+  my_class: string
+  oppo_class: string
+  play_order: string
+  installs: number
+  wins: number
+  total: number
+}
 
 export type OverviewDocument = {
   generatedAt: string
@@ -266,6 +281,45 @@ export type OverviewDocument = {
   }>
   /** Bucketed matches in the last 30 days, split the two ways the server can split them. */
   matchesLast30d: { total: number; byTier: Record<string, number>; byMode: Record<string, number> }
+  /**
+   * The rank split, on the maintainer's route rather than the public one.
+   *
+   * Deliberately here and not in `/v1/meta`, and the reason is arithmetic. A
+   * public cell needs `META_MIN_INSTALLS_PER_CELL` distinct installs, and every
+   * cell that currently clears that floor does so with between five and eleven;
+   * multiplying the cell count by the number of bands would take the published
+   * matrix to approximately zero. So the dimension is collected now - history
+   * cannot be recovered later - and served where there is no floor, while the
+   * public aggregate stays unsplit until the install base can carry it. Turning
+   * it on there is a constant change with no client release.
+   *
+   * `crBand: 'unknown'` will dominate for a long time and that is not a fault:
+   * CR only exists on the ranked screen, the engine does not always read it,
+   * and every row uploaded before schema 2 is `unknown` by definition. Summing
+   * the bands reproduces the unsplit totals exactly.
+   */
+  rank: {
+    /** One row per band, ranked mode and the public tiers only. */
+    bands: Array<{
+      crBand: string
+      installs: number
+      wins: number
+      total: number
+    }>
+    /**
+     * Per band, the matchup cells - no k-anonymity floor applied, because this
+     * route is bearer-authenticated and serves one person: its owner.
+     */
+    cells: Array<{
+      crBand: string
+      myClass: string
+      oppoClass: string
+      playOrder: string
+      installs: number
+      wins: number
+      total: number
+    }>
+  }
 }
 
 const DAY_MS = 86_400_000
@@ -296,6 +350,8 @@ export function buildOverview(input: {
   matchDays: readonly MatchDayRow[]
   tiers: readonly TierRow[]
   modes: readonly ModeRow[]
+  crBands: readonly CrBandRow[]
+  bandCells: readonly BandMatrixRow[]
 }): OverviewDocument {
   const versions = new Map<string, { appVersion: string; active7d: number; active30d: number }>()
   for (const row of input.versions30d) {
@@ -371,6 +427,25 @@ export function buildOverview(input: {
       .map((row) => ({ platform: row.platform, active30d: Number(row.installs) || 0 }))
       .sort((a, b) => b.active30d - a.active30d),
     series,
-    matchesLast30d: { total, byTier, byMode }
+    matchesLast30d: { total, byTier, byMode },
+    rank: {
+      bands: input.crBands
+        .map((row) => ({
+          crBand: row.cr_band,
+          installs: Number(row.installs) || 0,
+          wins: Number(row.wins) || 0,
+          total: Number(row.total) || 0
+        }))
+        .sort((a, b) => b.total - a.total),
+      cells: input.bandCells.map((row) => ({
+        crBand: row.cr_band,
+        myClass: row.my_class,
+        oppoClass: row.oppo_class,
+        playOrder: row.play_order,
+        installs: Number(row.installs) || 0,
+        wins: Number(row.wins) || 0,
+        total: Number(row.total) || 0
+      }))
+    }
   }
 }

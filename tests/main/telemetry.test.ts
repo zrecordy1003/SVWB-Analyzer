@@ -3,6 +3,7 @@
  * refuses to send, and that nothing it does can throw at its caller.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { TELEMETRY_SCHEMA } from '../../src/shared/telemetry'
 import type { TelemetryPayload, TelemetryStatus } from '../../src/shared/telemetry'
 import { createMigratedTestDb, insertMatch, removeTestDb, type TestDb } from '../helpers/db'
 
@@ -144,6 +145,10 @@ describe('telemetry upload', () => {
       my_class: 'witch',
       oppo_class: 'dragon',
       mode: 'ranked',
+      // A real CR, so this end-to-end case asserts a real band rather than the
+      // `unknown` a missing one would give - which would pass whether or not
+      // the column was ever read.
+      current_cr: 1_920,
       playedAt: new Date(NOW - 3_600_000)
     })
     await insertMatch({
@@ -171,7 +176,7 @@ describe('telemetry upload', () => {
     expect(sent[0].url).toBe(`${ENDPOINT}/v1/ingest`)
     const body = sent[0].body
     expect(body).toMatchObject({
-      schema: 1,
+      schema: TELEMETRY_SCHEMA,
       appVersion: '9.9.9',
       platform: 'win32',
       arch: 'x64',
@@ -192,6 +197,7 @@ describe('telemetry upload', () => {
           myClass: 'witch',
           oppoClass: 'dragon',
           playOrder: 'first',
+          crBand: 'b1850',
           result: 'win',
           count: 1
         }

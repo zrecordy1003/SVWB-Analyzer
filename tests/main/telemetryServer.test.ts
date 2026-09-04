@@ -53,6 +53,7 @@ describe('validatePayload', () => {
         mode: 'ranked',
         playedAt: NOW.getTime() - 60_000,
         source: 'engine',
+        current_cr: 1875,
         edited_fields: null,
         recog_flags: null
       },
@@ -64,6 +65,7 @@ describe('validatePayload', () => {
         mode: null,
         playedAt: NOW.getTime() - 120_000,
         source: null,
+        current_cr: null,
         edited_fields: null,
         recog_flags: null
       }
@@ -82,7 +84,11 @@ describe('validatePayload', () => {
     for (const bad of [
       null,
       [],
-      payload({ schema: 2 }),
+      // 2 is the current schema; 3 does not exist yet. The accepted set only
+      // ever grows, so this case has to name a FUTURE schema to stay a test of
+      // "unsupported" rather than of "not the newest".
+      payload({ schema: 3 }),
+      payload({ schema: '2' }),
       payload({ installId: 'not-a-uuid' }),
       payload({ appVersion: '1.3' }),
       payload({ platform: 'win 32' }),
@@ -328,7 +334,22 @@ describe('buildOverview', () => {
         { tier: 'clean', n: 8 },
         { tier: 'legacy', n: 1 }
       ],
-      modes: [{ mode: 'ranked', n: 9 }]
+      modes: [{ mode: 'ranked', n: 9 }],
+      crBands: [
+        { cr_band: 'unknown', installs: 20, wins: 30, total: 60 },
+        { cr_band: 'b1850', installs: 4, wins: 6, total: 10 }
+      ],
+      bandCells: [
+        {
+          cr_band: 'b1850',
+          my_class: 'witch',
+          oppo_class: 'dragon',
+          play_order: 'first',
+          installs: 4,
+          wins: 6,
+          total: 10
+        }
+      ]
     })
     expect(doc.today).toBe('2026-09-02')
     expect(doc.active).toEqual({ today: 3, last7d: 10, last30d: 25 })
@@ -367,5 +388,201 @@ describe('buildOverview', () => {
   it('lastDates runs oldest to newest and ends today', () => {
     const dates = lastDates(NOW, 3)
     expect(dates).toEqual(['2026-08-31', '2026-09-01', '2026-09-02'])
+  })
+})
+
+describe('CR band over the wire', () => {
+  /** A schema-2 bucket, i.e. what the current client actually builds. */
+  function v2(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return payload({
+      schema: 2,
+      days: [
+        {
+          date: '2026-09-02',
+          abandoned: 0,
+          manual: 0,
+          buckets: [
+            {
+              tier: 'clean',
+              mode: 'ranked',
+              myClass: 'witch',
+              oppoClass: 'dragon',
+              playOrder: 'first',
+              crBand: 'b1850',
+              result: 'win',
+              count: 3
+            }
+          ]
+        }
+      ],
+      ...overrides
+    })
+  }
+
+  it('stores a schema-1 bucket as unknown rather than refusing it', () => {
+    /**
+     * The compatibility case that matters most. The endpoint is compiled into
+     * the installer, so an install that never updates sends schema 1 forever;
+     * if this ever starts failing, those uploads stop being counted and nothing
+     * anywhere says so.
+     */
+    const verdict = validatePayload(payload(), NOW)
+    expect(verdict.ok).toBe(true)
+    if (verdict.ok) {
+      expect(verdict.value.days[0]?.buckets[0]?.crBand).toBe('unknown')
+      expect(verdict.value.rejected).toEqual([])
+    }
+  })
+
+  it('accepts a schema-2 bucket and keeps its band', () => {
+    const verdict = validatePayload(v2(), NOW)
+    expect(verdict.ok).toBe(true)
+    if (verdict.ok) expect(verdict.value.days[0]?.buckets[0]?.crBand).toBe('b1850')
+  })
+
+  it('refuses a schema-2 bucket with no band instead of silently defaulting it', () => {
+    // `unknown` is already the majority band, so a client that stopped sending
+    // the field would disappear into it without a trace. Hence the asymmetry
+    // with schema 1 above.
+    const bad = v2({
+      days: [
+        {
+          date: '2026-09-02',
+          abandoned: 0,
+          manual: 0,
+          buckets: [
+            {
+              tier: 'clean',
+              mode: 'ranked',
+              myClass: 'witch',
+              oppoClass: 'dragon',
+              playOrder: 'first',
+              result: 'win',
+              count: 1
+            }
+          ]
+        }
+      ]
+    })
+    const verdict = validatePayload(bad, NOW)
+    expect(verdict.ok).toBe(true)
+    if (verdict.ok) {
+      expect(verdict.value.days).toEqual([])
+      expect(verdict.value.rejected[0]?.reason).toBe('missing crBand')
+    }
+  })
+
+  it('refuses a band outside the whitelist', () => {
+    for (const band of ['b1234', 'gte3000', '', 1850, null]) {
+      const verdict = validatePayload(
+        v2({
+          days: [
+            {
+              date: '2026-09-02',
+              abandoned: 0,
+              manual: 0,
+              buckets: [
+                {
+                  tier: 'clean',
+                  mode: 'ranked',
+                  myClass: 'witch',
+                  oppoClass: 'dragon',
+                  playOrder: 'first',
+                  crBand: band,
+                  result: 'win',
+                  count: 1
+                }
+              ]
+            }
+          ]
+        }),
+        NOW
+      )
+      expect(verdict.ok).toBe(true)
+      if (verdict.ok) expect(verdict.value.rejected[0]?.reason).toContain('cr band')
+    }
+  })
+
+  it('treats two bands of the same matchup as different buckets, not a duplicate', () => {
+    // The dedupe key had to grow with the row. Without the band in it, the
+    // second bucket here would be refused as a duplicate and the day dropped.
+    const verdict = validatePayload(
+      v2({
+        days: [
+          {
+            date: '2026-09-02',
+            abandoned: 0,
+            manual: 0,
+            buckets: [
+              {
+                tier: 'clean',
+                mode: 'ranked',
+                myClass: 'witch',
+                oppoClass: 'dragon',
+                playOrder: 'first',
+                crBand: 'b1750',
+                result: 'win',
+                count: 2
+              },
+              {
+                tier: 'clean',
+                mode: 'ranked',
+                myClass: 'witch',
+                oppoClass: 'dragon',
+                playOrder: 'first',
+                crBand: 'b1850',
+                result: 'win',
+                count: 5
+              }
+            ]
+          }
+        ]
+      }),
+      NOW
+    )
+    expect(verdict.ok).toBe(true)
+    if (verdict.ok) {
+      expect(verdict.value.days[0]?.buckets).toHaveLength(2)
+      expect(verdict.value.days[0]?.matches).toBe(7)
+    }
+  })
+
+  it('round-trips what the client builds: rollup output validates unchanged', () => {
+    const rows: RollupRow[] = [
+      {
+        result: 1,
+        play_order: 'first',
+        my_class: 'nemesis',
+        oppo_class: 'elf',
+        mode: 'ranked',
+        playedAt: NOW.getTime() - 60_000,
+        source: 'engine',
+        current_cr: 2100,
+        edited_fields: null,
+        recog_flags: null
+      },
+      {
+        result: 0,
+        play_order: 'second',
+        my_class: 'nemesis',
+        oppo_class: 'elf',
+        mode: 'ranked',
+        playedAt: NOW.getTime() - 70_000,
+        source: 'engine',
+        current_cr: null,
+        edited_fields: null,
+        recog_flags: null
+      }
+    ]
+    const verdict = validatePayload(
+      payload({ schema: 2, days: rollup(rows, NOW.getTime()) }),
+      NOW
+    )
+    expect(verdict.ok).toBe(true)
+    if (verdict.ok) {
+      const bands = verdict.value.days.flatMap((d) => d.buckets.map((b) => b.crBand))
+      expect(bands.sort()).toEqual(['gte2000', 'unknown'])
+      expect(verdict.value.rejected).toEqual([])
+    }
   })
 })

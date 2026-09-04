@@ -27,6 +27,7 @@ function row(overrides: Partial<RollupRow> = {}): RollupRow {
     mode: 'ranked',
     playedAt: NOW - HOUR,
     source: 'engine',
+    current_cr: 1800,
     edited_fields: null,
     recog_flags: null,
     ...overrides
@@ -121,6 +122,7 @@ describe('rollup', () => {
         myClass: 'witch',
         oppoClass: 'dragon',
         playOrder: 'first',
+        crBand: 'b1750',
         result: 'loss',
         count: 1
       },
@@ -130,6 +132,7 @@ describe('rollup', () => {
         myClass: 'witch',
         oppoClass: 'dragon',
         playOrder: 'first',
+        crBand: 'b1750',
         result: 'win',
         count: 2
       },
@@ -139,6 +142,7 @@ describe('rollup', () => {
         myClass: 'witch',
         oppoClass: 'dragon',
         playOrder: 'second',
+        crBand: 'b1750',
         result: 'win',
         count: 1
       },
@@ -148,6 +152,7 @@ describe('rollup', () => {
         myClass: 'witch',
         oppoClass: 'elf',
         playOrder: 'first',
+        crBand: 'b1750',
         result: 'win',
         count: 1
       }
@@ -200,6 +205,7 @@ describe('rollup', () => {
     expect(Object.keys(today).sort()).toEqual(['abandoned', 'buckets', 'date', 'manual'])
     expect(Object.keys(today.buckets[0]).sort()).toEqual([
       'count',
+      'crBand',
       'mode',
       'myClass',
       'oppoClass',
@@ -207,5 +213,68 @@ describe('rollup', () => {
       'result',
       'tier'
     ])
+  })
+})
+
+describe('CR band', () => {
+  it('keys the bucket on the band and never carries the value', () => {
+    const [day] = rollup([row({ current_cr: 1875 })], NOW).slice(-1)
+    const bucket = day!.buckets[0]!
+    expect(bucket.crBand).toBe('b1850')
+    // The privacy boundary, asserted rather than trusted: no property of a
+    // bucket may hold the number the band came from.
+    expect(JSON.stringify(bucket)).not.toContain('1875')
+    expect(Object.values(bucket)).not.toContain(1875)
+  })
+
+  it('bands by the game’s cut points, edges included', () => {
+    const bandOf = (cr: number | null): string =>
+      rollup([row({ current_cr: cr })], NOW).at(-1)!.buckets[0]!.crBand
+    expect(bandOf(1649)).toBe('lt1650')
+    expect(bandOf(1650)).toBe('b1650')
+    expect(bandOf(1749)).toBe('b1650')
+    expect(bandOf(1750)).toBe('b1750')
+    expect(bandOf(1999)).toBe('b1850')
+    expect(bandOf(2000)).toBe('gte2000')
+    expect(bandOf(0)).toBe('lt1650')
+  })
+
+  it('calls a missing or impossible CR unknown rather than guessing', () => {
+    const bandOf = (cr: number | null): string =>
+      rollup([row({ current_cr: cr })], NOW).at(-1)!.buckets[0]!.crBand
+    expect(bandOf(null)).toBe('unknown')
+    // Outside 0-3000 means the read was wrong; it must not land in a band.
+    expect(bandOf(4200)).toBe('unknown')
+    expect(bandOf(-5)).toBe('unknown')
+    expect(bandOf(Number.NaN)).toBe('unknown')
+  })
+
+  it('splits a bucket that used to be one, and the parts still sum to it', () => {
+    /**
+     * This is the property the staged rollout rests on. The public aggregate
+     * stays unsplit while this dimension accumulates, which is only honest if
+     * summing the bands reproduces the old number exactly - so two otherwise
+     * identical matches in different bands must become two buckets whose
+     * counts add up, not one bucket that picked a band.
+     */
+    const days = rollup(
+      [
+        row({ current_cr: 1700 }),
+        row({ current_cr: 1900 }),
+        row({ current_cr: 1900 }),
+        row({ current_cr: null })
+      ],
+      NOW
+    )
+    const buckets = days.at(-1)!.buckets
+    expect(buckets).toHaveLength(3)
+    expect(new Map(buckets.map((b) => [b.crBand, b.count]))).toEqual(
+      new Map([
+        ['b1650', 1],
+        ['b1850', 2],
+        ['unknown', 1]
+      ])
+    )
+    expect(buckets.reduce((n, b) => n + b.count, 0)).toBe(4)
   })
 })

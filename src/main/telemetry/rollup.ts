@@ -4,7 +4,14 @@
  * This is the whole privacy argument in one function: whatever leaves the
  * machine passes through here, and here is where deck ids, notes, tags,
  * timestamps and numbers stop existing. The output is a count per
- * `(UTC date, tier, mode, my class, opponent class, play order, result)`.
+ * `(UTC date, tier, mode, my class, opponent class, play order, CR band,
+ * result)`.
+ *
+ * `current_cr` is the one number that gets read and does not survive: it is
+ * turned into one of five bands (`crBandOf`) and the value is dropped. That
+ * asymmetry is deliberate. A rank split is worth having; a per-install series
+ * of exact CR values is a ladder trajectory, and this function is the only
+ * place standing between the two.
  *
  * Pure. The caller reads the rows and does the network; this only counts, so
  * it can be tested against fixed rows and a fixed clock.
@@ -12,6 +19,7 @@
 import type { Selectable } from 'kysely'
 import type { MatchRow } from '../data/db/client.js'
 import { OBSERVED_COLUMNS } from '../data/provenance.js'
+import { crBandOf } from '../../shared/crBands.js'
 import {
   TELEMETRY_CLASSES,
   TELEMETRY_MODES,
@@ -32,6 +40,7 @@ export type RollupRow = Pick<
   | 'mode'
   | 'playedAt'
   | 'source'
+  | 'current_cr'
   | 'edited_fields'
   | 'recog_flags'
 >
@@ -164,6 +173,7 @@ export function rollup(rows: readonly RollupRow[], now: number): TelemetryDay[] 
       myClass: row.my_class,
       oppoClass: row.oppo_class,
       playOrder: row.play_order,
+      crBand: crBandOf(row.current_cr),
       result: row.result === 1 ? 'win' : 'loss'
     }
     const key = [
@@ -172,6 +182,7 @@ export function rollup(rows: readonly RollupRow[], now: number): TelemetryDay[] 
       bucket.myClass,
       bucket.oppoClass,
       bucket.playOrder,
+      bucket.crBand,
       bucket.result
     ].join('|')
     const held = day.buckets.get(key)

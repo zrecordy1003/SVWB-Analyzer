@@ -412,6 +412,94 @@ if (/^https?:\/\/(127\.0\.0\.1|localhost)(:|$)/.test(BASE)) {
 check('a malformed body is a 4xx, not a 500', (await post('{')).status === 400)
 const wrongSchema = await post(payload(A, '1.3.0', (p) => (p.schema = 99)))
 check('an unknown schema is refused', wrongSchema.status === 400, wrongSchema)
+
+// ------------------------------------------------------------------ CR bands
+//
+// Everything above posts schema 1, which is the compatibility path and stays
+// that way on purpose: an install that never updates keeps sending it. This
+// section is the schema-2 path - the band column, its migration, the widened
+// primary key, and the admin rank split. None of that is reachable from the
+// vitest suite, which only sees pure functions.
+
+const C = crypto.randomUUID()
+
+const v2 = (fill) =>
+  payload(C, '1.4.0', (p) => {
+    p.schema = 2
+    fill(p)
+  })
+
+const banded = await post(
+  v2((p) => {
+    p.days[0].buckets = [
+      bucket({ crBand: 'b1850', count: 4 }),
+      // Same matchup, different band: two rows, not a duplicate. This is the
+      // one that fails if the primary key or the dedupe key was not widened.
+      bucket({ crBand: 'b1750', count: 3 }),
+      bucket({ crBand: 'unknown', result: 'loss', count: 2 })
+    ]
+  })
+)
+check(
+  'a schema-2 upload with bands is accepted whole',
+  banded.status === 200 && banded.body.accepted === WINDOW && banded.body.rejected.length === 0,
+  banded
+)
+
+const missingBand = await post(
+  v2((p) => {
+    const { crBand, ...withoutBand } = bucket({ crBand: 'b1850' })
+    void crBand
+    p.days[0].buckets = [withoutBand]
+  })
+)
+check(
+  'a schema-2 day with no band on a bucket is refused on its own',
+  missingBand.status === 200 && missingBand.body.rejected?.[0]?.reason === 'missing crBand',
+  missingBand
+)
+
+const badBand = await post(
+  v2((p) => {
+    p.days[1].buckets = [bucket({ crBand: 'b9999' })]
+  })
+)
+check(
+  'a band outside the whitelist is refused on its own day',
+  badBand.status === 200 && badBand.body.rejected?.[0]?.date === day(1),
+  badBand
+)
+
+// Re-post the same day with different bands: the replace semantics have to hold
+// across the widened key, or the old band rows survive and the totals double.
+const replaced = await post(
+  v2((p) => {
+    p.days[0].buckets = [bucket({ crBand: 'gte2000', count: 1 })]
+  })
+)
+check('a re-post replaces the banded rows rather than adding to them', replaced.status === 200, replaced)
+
+const rank = (await get('/v1/admin/overview', TOKEN)).body?.rank
+check('the admin document carries the rank split', Array.isArray(rank?.bands), rank)
+const gte2000 = rank?.bands?.find((b) => b.crBand === 'gte2000')
+check(
+  'the re-posted band is the only one left for that install',
+  gte2000 && gte2000.total >= 1 && !rank.bands.some((b) => b.crBand === 'b1750' && b.installs > 0),
+  rank?.bands
+)
+check(
+  'the split cells carry the matchup and the band together',
+  rank?.cells?.some(
+    (c) => c.crBand === 'gte2000' && c.myClass === 'witch' && c.oppoClass === 'dragon'
+  ),
+  rank?.cells
+)
+check(
+  'summing the bands reproduces the unsplit total',
+  rank.bands.reduce((n, b) => n + b.total, 0) ===
+    rank.cells.reduce((n, c) => n + c.total, 0),
+  { bands: rank.bands, cells: rank.cells.length }
+)
 const notAUuid = await post(payload('install-1', '1.3.0'))
 check('an install id that is not a UUID is refused', notAUuid.status === 400, notAUuid)
 
