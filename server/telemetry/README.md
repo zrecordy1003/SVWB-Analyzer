@@ -139,13 +139,19 @@ pnpm db:create
 ```bash
 pnpm db:migrate
 pnpm exec wrangler secret put ADMIN_TOKEN
-pnpm deploy
+pnpm run deploy
 ```
+
+**`run` 不能省。** `deploy` 撞到 pnpm 的內建指令（`pnpm --filter=<pkg> deploy <dir>`，用來把
+workspace 裡的套件攤平到一個目錄），所以 `pnpm deploy` 不會跑這裡的 script，而是去跑 pnpm
+自己的部署功能然後印 usage 錯誤。這個坑只有 `deploy` 有——其他 script 名字都不衝突，
+`pnpm db:migrate`、`pnpm smoke` 都可以直接寫。不想記的話一律加 `run`，或者直接
+`pnpm exec wrangler deploy`。
 
 **順序不能顛倒**，而顛倒的代價是靜默的資料遺失：
 
 1. `pnpm db:migrate`（remote）——`buckets` 加上 `cr_band` 並擴 PK。
-2. `pnpm deploy`——這版才會收 schema 2。
+2. `pnpm run deploy`——這版才會收 schema 2。
 3. **最後**才發帶 schema 2 的 app。
 
 如果先發 app，那些安裝送出的 schema 2 會被舊 Worker 以 `unsupported schema 2` 全部 400 掉，
