@@ -27,6 +27,7 @@
  * the upload gate in `performUpload` stays shut regardless.
  */
 import { test, expect } from './app'
+import { TELEMETRY_SCHEMA } from '../../src/shared/telemetry'
 
 /** The notice's exact copy. Changing it should be a decision, not a diff. */
 const TITLE = '已開啟數據統計'
@@ -109,7 +110,7 @@ test('the payload is still only counts, whether or not anything renders it', asy
   expect(Object.keys(parsed).sort()).toEqual(
     ['appVersion', 'arch', 'days', 'installId', 'locale', 'platform', 'schema', 'sentAt'].sort()
   )
-  expect(parsed.schema).toBe(1)
+  expect(parsed.schema).toBe(TELEMETRY_SCHEMA)
   // 14 UTC days, every one of them, empty ones included.
   expect(parsed.days).toHaveLength(14)
   for (const day of parsed.days) {
