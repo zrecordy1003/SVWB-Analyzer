@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 
 use svwb_engine::calibration::{self, ScoreSystem};
 use svwb_engine::frame::Frame;
-use svwb_engine::machine::Reading;
+use svwb_engine::machine::{Located, Reading};
 use svwb_engine::numbers::NoNumbers;
 use svwb_engine::protocol::PlayOrder;
 use svwb_engine::reading;
@@ -142,6 +142,21 @@ fn ranked_result_screens_report_their_score_system() {
     );
 }
 
+/// Master is an MP-ranked layout without the CR block Grand Master uses.
+#[test]
+fn a_master_mp_only_result_is_still_ranked_evidence() {
+    let r = read_fixture("ranked-master-mp-only/01-result-lose-mp-only.png");
+    assert_eq!(r.final_result, Some(false));
+    assert!(r.score_system.is_none(), "Master has neither a BP nor a CR label");
+    assert_eq!(r.mp_gain, Some(Located { x: 1028, y: 154 }));
+    assert_eq!(r.mode_probes.ranked_mp_gain.candidate, "gained_mp");
+    assert!(
+        r.mode_probes.ranked_mp_gain.score >= 0.85,
+        "the MP label scored {:.4}, too thin against the 0.7 threshold",
+        r.mode_probes.ranked_mp_gain.score
+    );
+}
+
 /// The MP block is anchored to its OWN label, because it moves on its own.
 ///
 /// `ranked-gm-mp-2560-fullscreen` draws a 「指定系列」 row under the MP bar,
@@ -155,6 +170,7 @@ fn the_mp_block_is_located_by_its_own_label() {
         ("ranked-gm-mp-windowed/01-result-lose-mp-cr.png", 174, 0),
         ("ranked-gm-mp-windowed/02-result-win-mp-cr.png", 174, 0),
         ("ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png", 155, -19),
+        ("ranked-master-mp-only/01-result-lose-mp-only.png", 154, -20),
     ];
 
     for (fixture, y, offset) in expected {

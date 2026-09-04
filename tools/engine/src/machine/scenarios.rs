@@ -12,7 +12,9 @@
 
 use std::time::{Duration, Instant};
 
-use super::{Change, Located, Machine, NumberReads, Reading, VersusScreen};
+use super::{
+    Change, Located, Machine, ModeProbeScore, ModeProbeScores, NumberReads, Reading, VersusScreen,
+};
 use crate::calibration::{ScoreSystem, ScoreSystemHit, timing};
 use crate::phase::Phase;
 use crate::protocol::{ClassName, GameMode, PlayOrder};
@@ -39,6 +41,19 @@ fn bp_result(bp: i32) -> Reading {
         final_result: Some(false),
         score_system: Some(score_system(ScoreSystem::Bp)),
         numbers: NumberReads { bp: Some(bp), ..Default::default() },
+        ..Default::default()
+    }
+}
+
+fn master_mp_result(delta_mp: i32, total_mp: i32) -> Reading {
+    Reading {
+        final_result: Some(false),
+        mp_gain: Some(Located { x: 1028, y: 154 }),
+        numbers: NumberReads {
+            delta_mp: Some(delta_mp),
+            total_mp: Some(total_mp),
+            ..Default::default()
+        },
         ..Default::default()
     }
 }
@@ -93,6 +108,34 @@ fn a_ranked_match_runs_end_to_end() {
     assert!(matches!(m.phase(), Phase::Idle { .. }));
 }
 
+/// Master uses MP but does not draw the CR block that previously served as the
+/// only way to identify an MP-ranked result.
+#[test]
+fn a_master_mp_only_match_runs_end_to_end() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    assert!(started(&m.tick(&on_versus_screen(), t)));
+
+    let mut now = t + timing::TICK;
+    let mut closed = None;
+    for _ in 0..5 {
+        let changes = m.tick(&master_mp_result(14, 16867), now);
+        if let Some(Change::MatchFinished { patch, .. }) = finished(&changes) {
+            closed = Some(patch.clone());
+            break;
+        }
+        now += timing::TICK;
+    }
+
+    let patch = closed.expect("MP-only Master should close without waiting for CR");
+    assert_eq!(patch.mode, Some(GameMode::Ranked));
+    assert_eq!(patch.delta_mp, Some(14));
+    assert_eq!(patch.mp, Some(16867));
+    assert_eq!(patch.delta_cr, None);
+    assert_eq!(patch.current_cr, None);
+    assert!(!flagged(&patch, "mode-guessed"));
+}
+
 /// The banner crosses its threshold while the rest of the screen is still
 /// fading in. Measured on the 1920 fullscreen ranked result: the banner scored
 /// 0.87 on a frame where the BP block had not been drawn at all, so the
@@ -133,6 +176,48 @@ fn a_label_that_arrives_during_the_hold_still_counts() {
     let patch = closed.expect("should close once the settled screen is read");
     assert_eq!(patch.mode, Some(GameMode::Ranked));
     assert_eq!(patch.bp, Some(124));
+}
+
+/// A real final screen that survives the settling window without a mode must
+/// retain every raw mode-probe score for the exported diagnostic.
+#[test]
+fn an_unattributable_result_keeps_its_mode_probe_scores() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+    m.tick(&on_versus_screen(), t);
+    m.tick(
+        &Reading { battle_end_splash: Some(false), ..Default::default() },
+        t + timing::TICK,
+    );
+
+    let result = Reading {
+        final_result: Some(false),
+        mode_probes: ModeProbeScores {
+            ranked_score_system: ModeProbeScore {
+                candidate: "bp",
+                score: 0.64,
+                threshold: 0.7,
+                x: 1042,
+                y: 321,
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let hold_started = t + timing::TICK * 2;
+    m.tick(&result, hold_started);
+    let changes = m.tick(&result, hold_started + timing::MODE_SETTLE);
+
+    let detail = changes.iter().find_map(|change| match change {
+        Change::Noted { kind: "mode-unattributable", detail: Some(detail), .. } => Some(detail),
+        _ => None,
+    });
+    let detail = detail.expect("the unknown result screen needs actionable evidence");
+    assert_eq!(detail["probes"]["rankedScoreSystem"]["candidate"], "bp");
+    assert_eq!(detail["probes"]["rankedScoreSystem"]["score"], 0.64);
+    assert_eq!(detail["probes"]["rankedScoreSystem"]["threshold"], 0.7);
+    assert!(noted(&changes, "mode-guessed"));
+    assert!(finished(&changes).is_some());
 }
 
 /// A replay shows the same versus screen and battlefield as a real match, so an

@@ -22,7 +22,7 @@ use svwb_vision_native::Rect;
 
 use crate::calibration::{self as cal, ScoreSystem, ScoreSystemHit, threshold};
 use crate::frame::Frame;
-use crate::machine::NumberReads;
+use crate::machine::{Located, NumberReads};
 use crate::templates::TemplateStore;
 
 /// Threshold applied to a crop before it is handed to any recogniser.
@@ -106,18 +106,15 @@ fn cursor_blocks(frame: &Frame, store: &TemplateStore, windows: &[Rect], dy: i32
 /// The label lives in the same bordered box as the value on the 「獲得MP」 row,
 /// so "the value is readable but the label is not" is not a state the screen
 /// has - which is what makes refusing to read safe rather than lossy.
-fn mp_block_offset(frame: &Frame, store: &TemplateStore) -> Option<i32> {
-    store
-        .best_in(frame, cal::templates::MP_GAIN, cal::MP_GAIN_ANCHOR)
-        .filter(|hit| hit.score >= threshold::MP_GAIN)
-        .map(|hit| cal::mp_block_offset(hit.y))
+fn mp_block_offset(mp_gain: Option<Located>) -> Option<i32> {
+    mp_gain.map(|hit| cal::mp_block_offset(hit.y))
 }
 
 /// Read whichever numbers this result screen is showing.
 ///
-/// Returns everything empty when the screen carries no score-system label:
-/// that is not a ranked result, so it owes nothing. The exception is 2Pick,
-/// which shows its BP gain on a layout of its own.
+/// Returns everything empty when the screen carries neither a score-system
+/// label nor 「獲得MP」. Master has an MP block but no CR block, so its MP label
+/// identifies and anchors the values by itself. 2Pick uses its own BP layout.
 ///
 /// 2Pick is checked FIRST, and not only for tidiness: the 2Pick result screen
 /// also carries a 「BP N」 that the ranked score-system template matches, so
@@ -128,6 +125,7 @@ pub fn read_all(
     store: &TemplateStore,
     reader: &mut dyn NumberReader,
     score_system: Option<ScoreSystemHit>,
+    mp_gain: Option<Located>,
     two_pick: bool,
 ) -> NumberReads {
     let mut out = NumberReads::default();
@@ -140,21 +138,18 @@ pub fn read_all(
         return out;
     }
 
-    let Some(hit) = score_system else {
-        return out;
-    };
-    // A property of THIS frame: the reward list's row count slides everything
-    // below it, so the offset must be recomputed every tick rather than latched.
-    let dy = cal::result_layout_offset(&hit);
-
-    match hit.system {
-        ScoreSystem::Bp => {
+    match (score_system, mp_gain) {
+        (Some(hit), _) if hit.system == ScoreSystem::Bp => {
+            // A property of THIS frame: the reward list's row count slides
+            // everything below it, so recompute the offset every tick.
+            let dy = cal::result_layout_offset(&hit);
             let layout = &cal::BP_LAYOUT_RANKED;
             if !cursor_blocks(frame, store, layout.cursor, dy) {
                 out.bp = reader.read(frame, cal::shift_roi(layout.value, dy));
             }
         }
-        ScoreSystem::Mp => {
+        (Some(hit), mp_gain) => {
+            let dy = cal::result_layout_offset(&hit);
             // One cursor test for the whole block: the four values sit inside
             // the same panel, so a cursor over one is over the group.
             if cursor_blocks(frame, store, cal::MP_CURSOR_WINDOWS, dy) {
@@ -165,13 +160,23 @@ pub fn read_all(
             // see `cal::MP_GAIN_ANCHOR`. No label, no MP read: a window placed
             // by guesswork lands on a neighbouring row as readily as on empty
             // space, and digits from the wrong row parse.
-            if let Some(dy_mp) = mp_block_offset(frame, store) {
+            if let Some(dy_mp) = mp_block_offset(mp_gain) {
                 out.delta_mp = reader.read(frame, cal::shift_roi(cal::GAINED_MP, dy_mp));
                 out.total_mp = reader.read(frame, cal::shift_roi(cal::TOTAL_MP, dy_mp));
             }
             out.delta_cr = reader.read(frame, cal::shift_roi(cal::DELTA_CR_MP_LAYOUT, dy));
             out.total_cr = reader.read(frame, cal::shift_roi(cal::TOTAL_CR_MP_LAYOUT, dy));
         }
+        (None, Some(mp_gain)) => {
+            // Master has the same MP block as Grand Master but no CR section.
+            if cursor_blocks(frame, store, cal::MP_CURSOR_WINDOWS, 0) {
+                return out;
+            }
+            let dy_mp = cal::mp_block_offset(mp_gain.y);
+            out.delta_mp = reader.read(frame, cal::shift_roi(cal::GAINED_MP, dy_mp));
+            out.total_mp = reader.read(frame, cal::shift_roi(cal::TOTAL_MP, dy_mp));
+        }
+        (None, None) => {}
     }
 
     out

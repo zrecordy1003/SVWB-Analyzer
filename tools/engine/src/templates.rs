@@ -181,7 +181,7 @@ mod tests {
         for set in [
             t::CLASSES, t::EMBLEMS, t::PLAY_ORDER, t::RESULT, t::RESULT_MID,
             t::MODES_CPU, t::MODES_2PICK, t::MODES_PLAZA, t::CURSOR,
-            t::CUSTOM, t::HISTORY, t::REPLAY_CHROME, t::SCORE_SYSTEM,
+            t::CUSTOM, t::HISTORY, t::REPLAY_CHROME, t::SCORE_SYSTEM, t::MP_GAIN,
         ] {
             let scale = downscale_factor_for(set);
             assert!(level_of(scale).is_some(), "{set} wants unsupported scale {scale}");

@@ -116,6 +116,15 @@ async function main() {
     'report.md explains the important kind',
     md.includes('mode-unattributable') && md.includes('最需要關注')
   )
+  const unknownModeMd = mod.buildReportMarkdown(
+    [{ at: '2026-08-26T10:05:00.000Z', kind: 'mode-guessed', label: 'unknown' }],
+    [],
+    env
+  )
+  check(
+    'report explains that an unidentified mode stays unknown',
+    unknownModeMd.includes('標記為「未知」') && !unknownModeMd.includes('以「自由對戰」填入')
+  )
   check('report.md lists recent events as json', md.includes('```json'))
 
   const reportJson = JSON.parse(await round.file('report.json').async('string'))

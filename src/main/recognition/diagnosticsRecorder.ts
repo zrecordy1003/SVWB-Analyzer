@@ -26,7 +26,7 @@ export type DiagnosticKind =
   | 'mode-unattributable'
   /** Own/enemy class or play order could not be read, so the battle is dropped. */
   | 'class-unrecognised'
-  /** The mode was never identified, so it was defaulted rather than detected. */
+  /** The mode was never identified, so the match was marked as unknown. */
   | 'mode-guessed'
   /** A ranked match finished without a single BP/MP/CR value being captured. */
   | 'ranked-no-numbers'

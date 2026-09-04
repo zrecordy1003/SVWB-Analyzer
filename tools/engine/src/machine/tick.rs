@@ -206,9 +206,12 @@ impl Machine {
                 changes.push(Change::MatchUpdated { r#ref, patch });
             }
             Some(ModeSignal { mode: GameMode::TwoPick, confidence: Confidence::Authoritative })
-        } else if self.ranked.observe(reading.score_system.as_ref().map(|_| UNPOSITIONED)) {
-            // The BP/MP label is on the same screen as the numbers and says which
-            // system is in play. It may correct an earlier weaker guess.
+        } else if self.ranked.observe(
+            (reading.score_system.is_some() || (on_result_screen && reading.mp_gain.is_some()))
+                .then_some(UNPOSITIONED),
+        ) {
+            // BP, CR, and 「獲得MP」 are ranked-result evidence. Master has no CR
+            // block, so its MP label is the only one of these it can show.
             //
             // Strong, NOT authoritative, and measured that way. The 2Pick result
             // screen shows its own 「BP 100」, which scores 0.948-0.963 against the
@@ -218,8 +221,8 @@ impl Machine {
             // overrule something that can. `TWO_PICK_VERSUS_OWN` is that
             // something, and it is authoritative.
             //
-            // Debounced as well - see `Machine::ranked`. The number windows still
-            // key off the per-frame hit; only the MODE decision waits.
+            // Debounced as well - see `Machine::ranked`. MP-only evidence is
+            // additionally gated on the result phase.
             Some(ModeSignal { mode: GameMode::Ranked, confidence: Confidence::Strong })
         } else if on_result_screen && self.plaza.observe(reading.plaza.map(|(at, _)| at)) {
             if let Some((at, score)) = reading.plaza {
@@ -435,8 +438,15 @@ impl Machine {
         // beat later are never read. `observe_final_screen` cannot cover this -
         // it is gated on `accepts_final_screen`, which a hold deliberately is not.
         let mut deadline = deadline;
-        if self.owed.is_none() {
-            if let Some(owed) = self.owed_block(reading) {
+        if let Some(observed) = self.owed_block(reading) {
+            let owed = match (self.owed, observed) {
+                // The MP label may draw before the later CR section. Do not
+                // close a Grand Master result as MP-only if CR arrives next.
+                (Some(NumberBlock::Mp), NumberBlock::MpCr) => NumberBlock::MpCr,
+                (Some(current), _) => current,
+                (None, observed) => observed,
+            };
+            if self.owed != Some(owed) {
                 self.owed = Some(owed);
                 deadline = now + timing::NUMBERS_GRACE;
                 self.phase = Phase::Resolving {
@@ -476,6 +486,13 @@ impl Machine {
         }
 
         if (self.numbers_complete() && self.mode.is_some()) || expired {
+            if self.mode.is_none() {
+                changes.push(Change::Noted {
+                    kind: "mode-unattributable",
+                    label: "result".into(),
+                    detail: Some(serde_json::json!({ "probes": reading.mode_probes })),
+                });
+            }
             self.finish(match_id, changes);
         }
     }
@@ -542,17 +559,19 @@ impl Machine {
         changes
     }
 
-    /// Which numbers this result screen owes, from its score-system label.
+    /// Which numbers this result screen owes, from the labels it actually has.
     fn owed_block(&self, reading: &Reading) -> Option<NumberBlock> {
         if self.mode.map(|m| m.mode) == Some(GameMode::TwoPick) {
             return Some(NumberBlock::Bp);
         }
         match reading.score_system.map(|hit| hit.system) {
             Some(ScoreSystem::Bp) => Some(NumberBlock::Bp),
-            Some(ScoreSystem::Mp) => Some(NumberBlock::Mp),
+            Some(ScoreSystem::Mp) => Some(NumberBlock::MpCr),
+            None if reading.mp_gain.is_some() => Some(NumberBlock::Mp),
             // The label can fade in a beat after the banner, so its absence must
-            // not clear what a previous tick already established.
-            None => self.owed,
+            // not clear what a previous tick already established. `None` here
+            // means no new evidence; the caller owns persistence.
+            None => None,
         }
     }
 
@@ -562,6 +581,9 @@ impl Machine {
             None => true,
             Some(NumberBlock::Bp) => self.collected.bp.is_some(),
             Some(NumberBlock::Mp) => {
+                self.collected.delta_mp.is_some() && self.collected.mp.is_some()
+            }
+            Some(NumberBlock::MpCr) => {
                 self.collected.delta_mp.is_some()
                     && self.collected.mp.is_some()
                     && self.collected.delta_cr.is_some()

@@ -31,6 +31,7 @@ const BP_LOSE = 'tests/fixtures/captures/ranked-bp-1280-windowed-lose/01-result-
 const MP_LOSE = 'tests/fixtures/captures/ranked-gm-mp-windowed/01-result-lose-mp-cr.png'
 const MP_WIN = 'tests/fixtures/captures/ranked-gm-mp-windowed/02-result-win-mp-cr.png'
 const MP_WQHD = 'tests/fixtures/captures/ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png'
+const MP_MASTER = 'tests/fixtures/captures/ranked-master-mp-only/01-result-lose-mp-only.png'
 
 /**
  * `dy` is the result-layout offset for that frame (the reward list's row count
@@ -100,6 +101,20 @@ const CASES = [
     window: 'totalMp',
     dy: -19,
     expect: '24592'
+  },
+  {
+    label: 'Master MP-only / gained MP',
+    file: MP_MASTER,
+    window: 'gainedMp',
+    dy: -20,
+    expect: '+14'
+  },
+  {
+    label: 'Master MP-only / total MP',
+    file: MP_MASTER,
+    window: 'totalMp',
+    dy: -20,
+    expect: '16867'
   },
   {
     label: 'MP layout / gained MP at the CR offset (2560)',

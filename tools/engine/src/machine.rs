@@ -94,6 +94,10 @@ pub struct Reading {
     /// Which point system the result screen shows, and where its label landed.
     pub score_system: Option<ScoreSystemHit>,
 
+    /// The 「獲得MP」 label on an MP result screen. Master has this block but no
+    /// CR block, so this is separate from `score_system` and anchors MP only.
+    pub mp_gain: Option<Located>,
+
     /// The CPU deck label on the pre-battle screen, this frame only.
     pub cpu_pre_battle: bool,
     /// The CPU deck label anywhere it is shown (pre-battle or result).
@@ -122,6 +126,13 @@ pub struct Reading {
     /// These are the three the shipped analyzer watched, and they are carried
     /// rather than judged here so `reading` stays free of diagnostics.
     pub watched: [WatchedScore; 3],
+
+    /// Raw scores from every probe that can decide a game mode.
+    ///
+    /// Unlike the thresholded fields above, these survive a miss so an exported
+    /// diagnostic can explain whether the template was close, searched the
+    /// wrong location, or saw no resemblance at all.
+    pub mode_probes: ModeProbeScores,
 
     /// The weekend-plaza label: where it landed and how well it scored.
     ///
@@ -154,6 +165,39 @@ pub struct WatchedScore {
     pub threshold: f64,
 }
 
+/// One mode probe's best candidate before thresholding.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeProbeScore {
+    pub candidate: &'static str,
+    pub score: f64,
+    pub threshold: f64,
+    pub x: u32,
+    pub y: u32,
+}
+
+impl Default for ModeProbeScore {
+    fn default() -> Self {
+        Self { candidate: "none", score: -1.0, threshold: 0.0, x: 0, y: 0 }
+    }
+}
+
+/// Every visual route by which the state machine can learn a mode.
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModeProbeScores {
+    pub ranked_score_system: ModeProbeScore,
+    pub ranked_mp_gain: ModeProbeScore,
+    pub cpu_pre_battle: ModeProbeScore,
+    pub cpu_result: ModeProbeScore,
+    pub two_pick_result: ModeProbeScore,
+    pub two_pick_versus_own: ModeProbeScore,
+    pub two_pick_versus_enemy: ModeProbeScore,
+    pub custom_own: ModeProbeScore,
+    pub custom_other: ModeProbeScore,
+    pub weekend_plaza: ModeProbeScore,
+}
+
 /// One frame's readings of the five number fields.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,13 +214,13 @@ pub struct NumberReads {
     pub total_cr: Option<i32>,
 }
 
-/// Which block of numbers a result screen owes, decided from its score-system
-/// label. The two are mutually exclusive: below Grand Master the screen shows BP
-/// and no CR at all; above it, MP replaces BP and CR appears alongside.
+/// Which block of numbers a result screen owes, decided from the labels that
+/// are actually present. Master uses MP alone; Grand Master adds CR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NumberBlock {
     Bp,
     Mp,
+    MpCr,
 }
 
 // --------------------------------------------------------------------- deciding

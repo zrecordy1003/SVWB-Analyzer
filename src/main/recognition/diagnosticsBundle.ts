@@ -115,7 +115,7 @@ const KIND_EXPLANATIONS: Record<string, string> = {
   'ocr-reject': 'OCR 讀出的內容不是整數',
   'mode-unattributable': '結算畫面無法歸因到任何模式（最需要關注）',
   'class-unrecognised': '職業或先後攻辨識失敗，該場未被記錄',
-  'mode-guessed': '模式未偵測到，以「自由對戰」填入',
+  'mode-guessed': '模式未偵測到，該場標記為「未知」',
   'ranked-no-numbers': '階級對戰結束但完全沒讀到 BP/MP/CR',
   'tick-over-budget': '單次分析超過 500ms 預算',
   'weak-mode-accepted': '以未校準的廣場賽/自訂房探測判定模式（附畫面待覆核）',

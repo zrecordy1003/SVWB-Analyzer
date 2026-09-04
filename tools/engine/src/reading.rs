@@ -10,7 +10,9 @@
 
 use crate::calibration::{self as cal, ScoreSystem, ScoreSystemHit, threshold};
 use crate::frame::Frame;
-use crate::machine::{Located, NumberReads, Reading, VersusScreen, WatchedScore};
+use crate::machine::{
+    Located, ModeProbeScore, ModeProbeScores, NumberReads, Reading, VersusScreen, WatchedScore,
+};
 use crate::numbers::{self, NumberReader};
 use crate::protocol::{ClassName, PlayOrder};
 use crate::templates::{Hit, TemplateStore};
@@ -97,6 +99,33 @@ fn read_score_system(hit: Option<Hit>) -> Option<ScoreSystemHit> {
     Some(ScoreSystemHit { system, x: hit.x, y: hit.y, score: hit.score })
 }
 
+fn diagnostic_candidate(name: &str) -> &'static str {
+    match name {
+        "bp" => "bp",
+        "cr" => "cr",
+        "gained_mp" => "gained_mp",
+        "cpu_prebattle" => "cpu_prebattle",
+        "cpu" => "cpu",
+        "2pickRanked" => "2pickRanked",
+        "2pickVersus" => "2pickVersus",
+        "guest" => "guest",
+        "host" => "host",
+        "weekendPlaza" => "weekendPlaza",
+        "" => "none",
+        _ => "other",
+    }
+}
+
+fn mode_probe(hit: &Hit, threshold: f64) -> ModeProbeScore {
+    ModeProbeScore {
+        candidate: diagnostic_candidate(&hit.name),
+        score: hit.score,
+        threshold,
+        x: hit.x,
+        y: hit.y,
+    }
+}
+
 /// Score every probe against one frame and interpret the results.
 ///
 /// Digits go through a [`NumberReader`], so a replay with no number source and a
@@ -159,8 +188,12 @@ pub fn read(
 
     // Both decide WHICH number windows are on this layout, so they are needed
     // before the digits can be read at all.
-    let score_system =
-        read_score_system(probe(cal::templates::SCORE_SYSTEM, cal::SCORE_SYSTEM_ANCHOR));
+    let score_system_probe =
+        scored(probe(cal::templates::SCORE_SYSTEM, cal::SCORE_SYSTEM_ANCHOR));
+    let mp_gain_probe = scored(probe(cal::templates::MP_GAIN, cal::MP_GAIN_ANCHOR));
+    let score_system = read_score_system(Some(score_system_probe.clone()));
+    let mp_gain = (mp_gain_probe.score >= threshold::MP_GAIN)
+        .then(|| Located::from(&mp_gain_probe));
     let two_pick_seen = two_pick.score > threshold::RANKED;
 
     // The three the shipped analyzer watched: the two result banners and the CPU
@@ -182,6 +215,18 @@ pub fn read(
 
     Reading {
         watched,
+        mode_probes: ModeProbeScores {
+            ranked_score_system: mode_probe(&score_system_probe, threshold::SCORE_SYSTEM),
+            ranked_mp_gain: mode_probe(&mp_gain_probe, threshold::MP_GAIN),
+            cpu_pre_battle: mode_probe(&cpu_pre, threshold::CPU),
+            cpu_result: mode_probe(&cpu_result, threshold::CPU),
+            two_pick_result: mode_probe(&two_pick, threshold::RANKED),
+            two_pick_versus_own: mode_probe(&two_pick_own, threshold::RANKED),
+            two_pick_versus_enemy: mode_probe(&two_pick_enemy, threshold::RANKED),
+            custom_own: mode_probe(&custom_own, threshold::CUSTOM),
+            custom_other: mode_probe(&custom_other, threshold::CUSTOM),
+            weekend_plaza: mode_probe(&plaza, threshold::PLAZA),
+        },
         replay_banner: banner.score > threshold::REPLAY_BANNER,
         replay_chrome: chrome.score > threshold::REPLAY_CHROME,
         versus,
@@ -192,6 +237,7 @@ pub fn read(
         final_result: (final_banner.score > threshold::RESULT)
             .then(|| final_banner.name == "win"),
         score_system,
+        mp_gain,
         cpu_pre_battle: cpu_pre.score >= threshold::CPU,
         cpu_anywhere: cpu_pre.score.max(cpu_result.score) >= threshold::CPU,
         two_pick: two_pick_seen,
@@ -204,7 +250,7 @@ pub fn read(
         plaza: (plaza.score > threshold::PLAZA)
             .then(|| (Located { x: plaza.x, y: plaza.y }, plaza.score)),
         numbers: if wants_numbers {
-            numbers::read_all(frame, store, reader, score_system, two_pick_seen)
+            numbers::read_all(frame, store, reader, score_system, mp_gain, two_pick_seen)
         } else {
             NumberReads::default()
         },
