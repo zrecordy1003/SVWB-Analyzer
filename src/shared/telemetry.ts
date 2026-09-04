@@ -155,6 +155,15 @@ export type TelemetryIngestResponse = {
   ok: true
   /** Days stored. */
   accepted: number
+  /**
+   * Days the server already held byte-identical and therefore did not rewrite.
+   *
+   * Counted inside `accepted`, not beside it. The client sends the whole window
+   * every time, so on a normal upload this is almost all of it - that is the
+   * point, and it is reported so the saving is observable rather than inferred
+   * from a metrics graph. Absent from servers older than that change.
+   */
+  unchanged?: number
   /** Days refused, with the reason, so a client bug shows up somewhere. */
   rejected: Array<{ date: string; reason: string }>
 }

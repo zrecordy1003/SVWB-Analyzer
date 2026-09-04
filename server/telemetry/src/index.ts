@@ -317,13 +317,93 @@ async function ingest(request: Request, env: Env): Promise<Response> {
     ).bind(payload.installId, today, payload.appVersion)
   )
 
+  /**
+   * What is already stored for these days, so the unchanged ones can be left
+   * alone.
+   *
+   * One extra read query per upload against roughly fourteen days of writes
+   * saved. The budgets are not comparable: D1's free tier allows 5,000,000 row
+   * reads a day against 100,000 writes, and this database was using 535,120
+   * reads while blowing through the writes. Trading reads for writes here is
+   * close to free.
+   */
+  const stored = new Map<string, string | null>()
+  if (payload.days.length > 0) {
+    const placeholders = payload.days.map((_, i) => `?${i + 2}`).join(', ')
+    const known = await env.DB.prepare(
+      `SELECT date, content_hash FROM match_days
+       WHERE install_id = ?1 AND date IN (${placeholders})`
+    )
+      .bind(payload.installId, ...payload.days.map((day) => day.date))
+      .all<{ date: string; content_hash: string | null }>()
+    for (const row of known.results) stored.set(row.date, row.content_hash)
+  }
+
+  let unchanged = 0
   for (const day of payload.days) {
-    statements.push(...dayStatements(env, payload.installId, day, receivedAt))
+    const hash = await dayContentHash(day)
+    /**
+     * A NULL stored hash means "written before this column existed" and must
+     * fall through to a write - which is also what makes the migration need no
+     * backfill: the first upload per (install, date) after the deploy pays the
+     * old cost once and every later one is free.
+     */
+    if (stored.get(day.date) === hash) {
+      unchanged += 1
+      continue
+    }
+    statements.push(...dayStatements(env, payload.installId, day, receivedAt, hash))
   }
 
   await env.DB.batch(statements)
 
-  return json({ ok: true, accepted: payload.days.length, rejected: payload.rejected })
+  /**
+   * A skipped day is ACCEPTED, not rejected: the server's state already matches
+   * what was sent, which is the whole point. Reporting it any other way would
+   * make the client log a refusal for a successful upload.
+   *
+   * `unchanged` is reported so this optimisation is observable from outside.
+   * The failure mode of skipping writes is stale data with no error anywhere,
+   * so "how many did you skip" needs to be a number someone can look at rather
+   * than something inferred from a D1 metrics graph.
+   */
+  return json({
+    ok: true,
+    accepted: payload.days.length,
+    unchanged,
+    rejected: payload.rejected
+  })
+}
+
+/**
+ * A fingerprint of everything this day's storage depends on.
+ *
+ * Serialised canonically here rather than trusting the payload's order: the
+ * client does sort its buckets, but if that ever changed, an identical day
+ * would hash differently and the skip below would quietly stop working - the
+ * failure mode of an optimisation nobody can see is that it silently does
+ * nothing. Sorting server-side makes the hash a property of the CONTENT.
+ *
+ * Covers exactly the fields written for the day - every bucket dimension and
+ * count, plus `abandoned` and `manual` - and deliberately not `received_at`,
+ * which changes on every upload and would make every hash miss.
+ *
+ * SHA-256 rather than something cheap: a collision here means an upload that
+ * SHOULD have replaced a day silently does not, which is stale data with no
+ * error anywhere. Not worth saving a microsecond over.
+ */
+async function dayContentHash(day: ValidDay): Promise<string> {
+  const buckets = day.buckets
+    .map((b) =>
+      [b.tier, b.mode, b.myClass, b.oppoClass, b.playOrder, b.crBand, b.result, b.count].join('|')
+    )
+    .sort()
+  // `\n` as the separator, and the bucket fields already use `|`, so no field
+  // value can forge a boundary: both characters are outside every whitelisted
+  // enum and `count` is an integer.
+  const canonical = [`${day.abandoned}|${day.manual}`, ...buckets].join('\n')
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 /** Replace everything stored for one (install, date). */
@@ -331,7 +411,8 @@ function dayStatements(
   env: Env,
   installId: string,
   day: ValidDay,
-  receivedAt: string
+  receivedAt: string,
+  contentHash: string
 ): D1PreparedStatement[] {
   const out: D1PreparedStatement[] = []
   out.push(
@@ -368,14 +449,15 @@ function dayStatements(
   }
   out.push(
     env.DB.prepare(
-      `INSERT INTO match_days (install_id, date, matches, abandoned, manual, received_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      `INSERT INTO match_days (install_id, date, matches, abandoned, manual, received_at, content_hash)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
        ON CONFLICT(install_id, date) DO UPDATE SET
          matches = excluded.matches,
          abandoned = excluded.abandoned,
          manual = excluded.manual,
-         received_at = excluded.received_at`
-    ).bind(installId, day.date, day.matches, day.abandoned, day.manual, receivedAt)
+         received_at = excluded.received_at,
+         content_hash = excluded.content_hash`
+    ).bind(installId, day.date, day.matches, day.abandoned, day.manual, receivedAt, contentHash)
   )
   return out
 }
