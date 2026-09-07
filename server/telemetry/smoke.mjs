@@ -514,6 +514,34 @@ check(
   ),
   rank?.cells
 )
+// ------------------------------------------------------------- raw matrix
+//
+// The block with nothing withheld. What needs asserting is not that it has
+// numbers but that it has the ones the public path refuses: every tier, and
+// cells backed by a single install.
+const raw = (await get('/v1/admin/overview', TOKEN)).body?.raw
+check('the admin document carries the raw matrix', Array.isArray(raw?.cells), raw)
+check(
+  'it is scoped to the same mode as the public matrix',
+  raw?.scope?.mode === 'ranked' && raw?.scope?.days === 30,
+  raw?.scope
+)
+check(
+  'it carries tiers the public path does not trust',
+  new Set(raw.cells.map((c) => c.tier)).size > 1,
+  [...new Set(raw.cells.map((c) => c.tier))]
+)
+check(
+  'it keeps cells the k-anonymity floor would have withheld',
+  raw.cells.some((c) => c.installs < 5),
+  raw.cells.filter((c) => c.installs < 5).length
+)
+check(
+  'and it is uncapped: the grinder cell exceeds the per-install cap',
+  raw.cells.some((c) => c.total > 10),
+  raw.cells.filter((c) => c.total > 10).length
+)
+
 check(
   'summing the bands reproduces the unsplit total',
   rank.bands.reduce((n, b) => n + b.total, 0) ===

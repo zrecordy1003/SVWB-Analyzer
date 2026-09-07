@@ -30,6 +30,7 @@ import {
   type CrBandRow,
   type ModeRow,
   type PlatformRow,
+  type RawMatrixRow,
   type TierRow,
   type VersionRow
 } from './aggregate'
@@ -604,7 +605,8 @@ async function overview(request: Request, env: Env): Promise<Response> {
     tiers,
     modes,
     crBands,
-    bandCells
+    bandCells,
+    rawCells
   ] = await Promise.all([
     env.DB.prepare(`SELECT COUNT(*) AS n FROM activity WHERE date = ?1`)
       .bind(today)
@@ -703,7 +705,30 @@ async function overview(request: Request, env: Env): Promise<Response> {
        GROUP BY cr_band, my_class, oppo_class, play_order`
     )
       .bind(since30, META_MODE, ...META_TIERS)
-      .all<BandMatrixRow>()
+      .all<BandMatrixRow>(),
+    /**
+     * The matrix with nothing held back - see `raw` in aggregate.ts.
+     *
+     * No cap, no floor, and every tier rather than only the ones the public
+     * path trusts. `legacy` alone is three quarters of what is stored, so the
+     * difference between this and `/v1/meta` is mostly about tiers rather than
+     * about suppression, and the reader needs to be able to see both.
+     *
+     * Grouped by tier instead of filtered to one, so the dashboard can offer a
+     * tier toggle without a second round trip. At most
+     * `tiers x classes^2 x orders` = 392 rows.
+     */
+    env.DB.prepare(
+      `SELECT tier, my_class, oppo_class, play_order,
+              COUNT(DISTINCT install_id) AS installs,
+              SUM(CASE WHEN result = 'win' THEN count ELSE 0 END) AS wins,
+              SUM(count) AS total
+       FROM buckets
+       WHERE date >= ?1 AND mode = ?2
+       GROUP BY tier, my_class, oppo_class, play_order`
+    )
+      .bind(since30, META_MODE)
+      .all<RawMatrixRow>()
   ])
 
   return json(
@@ -723,7 +748,9 @@ async function overview(request: Request, env: Env): Promise<Response> {
       tiers: tiers.results,
       modes: modes.results,
       crBands: crBands.results,
-      bandCells: bandCells.results
+      bandCells: bandCells.results,
+      rawCells: rawCells.results,
+      rawScope: { days: 30, mode: META_MODE }
     }),
     200,
     { 'cache-control': 'no-store' }

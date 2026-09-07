@@ -349,6 +349,30 @@ describe('buildOverview', () => {
           wins: 6,
           total: 10
         }
+      ],
+      rawScope: { days: 30, mode: 'ranked' },
+      // Two tiers of the same cell: the raw block keys on tier rather than
+      // filtering to one, so both must survive into the document for the
+      // dashboard's tier toggle to have anything to toggle.
+      rawCells: [
+        {
+          tier: 'clean',
+          my_class: 'witch',
+          oppo_class: 'dragon',
+          play_order: 'first',
+          installs: 4,
+          wins: 6,
+          total: 10
+        },
+        {
+          tier: 'legacy',
+          my_class: 'witch',
+          oppo_class: 'dragon',
+          play_order: 'first',
+          installs: 1,
+          wins: 30,
+          total: 44
+        }
       ]
     })
     expect(doc.today).toBe('2026-09-02')
@@ -373,6 +397,34 @@ describe('buildOverview', () => {
       abandoned: 1,
       newInstalls: 2
     })
+    /**
+     * The raw block passes tiers through instead of folding them, and keeps a
+     * one-install cell that `/v1/meta` would have suppressed. Both are the
+     * point of it: the tier stays so the reader can choose what to trust, and
+     * the thin cell stays because on a token-protected route the honest
+     * treatment of "one person's record" is to label it, not delete it.
+     */
+    expect(doc.raw.scope).toEqual({ days: 30, mode: 'ranked' })
+    expect(doc.raw.cells).toEqual([
+      {
+        tier: 'clean',
+        myClass: 'witch',
+        oppoClass: 'dragon',
+        playOrder: 'first',
+        installs: 4,
+        wins: 6,
+        total: 10
+      },
+      {
+        tier: 'legacy',
+        myClass: 'witch',
+        oppoClass: 'dragon',
+        playOrder: 'first',
+        installs: 1,
+        wins: 30,
+        total: 44
+      }
+    ])
     // 7d is the last seven series days (2026-08-27..09-02), so the 08-20 row
     // counts only towards 30d and the 07-01 row towards neither: it is outside
     // the series the totals are summed from.

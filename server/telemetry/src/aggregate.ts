@@ -222,6 +222,15 @@ export type CrBandRow = {
   wins: number
   total: number
 }
+export type RawMatrixRow = {
+  tier: string
+  my_class: string
+  oppo_class: string
+  play_order: string
+  installs: number
+  wins: number
+  total: number
+}
 export type BandMatrixRow = {
   cr_band: string
   my_class: string
@@ -298,6 +307,40 @@ export type OverviewDocument = {
    * and every row uploaded before schema 2 is `unknown` by definition. Summing
    * the bands reproduces the unsplit totals exactly.
    */
+  /**
+   * The matrix with nothing held back: no per-install cap, no k-anonymity
+   * floor, and every tier rather than only `clean`.
+   *
+   * This answers a different question from `/v1/meta` and must not be confused
+   * with it. The public document deliberately bounds what any one person can
+   * contribute to a cell and refuses to publish a cell too few people stand
+   * behind; both of those exist because that endpoint is public and
+   * unauthenticated. Here there is one reader, holding a bearer token, who
+   * needs to know what the raw pile actually contains - including the cells the
+   * public path withholds and the tiers it does not trust.
+   *
+   * `installs` is still reported per cell, and that is the point rather than a
+   * leftover: with the floor gone, the honest replacement for suppression is
+   * showing the concentration instead of hiding it. A cell of 40 games from one
+   * install is one person's record and the number says so.
+   *
+   * Scoped to `META_MODE` so it stays a matchup table - mixing 2Pick into a
+   * constructed matrix compares different formats - but keyed by tier so the
+   * reader can decide what to trust without another request.
+   */
+  raw: {
+    /** What was counted, so a chart can state it rather than imply it. */
+    scope: { days: number; mode: string }
+    cells: Array<{
+      tier: string
+      myClass: string
+      oppoClass: string
+      playOrder: string
+      installs: number
+      wins: number
+      total: number
+    }>
+  }
   rank: {
     /** One row per band, ranked mode and the public tiers only. */
     bands: Array<{
@@ -352,6 +395,8 @@ export function buildOverview(input: {
   modes: readonly ModeRow[]
   crBands: readonly CrBandRow[]
   bandCells: readonly BandMatrixRow[]
+  rawCells: readonly RawMatrixRow[]
+  rawScope: { days: number; mode: string }
 }): OverviewDocument {
   const versions = new Map<string, { appVersion: string; active7d: number; active30d: number }>()
   for (const row of input.versions30d) {
@@ -428,6 +473,18 @@ export function buildOverview(input: {
       .sort((a, b) => b.active30d - a.active30d),
     series,
     matchesLast30d: { total, byTier, byMode },
+    raw: {
+      scope: input.rawScope,
+      cells: input.rawCells.map((row) => ({
+        tier: row.tier,
+        myClass: row.my_class,
+        oppoClass: row.oppo_class,
+        playOrder: row.play_order,
+        installs: Number(row.installs) || 0,
+        wins: Number(row.wins) || 0,
+        total: Number(row.total) || 0
+      }))
+    },
     rank: {
       bands: input.crBands
         .map((row) => ({
