@@ -92,6 +92,13 @@ export async function insertMatch(values: {
   /** Provenance, as the engine would have written it. See migration 008. */
   source?: string | null
   recog_flags?: string[] | null
+  /**
+   * The opponent's nameplate, as the engine cut it. See migration 013.
+   *
+   * Bytes rather than a flag, because the only thing worth testing about this
+   * column is that they come back unchanged.
+   */
+  oppo_name_crop?: Uint8Array | null
 }): Promise<number> {
   const row = await getDb()
     .insertInto('Match')
@@ -111,7 +118,8 @@ export async function insertMatch(values: {
       endedAt: values.endedAt ? values.endedAt.getTime() : null,
       updatedAt: Date.now(),
       source: values.source === undefined ? 'engine' : values.source,
-      recog_flags: values.recog_flags ? JSON.stringify(values.recog_flags) : null
+      recog_flags: values.recog_flags ? JSON.stringify(values.recog_flags) : null,
+      oppo_name_crop: values.oppo_name_crop ?? null
     })
     .returning('id')
     .executeTakeFirstOrThrow()

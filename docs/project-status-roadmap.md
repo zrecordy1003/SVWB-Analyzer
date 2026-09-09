@@ -12,6 +12,8 @@ future changes that should still be considered. More focused notes live in:
 - `docs/telemetry-dau-plan.md` — anonymous usage statistics: what is uploaded, when, and where.
 - `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Upload side implemented;
   the public chart is deferred to a later release.
+- `docs/account-sync-plan.md` — Google sign-in and PC-to-PC data sync. Planning only; nothing
+  implemented. Read it before touching primary keys, the migration set, or the telemetry identifiers.
 
 > Rewritten 2026-08-29. The previous revision described the pre-engine architecture (a forked JS
 > analyzer, Prisma, `src/main/forkedImageAnalyzer.ts`). None of those exist any more; the sections
@@ -43,6 +45,10 @@ testable without a game, a database, or Electron.
 - `templates.rs` — the template store and matching against it.
 - `calibration.rs` — measured windows, scales, thresholds, timings. Single source of truth for ROIs.
 - `reading.rs` — scores to an interpreted `machine::Reading`.
+- `nameplate.rs` — a picture of the opponent's name, cut from the versus frame a match was
+  recognised from. A picture and not text: OCR reads Latin names exactly and gets CJK ones wrong by
+  a character or two every time, and the errors are systematic, so multi-frame consensus agrees on
+  the same wrong string. Written straight to `Match.oppo_name_crop`; nothing reads it back.
 - `machine.rs` (+ `machine/tick.rs`, `machine/scenarios.rs`) — `(phase, reading, now)` to a decision,
   as a pure function. Observing and acting are deliberately separated.
 - `phase.rs` — where the machine is in one match's life.

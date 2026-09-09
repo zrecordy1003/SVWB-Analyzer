@@ -226,4 +226,56 @@ describe('IPC smoke flow', () => {
       { field: 'mode', from: 'weekendPlaza', to: 'ranked', count: 1 }
     ])
   })
+
+  /**
+   * The opponent's nameplate reaches the renderer as the bytes the engine wrote.
+   *
+   * It is a PNG the UI renders directly, so any mangling on the way out - a
+   * column dropped by an explicit `select`, a mapper that rebuilds the row field
+   * by field, a BLOB coerced to text - would surface months later as a broken
+   * image and nowhere else. Nothing inside the engine reads this column back, so
+   * this path is the only reader there is.
+   *
+   * What this does NOT cover: Electron's own serialisation. `invoke` here calls
+   * the handler directly, so the structured clone that carries a `Buffer` across
+   * the real IPC boundary is not exercised. This covers the half that can
+   * silently drop the column; the other half has no seam to test it at.
+   */
+  it('hands the opponent nameplate to the renderer byte for byte', async () => {
+    // Both extremes and a NUL, because a TEXT column would truncate at the NUL
+    // and an encoding round trip would rewrite the high byte.
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0x7f])
+
+    const withPlate = await insertMatch({
+      result: true,
+      play_order: 'first',
+      my_class: 'elf',
+      oppo_class: 'royal',
+      mode: 'ranked',
+      playedAt: new Date('2026-05-20T12:00:00Z'),
+      oppo_name_crop: png
+    })
+    // A CPU opponent has no name. NULL and not an empty blob: the UI shows
+    // nothing for one and a zero-width image for the other.
+    const withoutPlate = await insertMatch({
+      result: false,
+      play_order: 'second',
+      my_class: 'elf',
+      oppo_class: 'royal',
+      mode: 'cpu',
+      playedAt: new Date('2026-05-20T12:10:00Z')
+    })
+
+    const byId = await invoke<any>('matches:getById', withPlate)
+    expect(byId.oppo_name_crop).toBeInstanceOf(Uint8Array)
+    expect(Array.from<number>(byId.oppo_name_crop)).toEqual(Array.from(png))
+
+    // Through the paged query as well: it is a different query from `getById`
+    // and it is the one the match list actually calls.
+    const page = await invoke<any>('matches:getPage', { rangeKey: 'all', limit: 10 })
+    const rows: any[] = page.rows ?? page
+    const paged = rows.find((row) => row.id === withPlate)
+    expect(Array.from<number>(paged.oppo_name_crop)).toEqual(Array.from(png))
+    expect(rows.find((row) => row.id === withoutPlate).oppo_name_crop).toBeNull()
+  })
 })
