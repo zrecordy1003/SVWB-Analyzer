@@ -4,7 +4,7 @@
  * `dbMigration.test.ts` applies every migration to a FRESH file, which is the
  * new-install path. This is the other one, and it is the one that can break
  * every existing user at once: a v1.2.0 install has migrations 001-007, and
- * launching this version runs 008-012 over whatever is already in there.
+ * launching this version runs 008-013 over whatever is already in there.
  * Nothing tested that until now - the failure mode is an app that will not
  * start, for people who were using it happily yesterday.
  *
@@ -224,8 +224,8 @@ describe(`upgrading from ${FROM_TAG}`, () => {
       encoding: 'utf8',
       windowsHide: true
     })
-    // Only the new ones ran: 012 - 007 = 5.
-    expect(JSON.parse(out.trim())).toEqual({ applied: 5 })
+    // Only the new ones ran: 013 - 007 = 6.
+    expect(JSON.parse(out.trim())).toEqual({ applied: 6 })
 
     // ---- and nothing was lost
     const after = new SQLite(dbPath, { readonly: true })
@@ -305,7 +305,7 @@ describe(`upgrading from ${FROM_TAG}`, () => {
 
     const args = ['migrate', '--db', dbPath, '--migrations', MIGRATIONS]
     expect(JSON.parse(execFileSync(ENGINE, args, { encoding: 'utf8' }).trim())).toEqual({
-      applied: 5
+      applied: 6
     })
     // Which is what a second launch does, and what a crash mid-upgrade leaves
     // behind for the next one.

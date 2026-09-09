@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use svwb_engine::calibration::{self, ScoreSystem};
 use svwb_engine::frame::Frame;
 use svwb_engine::machine::{Located, Reading};
+use svwb_engine::nameplate;
 use svwb_engine::numbers::NoNumbers;
 use svwb_engine::protocol::PlayOrder;
 use svwb_engine::reading;
@@ -533,6 +534,75 @@ fn a_band_above_the_picture_does_not_move_the_calibrated_windows() {
             banded_mp_gain.as_ref().map(|h| (&h.0, h.1)),
             mp_gain.as_ref().map(|h| (&h.0, h.1)),
             "{label}: the 獲得MP label moved"
+        );
+    }
+}
+
+/// Every versus screen with a player on the other side yields a nameplate, and
+/// the one with a CPU on it does not.
+///
+/// This is the whole guard on `NAME_ENEMY`. The window is not matched against a
+/// template, so nothing else can notice it drifting: a window that slid off the
+/// text would keep returning a perfectly valid PNG of the wrong pixels, and the
+/// first report would be a user asking why their match history is full of
+/// pictures of a character's elbow.
+///
+/// The CPU frame is the half of this that catches a window sliding the OTHER
+/// way. Its row is not empty - character art bleeds into it and binarises to
+/// 14.8% ink, denser than two of the real nameplates here - so a check that
+/// merely asked "is there anything there" would pass on it.
+///
+/// It also settles the timing question, which nothing else here could. The
+/// engine cuts the plate on the frame a match is recognised from, and that
+/// frame needs the play-order overlay - which arrives about a second into the
+/// versus screen, while the panel carrying the name slides in. Every fixture
+/// below is an overlay frame, so each one is the kind of frame `MatchStarted`
+/// actually fires on, and the panel is settled on all of them.
+#[test]
+fn a_nameplate_is_cut_from_every_versus_screen_that_has_one() {
+    for fixture in [
+        "non-2pick-versus/01-ranked-fullscreen.png",
+        "non-2pick-versus/02-ranked-windowed.png",
+        "non-2pick-versus/04-custom.png",
+        "2pick-1280-windowed-win/01-versus-2pick-label.png",
+        "2pick-1920-fullscreen-win/01-versus-2pick-label.png",
+    ] {
+        let png = nameplate::cut(&frame_of(fixture));
+        assert!(png.is_some(), "{fixture}: no nameplate was cut");
+        // Small enough to keep in the row rather than on disk, which is what
+        // makes a picture affordable in the first place. The fixtures measure
+        // 379 bytes to 1.5 KB; the largest is the custom-room 稱號 plus name at
+        // 298px wide, and the window caps the width at 318px, so nothing much
+        // larger can exist.
+        let size = png.unwrap().len();
+        assert!(size < 3072, "{fixture}: the nameplate grew to {size} bytes");
+    }
+
+    assert!(
+        nameplate::cut(&frame_of("non-2pick-versus/03-cpu.png")).is_none(),
+        "a CPU opponent has no name, so its row must not be stored as one"
+    );
+}
+
+/// Nothing that is not a versus screen may yield a nameplate.
+///
+/// The engine only asks on the frame a match starts from, so this is not about
+/// the live path - it is about the window itself. If a battlefield or a result
+/// screen can produce one, the window is loose enough that a versus screen can
+/// produce the wrong one.
+#[test]
+fn other_screens_have_no_nameplate() {
+    for fixture in [
+        "cpu-practice-1920-fullscreen/01-home.png",
+        "cpu-practice-1920-fullscreen/04-battle.png",
+        "ranked-bp-1280-windowed-lose/03-battle.png",
+        "ranked-bp-1920-fullscreen/01-result-win-bp.png",
+        "ranked-gm-mp-windowed/01-result-lose-mp-cr.png",
+        "2pick-1920-fullscreen-lose/03-battle.png",
+    ] {
+        assert!(
+            nameplate::cut(&frame_of(fixture)).is_none(),
+            "{fixture}: cut a nameplate off a screen that has no name on it"
         );
     }
 }

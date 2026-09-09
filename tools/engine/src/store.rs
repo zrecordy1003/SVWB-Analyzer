@@ -184,7 +184,17 @@ impl MatchStore {
     /// Written immediately, not at finalize: the HUD shows the running match,
     /// and a crash mid-battle should leave a row (with a result if the splash
     /// was reached) rather than nothing.
-    pub fn insert_match(&self, versus: &VersusScreen, mode: Option<GameMode>) -> Result<i64, StoreError> {
+    ///
+    /// `oppo_name_crop` is a picture of the opponent's name, or `None` when the
+    /// frame had no nameplate to cut - a CPU opponent, or a versus panel still
+    /// sliding in. See [`crate::nameplate`]; it is stored as-is and never read
+    /// back by the engine.
+    pub fn insert_match(
+        &self,
+        versus: &VersusScreen,
+        mode: Option<GameMode>,
+        oppo_name_crop: Option<&[u8]>,
+    ) -> Result<i64, StoreError> {
         let now = epoch_ms();
         let (year, month, day) = local_ymd();
 
@@ -205,8 +215,8 @@ impl MatchStore {
         self.conn.execute(
             "INSERT INTO Match (result, play_order, my_class, oppo_class, my_deckId,
                                 mode, year, month, day, playedAt, updatedAt,
-                                source, engine_version)
-             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 'engine', ?10)",
+                                source, engine_version, oppo_name_crop)
+             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 'engine', ?10, ?11)",
             rusqlite::params![
                 format!("{:?}", versus.play_order).to_lowercase(),
                 format!("{:?}", versus.my_class).to_lowercase(),
@@ -218,6 +228,7 @@ impl MatchStore {
                 day,
                 now,
                 env!("CARGO_PKG_VERSION"),
+                oppo_name_crop,
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -392,7 +403,7 @@ mod tests {
     #[test]
     fn rows_match_the_prisma_formats() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), Some(GameMode::Cpu)).unwrap();
+        let id = store.insert_match(&versus(), Some(GameMode::Cpu), None).unwrap();
 
         let (played_type, play_order, my_class, mode): (String, String, String, String) = store
             .conn
@@ -413,7 +424,7 @@ mod tests {
     #[test]
     fn a_result_carries_the_end_of_the_battle() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store
             .update_match(id, &MatchPatch { result: Some(false), ..Default::default() })
             .unwrap();
@@ -436,7 +447,7 @@ mod tests {
     #[test]
     fn an_absent_field_is_not_a_clear() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store.update_match(id, &MatchPatch { bp: Some(8), ..Default::default() }).unwrap();
         store
             .update_match(id, &MatchPatch { mode: Some(GameMode::Ranked), ..Default::default() })
@@ -454,7 +465,7 @@ mod tests {
     #[test]
     fn an_abandoned_match_leaves_no_row() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store.delete_match(id).unwrap();
         let count: i64 = store
             .conn
@@ -469,7 +480,7 @@ mod tests {
     #[test]
     fn an_inserted_row_carries_its_provenance() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), Some(GameMode::Cpu)).unwrap();
+        let id = store.insert_match(&versus(), Some(GameMode::Cpu), None).unwrap();
 
         let (source, version): (Option<String>, Option<String>) = store
             .conn
@@ -481,13 +492,47 @@ mod tests {
         assert_eq!(version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
     }
 
+    /// The nameplate goes in as bytes and comes back as the same bytes.
+    ///
+    /// It is a PNG the UI renders directly, so anything that mangles it - a
+    /// TEXT column, an encoding round trip - would show up as a broken image
+    /// months later and nowhere else. Nothing reads this column back inside the
+    /// engine, so this test is the only place the storage is exercised at all.
+    #[test]
+    fn a_nameplate_survives_the_round_trip() {
+        let store = store_with_schema();
+        let png: Vec<u8> = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 0xff, 0x7f];
+        let id = store.insert_match(&versus(), None, Some(&png)).unwrap();
+
+        let stored: Option<Vec<u8>> = store
+            .conn
+            .query_row("SELECT oppo_name_crop FROM Match WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stored.as_deref(), Some(png.as_slice()));
+    }
+
+    /// A CPU opponent has no name, and a versus panel caught mid-slide has none
+    /// yet. Both must leave the column NULL rather than an empty blob - the UI
+    /// tells "no nameplate" from "a nameplate of nothing" on that distinction.
+    #[test]
+    fn no_nameplate_leaves_the_column_null() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), Some(GameMode::Cpu), None).unwrap();
+
+        let stored: Option<Vec<u8>> = store
+            .conn
+            .query_row("SELECT oppo_name_crop FROM Match WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(stored, None);
+    }
+
     /// The engine never writes the columns the UI owns. `edited_fields` is the
     /// UI's record of what a person changed; an engine write to it would make
     /// every statistic that reads it meaningless.
     #[test]
     fn the_engine_never_writes_the_ui_owned_columns() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store
             .update_match(
                 id,
@@ -517,7 +562,7 @@ mod tests {
     #[test]
     fn a_mode_correction_replaces_its_confidence_too() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store
             .update_match(
                 id,
@@ -554,7 +599,7 @@ mod tests {
     #[test]
     fn recognition_flags_union_rather_than_overwrite() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store
             .update_match(
                 id,
@@ -593,7 +638,7 @@ mod tests {
     #[test]
     fn a_patch_that_fails_part_way_leaves_nothing_behind() {
         let store = store_with_schema();
-        let id = store.insert_match(&versus(), None).unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
         store.update_match(id, &MatchPatch { bp: Some(3), ..Default::default() }).unwrap();
 
         // A trigger that refuses the second statement of the patch below.

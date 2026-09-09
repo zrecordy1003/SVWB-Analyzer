@@ -52,6 +52,13 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("nameplate") => match nameplate_cmd(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("svwb-engine: {message}");
+                ExitCode::FAILURE
+            }
+        },
         Some("crop") => match crop(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
@@ -481,6 +488,38 @@ fn canvas(args: &[String]) -> Result<(), String> {
         Some(window) => frame.crop_to_png(window).ok_or("rect is outside the canvas")?,
         None => frame.normalised_to_png().ok_or("cannot encode the canvas")?,
     };
+
+    use std::io::Write;
+    std::io::stdout().write_all(&png).map_err(|e| e.to_string())
+}
+
+/// Write the opponent's nameplate to stdout as a PNG, or fail saying there is
+/// none.
+///
+///   svwb-engine nameplate --image <png>
+///
+/// Here for the same reason `crop` is: [`calibration::NAME_ENEMY`] is not
+/// matched against a template, so nothing in the pipeline can notice it sliding
+/// off the text - it would go on returning a perfectly valid picture of the
+/// wrong pixels. `tests/fixtures.rs` asserts which fixtures yield a nameplate
+/// and which do not; this is how you look at one.
+fn nameplate_cmd(args: &[String]) -> Result<(), String> {
+    let mut image_path: Option<PathBuf> = None;
+
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let mut next = || rest.next().ok_or_else(|| format!("{arg} needs a value"));
+        match arg.as_str() {
+            "--image" => image_path = Some(PathBuf::from(next()?)),
+            other => return Err(format!("unexpected argument `{other}`")),
+        }
+    }
+
+    let image_path = image_path.ok_or("--image <png> is required")?;
+    let decoded = image::open(&image_path)
+        .map_err(|e| format!("cannot decode {}: {e}", image_path.display()))?;
+    let png = svwb_engine::nameplate::cut(&Frame::from_image(&decoded))
+        .ok_or("no nameplate on this frame")?;
 
     use std::io::Write;
     std::io::stdout().write_all(&png).map_err(|e| e.to_string())

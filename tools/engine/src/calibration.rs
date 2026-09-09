@@ -46,6 +46,60 @@ pub const EMBLEMS_ENEMY: Rect = Rect::new(1137, 422, 134, 152);
 pub const PLAY_ORDER_OWN: Rect = Rect::new(367, 439, 173, 113);
 pub const PLAY_ORDER_ENEMY: Rect = Rect::new(740, 439, 173, 113);
 
+/// The opponent's nameplate on the versus screen - the row above the greeting
+/// box, level with the player's own name on the left.
+///
+/// Not a template window: nothing is matched here. It is the region
+/// [`crate::nameplate`] cuts a picture out of, so the numbers mean something
+/// different from every other window in this file - there is no template whose
+/// size sets it, only the text that has to fit inside.
+///
+/// Measured across six versus frames (1280 windowed, 1920 fullscreen, ranked,
+/// 2Pick, CPU and custom, in `tests/fixtures/captures`). The text sits at
+/// y=578-604 on all six; the window takes the usual slack above and below.
+///
+/// The name is RIGHT-ALIGNED against the avatar, and that is what makes the
+/// width safe to bound. A custom-room opponent showed a 稱號 and a name
+/// together, 「至高的宿命者 莉希婭菲爾」, spanning 298px; a longer title than
+/// that is simply clipped on the LEFT, which loses the title and keeps the
+/// name. A window measured from the left would lose the name instead.
+///
+/// Wider than this is not free: the left end runs into the character art, which
+/// binarises to solid white blobs. 318px is what the widest observed nameplate
+/// needs; [`crate::nameplate`] trims the art back off afterwards.
+pub const NAME_ENEMY: Rect = Rect::new(830, 572, 318, 32);
+
+/// Where the nameplate's right edge must land. A BAND, not a minimum.
+///
+/// The text is right-aligned, so its right edge is a fixed position rather than
+/// a bound: it landed at x=1125-1130 on all five frames that have a name, a 5px
+/// spread across two resolutions and four modes. Ink that ends anywhere else in
+/// this row is something else being drawn there.
+///
+/// Both ends were set by an observed false positive, not by taste:
+///
+/// - The CPU versus screen has no name, and its rightmost ink is at x=921 -
+///   character art bleeding into the row. It is also 14.8% ink, denser than two
+///   of the real nameplates, so density alone would have accepted it.
+/// - The MP result screen has a faint panel arc ending at x=1136, 57px wide and
+///   9.0% ink - narrower and sparser than a real plate is dense, so only its
+///   position tells it apart. The upper end cannot be raised past 1135 without
+///   readmitting it.
+///
+/// The band also guards the frame a match is recognised from. The versus panel
+/// slides in, and a nameplate caught mid-slide has not reached its aligned
+/// position - so it falls outside and is stored as NULL rather than as a smear.
+/// A miss costs one NULL nameplate; there is nothing else downstream of it.
+pub const NAMEPLATE_RIGHT_EDGE: std::ops::RangeInclusive<u32> = 1118..=1134;
+
+/// A blank run this wide, walking left from the right edge, ends the nameplate.
+///
+/// Between the 稱號 and the name is a single space, measured at 10px; between
+/// the nameplate and the character art at the window's left end is more than
+/// 50px on every frame. 24px sits in that gap - wide enough not to cut a name
+/// in half, narrow enough to drop the art.
+pub const NAMEPLATE_GAP: u32 = 24;
+
 /// The CPU deck label sits in a different place before the battle than on the
 /// result screen, so both are probed and the better score wins.
 /// Element centres: pre-battle (1194,121), result (746,265).

@@ -267,8 +267,13 @@ fn apply<W: std::io::Write>(
 ) -> std::io::Result<()> {
     match change {
         Change::MatchStarted { r#ref, versus, mode } => {
+            // The versus screen this match was recognised from is still the
+            // frame in hand, and it is the only screen the opponent's name is
+            // ever drawn on - it is gone by the time the battle starts and
+            // never returns. So the picture is cut here or not at all.
+            let nameplate = frame.and_then(crate::nameplate::cut);
             if let Some(store) = &options.store {
-                match store.insert_match(&versus, mode) {
+                match store.insert_match(&versus, mode, nameplate.as_deref()) {
                     Ok(id) => {
                         rows.insert(r#ref, id);
                     }

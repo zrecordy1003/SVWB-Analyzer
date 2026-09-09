@@ -16,6 +16,7 @@
 //!   [`templates`]     the template store, and matching against it
 //!   [`calibration`]   measured windows, scales, thresholds, timings
 //!   [`reading`]       scores -> an interpreted [`machine::Reading`]
+//!   [`nameplate`]     a picture of the opponent's name, cut from a frame
 //!   [`machine`]       (phase, reading, now) -> what changed
 //!   [`phase`]         where the machine is in one match's life
 //!   [`accumulate`]    debouncing and multi-frame consensus
@@ -34,6 +35,7 @@ pub mod frame_source;
 pub mod host;
 pub mod live;
 pub mod machine;
+pub mod nameplate;
 pub mod numbers;
 pub mod phase;
 pub mod protocol;

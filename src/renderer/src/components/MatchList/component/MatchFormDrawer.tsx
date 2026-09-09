@@ -207,6 +207,8 @@ const blankDraft = (): MatchDraft => ({
   mode_confidence: null,
   engine_version: null,
   recog_flags: null,
+  // 手動新增的對戰沒有 versus 畫面可以裁，而且這個欄位只有引擎會寫。
+  oppo_name_crop: null,
   tags: [],
   my_deck: null,
   oppo_deck: null

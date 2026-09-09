@@ -101,6 +101,21 @@ export interface Match {
   mode_confidence: 'weak' | 'strong' | 'authoritative' | null
   engine_version: string | null
   recog_flags: string | null
+  /**
+   * A picture of the opponent's name, cut from the versus screen: a small
+   * PNG of white glyphs on transparent, 379 bytes to 1.5 KB, or `null` when
+   * there was no nameplate to cut.
+   *
+   * A picture and not text on purpose. OCR reads Latin names exactly and gets
+   * Japanese and Chinese ones wrong by a character or two every time, which is
+   * the worst possible outcome for something used to tell opponents apart - see
+   * `resources/migrations/013_add_oppo_name_crop.sql` and the engine's
+   * `nameplate.rs` for the measurements.
+   *
+   * `null` is a real state, not a failure: a CPU opponent has no name, and the
+   * versus panel may still have been sliding in when the match was recognised.
+   */
+  oppo_name_crop: Uint8Array | null
 }
 
 /**

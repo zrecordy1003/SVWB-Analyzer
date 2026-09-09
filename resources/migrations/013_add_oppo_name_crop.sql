@@ -1,0 +1,22 @@
+-- A picture of the opponent's name, cut from the versus screen.
+--
+-- A PICTURE, not text. OCR was measured against this exact row first and only
+-- reads it reliably when the name is Latin: `Bobybob` came back exact at
+-- confidence 87-91 across every preprocessing variant tried, while the two CJK
+-- samples never once came back right - `オベベインコ` read as `オベべベベインコ`,
+-- `オペペインコ` and `オォベベインュ` depending on the upscaling, and `四月驟雨`
+-- as `中月叔示`. Those are not near-misses a second frame fixes: the errors are
+-- systematic per-glyph confusions (dakuten for handakuten, a doubled or dropped
+-- kana), so multi-frame consensus would agree on the same wrong string. A name
+-- that is wrong by one character is worse than no name at all, because it looks
+-- usable and groups two people into one.
+--
+-- The crop measures 379 bytes to 1.5 KB across the fixtures - the largest being
+-- a 稱號 and a name together - so ten thousand matches cost single-digit MB.
+-- That is less than the language pack the text version would have needed to
+-- ship in the installer, and it is never wrong.
+--
+-- NULL means the engine had no nameplate to store, which is a real state and
+-- not a failure: a CPU opponent has no name, and the versus panel may still be
+-- sliding in on the frame the match was recognised from. See `nameplate.rs`.
+ALTER TABLE "Match" ADD COLUMN "oppo_name_crop" BLOB;

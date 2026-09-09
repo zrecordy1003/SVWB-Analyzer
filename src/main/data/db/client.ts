@@ -58,6 +58,15 @@ export interface MatchRow {
   mode_confidence: string | null
   engine_version: string | null
   recog_flags: string | null
+  /**
+   * A picture of the opponent's name. See
+   * `resources/migrations/013_add_oppo_name_crop.sql`.
+   *
+   * `better-sqlite3` hands a BLOB back as a `Buffer`, which is a `Uint8Array`,
+   * and structured clone carries it through the worker and the IPC boundary
+   * unchanged. Written by the engine only; this side never writes it.
+   */
+  oppo_name_crop: Uint8Array | null
 }
 
 export interface DeckRow {
@@ -243,7 +252,8 @@ export const TABLE_COLUMNS = {
     'edited_fields',
     'mode_confidence',
     'engine_version',
-    'recog_flags'
+    'recog_flags',
+    'oppo_name_crop'
   ],
   Deck: [
     'id',

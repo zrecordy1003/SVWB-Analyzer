@@ -11,6 +11,7 @@ import ModeLabel from '@renderer/components/Common/ModeLabel'
 import PlayOrderMark from '@renderer/components/Common/PlayOrderMark'
 import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
 import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
+import { toPngDataUrl } from '@renderer/utils/pngDataUrl'
 import InlineDeckSelect, { type InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
 
@@ -91,6 +92,56 @@ type Props = {
   onEdit: (id: number) => void
   onDelete: (id: number) => void
   onSetDeck: (id: number, side: 'my' | 'oppo', deckId: number) => void
+}
+
+/**
+ * 名牌的顯示高度。原圖 32px 高、字約佔 26px，縮到 18px 後字高約 14.6px，跟同
+ * 一列的 caption 字級相當。
+ */
+const NAMEPLATE_HEIGHT = 18
+
+/**
+ * 超過這個寬度就等比縮小。帶稱號的名牌（fixture 裡最寬的 298px）在 18px 高時是
+ * 168px，所以正常情況下這個上限不會生效——它擋的是未來出現更長的稱號時把整列
+ * 擠掉。
+ */
+const NAMEPLATE_MAX_WIDTH = 180
+
+/**
+ * 對手的名字，原樣一張圖。
+ *
+ * 存的是 versus 畫面上那條名牌的裁切，不是辨識出來的文字。OCR 讀得準的只有拉丁
+ * 名字；日文和中文每次都會錯一兩個字，而錯一個字的名字比沒有名字更糟——它看起來
+ * 能用，卻會把同一個人拆成兩個。量測過程寫在 `tools/engine/src/nameplate.rs`。
+ *
+ * 圖是白字透明底。App 是深色主題所以直接貼就對了；`invert` 那行是給哪天加上淺色
+ * 主題用的，否則白字落在白底上會變成「名字整排消失」這種不會有人回報的壞法。
+ */
+const OpponentNameplate: React.FC<{ crop: Uint8Array | null }> = ({ crop }) => {
+  const url = React.useMemo(() => (crop ? toPngDataUrl(crop) : null), [crop])
+  if (!url) return null
+
+  return (
+    <Tooltip title="對手名稱（開場畫面原圖）">
+      <Box
+        component="img"
+        src={url}
+        alt="對手名稱"
+        sx={{
+          ml: 'auto',
+          display: 'block',
+          height: NAMEPLATE_HEIGHT,
+          width: 'auto',
+          maxWidth: NAMEPLATE_MAX_WIDTH,
+          objectFit: 'contain',
+          objectPosition: 'right',
+          // 名字是輔助資訊，不該比同列的先後攻更搶眼。
+          opacity: 0.72,
+          filter: (theme) => (theme.palette.mode === 'light' ? 'invert(1)' : 'none')
+        }}
+      />
+    </Tooltip>
+  )
 }
 
 /**
@@ -298,9 +349,12 @@ const MatchCard: React.FC<Props> = ({ match: m, deckOptions, onEdit, onDelete, o
             justifyContent="center"
             gap={0.5}
           >
-            {/* 先後攻放在卡片資訊區最上方，掃讀對局時不必再從 VS 欄尋找。 */}
-            <Box display="flex" alignItems="center" height={18}>
+            {/* 先後攻放在卡片資訊區最上方，掃讀對局時不必再從 VS 欄尋找。
+                對手名牌接在同一列的最右邊：它跟先後攻一樣是「這一場是誰、怎麼
+                開的」，而且這一列本來就空著半條。 */}
+            <Box display="flex" alignItems="center" height={18} gap={1} minWidth={0}>
               <PlayOrderMark order={m.play_order} dense />
+              <OpponentNameplate crop={m.oppo_name_crop} />
             </Box>
 
             {/* 職業在上、牌組在下；兩側往中間對齊，VS 欄固定寬讓每列的 VS 對齊 */}
