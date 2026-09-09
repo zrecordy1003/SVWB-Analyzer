@@ -243,7 +243,26 @@ tiebreak，不是骨幹。
 - 面板偵測用字樣模板（`CHANGE` / `KEEP` / 等待字樣），不要用亮度啟發式：量測腳本用的亮度門檻
   在暗色戰場背景下就失效了，NCC 沒有這個問題（0.68~0.82 對 0.05~0.17，分得很開）。
 
-### 階段 1：偵測換牌畫面 + 哪幾張被換掉
+### 階段 1：偵測換牌畫面 + 哪幾張被換掉 — **辨識端已完成（2026-09-09），尚未接上狀態機**
+
+已落地：`resources/templates/mulligan/`（`change.png` / `keep.png`）、`calibration.rs` 的
+`MULLIGAN_*` 常數與 `threshold::MULLIGAN`、`tools/engine/src/mulligan.rs`（`Stage`、
+`Mulligan`、佔用判定）、`svwb-engine mulligan --image` 這個看單張畫面用的子命令，以及
+`tests/fixtures.rs` 的兩個測試（四份真實畫面的正例、七份其他畫面的負例）。
+
+三份新的靜態 fixture 涵蓋 1920×1110 視窗（選擇中，兩張已上移）、2560×1440 全螢幕（選擇中，
+三張已上移）、1280×720（等待對手，最暗的一組卡）。
+
+**順帶抓到兩個名字說謊的既有 fixture**：`cpu-practice-1920-fullscreen/04-battle.png` 與
+`custom-1280-windowed-lose/04-battle-card-art.png` 都不是對戰畫面，是換牌面板（等待對手）。
+四個既有測試把它們當「對戰中」的負例在用——那些斷言本身仍然成立，但敘述是錯的。兩者已改名為
+`04-mulligan-waiting.png` 與 `04-mulligan-card-art.png`，README 一併更正。順帶澄清一件事：
+自訂房間標籤那個 0.6916 的著名誤判，撞到的是**換牌面板上的卡圖**，從來就不是戰場上的。
+
+還沒做（下一步）：把讀數接進 `machine`／`live`，用 `accumulate` 取共識，定出「最後一幀
+Choosing」與「第一幀 Waiting」，並決定要不要在這一階段就落庫。
+
+原本的階段 1 描述：
 
 不辨識卡片。這階段本身就有價值（換牌率、換幾張與勝率的關係），而且會順便累積真實裁圖，當作
 階段 2 的樣本來源與 fixture。

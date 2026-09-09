@@ -100,6 +100,72 @@ pub const NAMEPLATE_RIGHT_EDGE: std::ops::RangeInclusive<u32> = 1118..=1134;
 /// in half, narrow enough to drop the art.
 pub const NAMEPLATE_GAP: u32 = 24;
 
+// ------------------------------------------------------------------- mulligan
+//
+// The mulligan panel, and the eight slots inside it. Measured 2026-09-09 across
+// five recordings - 1280x720 windowed, 1920x1080 fullscreen, 1920x1110 windowed
+// on a 2560 desktop, 1282x752 windowed, 2560x1440 fullscreen - normalised to the
+// canvas first. See `docs/opening-hand-plan.md`, stage 0.
+//
+// The panel is two rows of four:
+//
+//   ┌─ CHANGE ─────────────────────────┐   the cards being thrown away
+//   │  [1]   [2]   [3]   [4]           │
+//   └──────────────────────────────────┘
+//   ┌─ KEEP ───────────────────────────┐   the cards being kept
+//   │  [1]   [2]   [3]   [4]           │
+//   └──────────────────────────────────┘
+//
+// Choosing to mulligan a card MOVES it from its KEEP slot to the CHANGE slot of
+// the SAME index - the game does not mark it, it relocates it. So "which cards
+// were swapped" is read off which column has its card in the top row, and needs
+// no template of its own.
+
+/// The two labels the panel is recognised by, and the only two states it has.
+///
+/// `CHANGE` is drawn only while the player is still choosing; `KEEP` is drawn in
+/// both states. So the pair is the state: both = choosing, `KEEP` alone = the
+/// hand is final and the game is waiting for the opponent.
+///
+/// Both are English words in every client language, unlike the instruction line
+/// under them (「請將您想交換的卡片移至上方框內。」), which is why they are the
+/// templates and it is not.
+///
+/// Measured over 1293 frames from the five recordings: `KEEP` scores 0.891-1.000
+/// on the 34 frames that show the panel and at most 0.549 on everything else -
+/// home screens, matchmaking, versus, battlefield, results, settings, history.
+/// `CHANGE` scores 0.925-1.000 while choosing, 0.019-0.203 once the choice is in,
+/// and at most 0.414 off the panel. Both windows are the label + the usual 20px.
+pub const MULLIGAN_CHANGE: Rect = Rect::new(495, 30, 170, 72);
+pub const MULLIGAN_KEEP: Rect = Rect::new(520, 620, 120, 68);
+
+/// The four card slots of the KEEP row, left to right.
+///
+/// Column spans measured at 195-347, 400-551, 603-756, 807-960 with at most 2px
+/// of drift between recordings; these are those spans inset by 10px so a
+/// neighbouring card's glow cannot reach in. Vertically the card runs 408-636,
+/// which includes the name band and the attack/life badges deliberately - they
+/// are the highest-contrast parts of a dim card, and [`crate::mulligan`] decides
+/// "is a card here" by contrast.
+pub const MULLIGAN_KEEP_SLOTS: [Rect; 4] = [
+    Rect::new(205, 408, 132, 228),
+    Rect::new(410, 408, 131, 228),
+    Rect::new(613, 408, 133, 228),
+    Rect::new(817, 408, 133, 228),
+];
+
+/// The four slots of the CHANGE row. Same columns, higher up.
+///
+/// These are only meaningful while `CHANGE` is on screen: once the choice is in,
+/// the whole row is gone and the battlefield shows through, which reads as
+/// "occupied" to any contrast test. [`crate::mulligan`] never asks in that state.
+pub const MULLIGAN_CHANGE_SLOTS: [Rect; 4] = [
+    Rect::new(205, 112, 132, 196),
+    Rect::new(410, 112, 131, 196),
+    Rect::new(613, 112, 133, 196),
+    Rect::new(817, 112, 133, 196),
+];
+
 /// The CPU deck label sits in a different place before the battle than on the
 /// result screen, so both are probed and the better score wins.
 /// Element centres: pre-battle (1194,121), result (746,265).
@@ -490,6 +556,7 @@ pub mod templates {
     pub const REPLAY_CHROME: &str = "replay_chrome";
     pub const SCORE_SYSTEM: &str = "score_system";
     pub const MP_GAIN: &str = "mp_gain";
+    pub const MULLIGAN: &str = "mulligan";
 }
 
 /// Downscale factor a set is matched at. Absent means full resolution.
@@ -545,6 +612,10 @@ pub mod threshold {
     pub const REPLAY_CHROME: f64 = 0.7;
     /// The mouse cursor sitting on top of a number being read.
     pub const CURSOR_BLOCK: f64 = 0.6;
+    /// The CHANGE / KEEP labels on the mulligan panel. The usual 0.7, and the
+    /// widest margin of any probe here: true hits 0.891-1.000, the best score
+    /// anywhere else in 1293 fixture frames 0.549. See [`super::MULLIGAN_KEEP`].
+    pub const MULLIGAN: f64 = 0.7;
 }
 
 /// How far a repeated weak hit may move and still count as the same element.

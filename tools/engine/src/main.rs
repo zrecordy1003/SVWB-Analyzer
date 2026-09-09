@@ -52,6 +52,13 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("mulligan") => match mulligan_cmd(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("svwb-engine: {message}");
+                ExitCode::FAILURE
+            }
+        },
         Some("nameplate") => match nameplate_cmd(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
@@ -491,6 +498,46 @@ fn canvas(args: &[String]) -> Result<(), String> {
 
     use std::io::Write;
     std::io::stdout().write_all(&png).map_err(|e| e.to_string())
+}
+
+/// Print what the mulligan panel says about one frame, or fail saying there is
+/// no panel on it.
+///
+///   svwb-engine mulligan --image <png>
+///
+/// Here for the same reason `nameplate` is: the slot windows are not matched
+/// against a template, so nothing in the pipeline notices them sliding off the
+/// cards - occupancy would go on being answered confidently from the wrong
+/// pixels. `tests/fixtures.rs` pins the answers for the shipped frames; this is
+/// how you ask about a new one.
+fn mulligan_cmd(args: &[String]) -> Result<(), String> {
+    let mut image_path: Option<PathBuf> = None;
+    let mut templates_dir = PathBuf::from("resources/templates");
+
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let mut next = || rest.next().ok_or_else(|| format!("{arg} needs a value"));
+        match arg.as_str() {
+            "--image" => image_path = Some(PathBuf::from(next()?)),
+            "--templates" => templates_dir = PathBuf::from(next()?),
+            other => return Err(format!("unexpected argument `{other}`")),
+        }
+    }
+
+    let image_path = image_path.ok_or("--image <png> is required")?;
+    let decoded = image::open(&image_path)
+        .map_err(|e| format!("cannot decode {}: {e}", image_path.display()))?;
+    let store = TemplateStore::load(&templates_dir).map_err(|e| e.to_string())?;
+
+    let read = svwb_engine::mulligan::read(&Frame::from_image(&decoded), &store)
+        .ok_or("no mulligan panel on this frame")?;
+    let row = |slots: [bool; 4]| {
+        slots.iter().map(|f| if *f { "[card]" } else { "[    ]" }).collect::<Vec<_>>().join(" ")
+    };
+    println!("stage    {:?}{}", read.stage, if read.is_settled() { "" } else { " (unsettled)" });
+    println!("change   {}", row(read.change));
+    println!("keep     {}", row(read.keep));
+    Ok(())
 }
 
 /// Write the opponent's nameplate to stdout as a PNG, or fail saying there is

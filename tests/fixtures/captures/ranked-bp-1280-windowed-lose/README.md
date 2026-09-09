@@ -7,6 +7,7 @@
 | `01-result-lose-bp.png` | ~1:41  | 最終結算：`result` = lose，`BP` 標籤在 **(1070, 321)**，TOTAL 為 `+8`。 |
 | `02-game-set-mid.png`   | ~1:38  | 中途結算橫幅（`result_mid` = gameset）。                                |
 | `03-battle.png`         | ~0:34  | 對戰中，用來確認 `score_system` 錨點視窗不會在戰鬥畫面誤判。            |
+| `04-mulligan-waiting.png` | ~0:25 | 換牌面板（等待對手）。這一組 fixture 裡最暗的 KEEP 列——四張卡有兩張的對比只有最亮那份的四分之一，是 `mulligan` 佔用判定門檻第一個會失守的地方。 |
 
 ## 這份素材要防的是什麼
 

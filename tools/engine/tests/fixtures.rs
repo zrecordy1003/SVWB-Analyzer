@@ -43,17 +43,23 @@ fn read_fixture(relative: &str) -> Reading {
     reading::read(&frame_of(relative), store(), &mut NoNumbers, false)
 }
 
-/// Nothing on a home screen, a matchmaking battlefield or a mid-battle frame may
-/// look like a result, a mode or a replay. Every probe in the table is a
-/// potential false positive, and mid-battle is where the two worst ones fired:
-/// the plaza label against ornate card text, and the custom-room label against
-/// card art.
+/// Nothing on a home screen, a mulligan panel or a mid-battle frame may look
+/// like a result, a mode or a replay. Every probe in the table is a potential
+/// false positive, and mid-battle is where the two worst ones fired: the plaza
+/// label against ornate card text, and the custom-room label against card art.
+///
+/// Two of these were called `04-battle*.png` until 2026-09-09, when the mulligan
+/// probes were added and read a panel off both of them. They are mulligan
+/// screens, not battlefields - which is fine for what this test asks of them,
+/// and worth knowing before quoting either as battlefield evidence. The ornate
+/// card art that the custom-room label used to score 0.69 against is on one of
+/// them, so that false positive was never a battlefield either.
 #[test]
 fn quiet_screens_stay_quiet() {
     for fixture in [
         "cpu-practice-1920-fullscreen/01-home.png",
-        "cpu-practice-1920-fullscreen/04-battle.png",
-        "custom-1280-windowed-lose/04-battle-card-art.png",
+        "cpu-practice-1920-fullscreen/04-mulligan-waiting.png",
+        "custom-1280-windowed-lose/04-mulligan-card-art.png",
         "ranked-bp-1280-windowed-lose/03-battle.png",
         // 1920x1032 windowed, with the app's own HUD on screen: the only fixture
         // at a client area that is wider than 16:9 once its title bar is off.
@@ -198,7 +204,7 @@ fn the_mp_block_is_located_by_its_own_label() {
 fn the_mp_label_is_absent_from_every_other_screen() {
     for fixture in [
         "cpu-practice-1920-fullscreen/01-home.png",
-        "cpu-practice-1920-fullscreen/04-battle.png",
+        "cpu-practice-1920-fullscreen/04-mulligan-waiting.png",
         "cpu-practice-1920-fullscreen/06-result-cpu-label.png",
         "ranked-bp-1920-fullscreen/01-result-win-bp.png",
         "ranked-bp-1280-windowed-lose/01-result-lose-bp.png",
@@ -307,7 +313,7 @@ fn the_custom_room_is_recognised_while_the_panel_is_up() {
 fn no_still_fixture_shows_a_versus_screen() {
     for fixture in [
         "cpu-practice-1920-fullscreen/03-matchmaking.png",
-        "cpu-practice-1920-fullscreen/04-battle.png",
+        "cpu-practice-1920-fullscreen/04-mulligan-waiting.png",
         "ranked-bp-1280-windowed-lose/03-battle.png",
     ] {
         assert!(
@@ -594,7 +600,7 @@ fn a_nameplate_is_cut_from_every_versus_screen_that_has_one() {
 fn other_screens_have_no_nameplate() {
     for fixture in [
         "cpu-practice-1920-fullscreen/01-home.png",
-        "cpu-practice-1920-fullscreen/04-battle.png",
+        "cpu-practice-1920-fullscreen/04-mulligan-waiting.png",
         "ranked-bp-1280-windowed-lose/03-battle.png",
         "ranked-bp-1920-fullscreen/01-result-win-bp.png",
         "ranked-gm-mp-windowed/01-result-lose-mp-cr.png",
@@ -603,6 +609,82 @@ fn other_screens_have_no_nameplate() {
         assert!(
             nameplate::cut(&frame_of(fixture)).is_none(),
             "{fixture}: cut a nameplate off a screen that has no name on it"
+        );
+    }
+}
+
+/// The mulligan panel, read off four real frames.
+///
+/// Each one is here for a property nothing else covers:
+///
+/// - `01-mulligan-two-changed` is the whole argument for reading the swap off
+///   geometry. Two cards have been moved into the CHANGE row and their KEEP
+///   slots are empty, so the two rows are complements of each other. Nothing was
+///   recognised to know which two.
+/// - `cpu-practice/04-mulligan-waiting` is the other stage: the CHANGE row is gone and the
+///   KEEP row holds the FINAL hand in the same four windows. This is the frame
+///   the post-mulligan hand comes from, and the reason the plan does not have to
+///   read the fanned-out hand on the battlefield. It was already in the tree,
+///   misfiled as `04-battle.png` and used by four tests as a mid-battle frame -
+///   it never was one, and this is what noticed.
+/// - `02-mulligan-three-changed` is 2560x1440 fullscreen on a dark stage, three
+///   cards up, one kept. Its dim art is what stops the occupancy test from being
+///   tuned to a bright panel.
+/// - `ranked-bp-1280/04-mulligan-waiting` is the dimmest KEEP row measured (two of its four
+///   cards sit at a quarter of the contrast of the brightest fixture's), at
+///   1280x720 - the one that would fail first if the threshold crept up.
+#[test]
+fn the_mulligan_panel_reads_the_same_at_every_resolution() {
+    use svwb_engine::mulligan::{self, Stage};
+
+    let read = |fixture: &str| {
+        mulligan::read(&frame_of(fixture), store())
+            .unwrap_or_else(|| panic!("{fixture}: no mulligan panel was found"))
+    };
+
+    let two_up = read("ranked-1920-windowed-2560-desktop/01-mulligan-two-changed.png");
+    assert_eq!(two_up.stage, Stage::Choosing);
+    assert_eq!(two_up.change, [true, false, false, true]);
+    assert_eq!(two_up.keep, [false, true, true, false]);
+    assert!(two_up.is_settled(), "every column holds its card in exactly one row");
+    assert_eq!(two_up.change_count(), 2);
+
+    let waiting = read("cpu-practice-1920-fullscreen/04-mulligan-waiting.png");
+    assert_eq!(waiting.stage, Stage::Waiting);
+    assert_eq!(waiting.keep, [true; 4], "the final hand is four cards");
+    assert_eq!(waiting.change, [false; 4], "the CHANGE row is not on screen to read");
+    assert!(waiting.is_settled());
+
+    let three_up = read("ranked-gm-mp-2560-fullscreen/02-mulligan-three-changed.png");
+    assert_eq!(three_up.stage, Stage::Choosing);
+    assert_eq!(three_up.change, [false, true, true, true]);
+    assert_eq!(three_up.keep, [true, false, false, false]);
+    assert_eq!(three_up.change_count(), 3);
+
+    let dim = read("ranked-bp-1280-windowed-lose/04-mulligan-waiting.png");
+    assert_eq!(dim.stage, Stage::Waiting);
+    assert_eq!(dim.keep, [true; 4], "dim art is still a card");
+}
+
+/// No other screen may look like a mulligan panel.
+///
+/// The two labels are what stands between "read the eight slots" and "read eight
+/// rectangles of battlefield", and the KEEP row's windows sit exactly where a
+/// battlefield's own cards are drawn - so a loose label match would not fail
+/// quietly, it would invent a hand.
+#[test]
+fn other_screens_are_not_a_mulligan() {
+    for fixture in [
+        "cpu-practice-1920-fullscreen/01-home.png",
+        "ranked-bp-1280-windowed-lose/03-battle.png",
+        "ranked-bp-1920-fullscreen/01-result-win-bp.png",
+        "ranked-gm-mp-2560-fullscreen/01-result-win-mp-cr.png",
+        "non-2pick-versus/01-ranked-fullscreen.png",
+        "2pick-1920-fullscreen-lose/03-battle.png",
+    ] {
+        assert!(
+            svwb_engine::mulligan::read(&frame_of(fixture), store()).is_none(),
+            "{fixture}: found a mulligan panel on a screen that has none"
         );
     }
 }
