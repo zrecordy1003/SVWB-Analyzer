@@ -16,6 +16,7 @@ use super::{
     Change, Located, Machine, ModeProbeScore, ModeProbeScores, NumberReads, Reading, VersusScreen,
 };
 use crate::calibration::{ScoreSystem, ScoreSystemHit, timing};
+use crate::mulligan::{Mulligan, Stage};
 use crate::phase::Phase;
 use crate::protocol::{ClassName, GameMode, PlayOrder};
 
@@ -859,4 +860,167 @@ fn the_versus_2pick_label_clears_the_default_deck() {
         Change::MatchUpdated { patch, .. } if patch.clear_my_deck == Some(true)
     ));
     assert!(cleared, "2Pick brings its own deck, so the default must go");
+}
+
+// ------------------------------------------------------------------- mulligan
+
+fn choosing(change: [bool; 4]) -> Reading {
+    let keep = [!change[0], !change[1], !change[2], !change[3]];
+    Reading {
+        mulligan: Some(Mulligan { stage: Stage::Choosing, keep, change }),
+        ..Default::default()
+    }
+}
+
+fn waiting() -> Reading {
+    Reading {
+        mulligan: Some(Mulligan { stage: Stage::Waiting, keep: [true; 4], change: [false; 4] }),
+        ..Default::default()
+    }
+}
+
+fn swapped_in(changes: &[Change]) -> Option<[bool; 4]> {
+    changes.iter().find_map(|c| match c {
+        Change::MatchUpdated { patch, .. } => patch.mulligan_swapped,
+        _ => None,
+    })
+}
+
+/// The ordinary run: a match opens, the player throws two cards away, the panel
+/// confirms, and the swap is reported once.
+#[test]
+fn the_confirmed_mulligan_reports_which_cards_went() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    assert_eq!(swapped_in(&m.tick(&choosing([false; 4]), t + timing::TICK)), None,
+        "nothing is reported while the player is still choosing");
+
+    // The player moves the first and last card up, over two ticks.
+    m.tick(&choosing([true, false, false, false]), t + timing::TICK * 2);
+    m.tick(&choosing([true, false, false, true]), t + timing::TICK * 3);
+
+    let changes = m.tick(&waiting(), t + timing::TICK * 4);
+    assert_eq!(
+        swapped_in(&changes),
+        Some([true, false, false, true]),
+        "the last settled Choosing frame is the answer, believed once Waiting arrives"
+    );
+}
+
+/// Keeping the whole hand is an answer, not a missing one. `Some([false; 4])`
+/// and `None` mean different things downstream and must not collapse.
+#[test]
+fn keeping_everything_is_reported_too() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&choosing([false; 4]), t + timing::TICK);
+    let changes = m.tick(&waiting(), t + timing::TICK * 2);
+
+    assert_eq!(swapped_in(&changes), Some([false; 4]));
+}
+
+/// A card in the air belongs to neither row, and a frame that catches one must
+/// not be taken as the choice. Here the second card is mid-flight - out of KEEP,
+/// not yet in CHANGE - while the first is genuinely up.
+#[test]
+fn a_card_in_flight_does_not_overwrite_the_choice() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&choosing([true, false, false, false]), t + timing::TICK);
+
+    let in_flight = Reading {
+        mulligan: Some(Mulligan {
+            stage: Stage::Choosing,
+            keep: [false, false, true, true],
+            change: [true, false, false, false],
+        }),
+        ..Default::default()
+    };
+    m.tick(&in_flight, t + timing::TICK * 2);
+
+    let changes = m.tick(&waiting(), t + timing::TICK * 3);
+    assert_eq!(
+        swapped_in(&changes),
+        Some([true, false, false, false]),
+        "the unsettled frame must be ignored, not recorded"
+    );
+}
+
+/// One report per match. The panel cannot come back, and neither may the patch:
+/// a second one would overwrite a real answer with whatever a later frame
+/// happened to look like.
+#[test]
+fn the_swap_is_reported_once() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&choosing([true, false, false, false]), t + timing::TICK);
+    assert!(swapped_in(&m.tick(&waiting(), t + timing::TICK * 2)).is_some());
+
+    for i in 3..6 {
+        let changes = m.tick(&waiting(), t + timing::TICK * i);
+        assert_eq!(swapped_in(&changes), None, "tick {i} reported the swap again");
+    }
+}
+
+/// Seeing only the confirmed hand is not enough to say what was thrown away, and
+/// the machine must say so rather than report an empty swap.
+#[test]
+fn a_confirmed_hand_with_no_choice_behind_it_is_a_diagnostic() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    let changes = m.tick(&waiting(), t + timing::TICK);
+
+    assert_eq!(swapped_in(&changes), None, "an unseen choice must not read as 'kept everything'");
+    assert!(
+        changes.iter().any(|c| matches!(c, Change::Noted { kind: "mulligan-choice-missed", .. })),
+        "the miss has to be reportable"
+    );
+}
+
+/// A panel outside an open match is not this match's mulligan. The phase check
+/// is what stops a stray reading from attaching to whatever ran before it.
+#[test]
+fn a_panel_with_no_match_open_is_ignored() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    let changes = m.tick(&choosing([true, true, false, false]), t);
+    assert!(changes.is_empty(), "no match is open, so there is nothing to update");
+    assert_eq!(m.phase(), Phase::Idle { hint: None });
+}
+
+/// Every match has a mulligan, so a match that finished without one being read
+/// is a recognition failure the row should carry.
+#[test]
+fn a_match_that_never_showed_a_panel_says_so() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&Reading { battle_end_splash: Some(false), ..Default::default() }, t + timing::TICK);
+
+    let mut finished = None;
+    for i in 2..40 {
+        for change in m.tick(&bp_result(8), t + timing::TICK * i) {
+            if let Change::MatchFinished { patch, .. } = change {
+                finished = Some(patch);
+            }
+        }
+        if finished.is_some() {
+            break;
+        }
+    }
+
+    let flags = finished.expect("the match must close").recog_flags.unwrap_or_default();
+    assert!(flags.iter().any(|f| f == "mulligan-not-read"), "flags were {flags:?}");
 }

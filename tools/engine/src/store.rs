@@ -272,6 +272,9 @@ impl MatchStore {
         if let Some(flags) = &patch.recog_flags {
             self.append_recog_flags(id, flags, now)?;
         }
+        if let Some(swapped) = patch.mulligan_swapped {
+            self.write_opening_hand(id, swapped)?;
+        }
         if let Some(result) = patch.result {
             // The result carries the end of the battle with it, as the JS
             // version did: endedAt is this write, duration is whole seconds
@@ -299,6 +302,29 @@ impl MatchStore {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Record which of the four dealt cards were thrown away.
+    ///
+    /// Four rows, one per position, `cardId` left NULL: what the mulligan panel
+    /// gives away for free is geometry, not identity (see [`crate::mulligan`]).
+    /// The rows exist now anyway, because their absence is the thing that says
+    /// "the panel was never read" - a match with no rows and a match whose four
+    /// rows all say `swapped = 0` are different outcomes.
+    ///
+    /// `INSERT OR REPLACE` rather than a plain insert: the machine reports once
+    /// per match, but the row may already exist if the same match was re-read
+    /// after a restart, and a UNIQUE violation here would abort the whole patch
+    /// - including the result it was carrying.
+    fn write_opening_hand(&self, id: i64, swapped: [bool; 4]) -> Result<(), StoreError> {
+        for (slot, thrown) in swapped.iter().enumerate() {
+            self.conn.execute(
+                "INSERT OR REPLACE INTO MatchOpeningCard (matchId, stage, slot, swapped)
+                 VALUES (?1, 'pre', ?2, ?3)",
+                rusqlite::params![id, slot as i64, *thrown as i64],
+            )?;
+        }
         Ok(())
     }
 
@@ -524,6 +550,103 @@ mod tests {
             .query_row("SELECT oppo_name_crop FROM Match WHERE id = ?1", [id], |r| r.get(0))
             .unwrap();
         assert_eq!(stored, None);
+    }
+
+    /// The mulligan lands as four rows, one per position.
+    ///
+    /// Rows and not a column, because "how did I do when I kept this card" is a
+    /// join. Four of them and not one per swapped card, because a position that
+    /// was kept is as much a fact as one that was thrown - and because their
+    /// absence is what says the panel was never read at all.
+    #[test]
+    fn a_reported_mulligan_writes_one_row_per_position() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None, None).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    mulligan_swapped: Some([true, false, false, true]),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let mut q = store
+            .conn
+            .prepare("SELECT slot, stage, cardId, swapped FROM MatchOpeningCard
+                      WHERE matchId = ?1 ORDER BY slot")
+            .unwrap();
+        let rows: Vec<(i64, String, Option<i64>, i64)> = q
+            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+
+        assert_eq!(rows.len(), 4);
+        assert_eq!(rows.iter().map(|r| r.3).collect::<Vec<_>>(), vec![1, 0, 0, 1]);
+        assert!(rows.iter().all(|r| r.1 == "pre"), "only the dealt hand is known yet");
+        assert!(rows.iter().all(|r| r.2.is_none()), "no card has been recognised yet");
+    }
+
+    /// Reporting the same match twice must not abort the patch it rides on.
+    ///
+    /// The machine sends this once, but a re-read after a restart would hit the
+    /// primary key - and a UNIQUE violation inside `update_match` would take the
+    /// result down with it.
+    #[test]
+    fn a_second_report_replaces_rather_than_fails() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None, None).unwrap();
+        let patch = |swapped| MatchPatch { mulligan_swapped: Some(swapped), ..Default::default() };
+
+        store.update_match(id, &patch([true, true, true, true])).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch { result: Some(true), ..patch([false, false, false, true]) },
+            )
+            .unwrap();
+
+        let total: i64 = store
+            .conn
+            .query_row(
+                "SELECT sum(swapped) FROM MatchOpeningCard WHERE matchId = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(total, 1, "the second report wins, and there are still four rows");
+        let result: Option<i64> = store
+            .conn
+            .query_row("SELECT result FROM Match WHERE id = ?1", [id], |r| r.get(0))
+            .unwrap();
+        assert_eq!(result, Some(1), "the patch it rode on must have survived");
+    }
+
+    /// Deleting a match takes its hand with it. Nothing else owns these rows.
+    #[test]
+    fn deleting_a_match_deletes_its_opening_hand() {
+        let store = store_with_schema();
+        store.conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        let id = store.insert_match(&versus(), None, None).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch { mulligan_swapped: Some([true; 4]), ..Default::default() },
+            )
+            .unwrap();
+        store.delete_match(id).unwrap();
+
+        let left: i64 = store
+            .conn
+            .query_row(
+                "SELECT count(*) FROM MatchOpeningCard WHERE matchId = ?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
     }
 
     /// The engine never writes the columns the UI owns. `edited_fields` is the

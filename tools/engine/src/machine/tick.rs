@@ -15,6 +15,7 @@ use super::{
     Change, Located, Machine, MatchPatch, ModeSignal, NumberBlock, Reading,
 };
 use crate::calibration::{ScoreSystem, timing};
+use crate::mulligan::Stage;
 use crate::phase::{Awaiting, ModeHint, Phase};
 use crate::protocol::{Confidence, GameMode, MatchRef};
 
@@ -32,6 +33,7 @@ impl Machine {
         self.collect_numbers(reading, &mut changes);
         self.resolve_mode(reading, now, &mut changes);
         self.start_match(reading, now, &mut changes);
+        self.observe_mulligan(reading, &mut changes);
         self.observe_battle_end(reading, now, &mut changes);
         self.observe_final_screen(reading, now, &mut changes);
         self.resolve_hold(reading, now, &mut changes);
@@ -336,6 +338,63 @@ impl Machine {
         changes.push(Change::MatchStarted { r#ref, versus, mode: hint });
     }
 
+    /// Watch the mulligan panel, and report the swap once the choice is final.
+    ///
+    /// The panel is legible in two halves and only one of them says anything:
+    /// while the player is choosing, the cards on their way out are sitting in
+    /// the CHANGE row; the moment the choice is confirmed that row is gone. So
+    /// this keeps the last settled `Choosing` frame and believes it when a
+    /// `Waiting` frame arrives - the frame that proves the choice was made
+    /// rather than still being made.
+    ///
+    /// Bounded to one report per match by `opening.reported`, which also stops
+    /// the rest of the battle from being asked about a panel that cannot return.
+    ///
+    /// A single frame is enough here, unlike the mode signals that need two. The
+    /// panel is not a weak signal: measured over 1293 fixture frames its label
+    /// scores 0.891-1.000 when present and at most 0.549 when not, and
+    /// `is_settled` is a structural check on top of that - four columns, each
+    /// holding its card in exactly one row. The budget is also tighter than the
+    /// mode probes': the confirmed hand is on screen for as little as 1.50s,
+    /// three ticks, and the first of those can be the cards still sliding in.
+    fn observe_mulligan(&mut self, reading: &Reading, changes: &mut Vec<Change>) {
+        let Phase::InBattle { match_id } = self.phase else {
+            return;
+        };
+        if self.opening.reported {
+            return;
+        }
+        let Some(mulligan) = reading.mulligan else {
+            return;
+        };
+        if !mulligan.is_settled() {
+            return;
+        }
+
+        match mulligan.stage {
+            Stage::Choosing => self.opening.choosing = Some(mulligan.change),
+            Stage::Waiting => {
+                self.opening.reported = true;
+                let Some(swapped) = self.opening.choosing else {
+                    // The choice was already in by the first frame we read, so
+                    // the CHANGE row never existed for us. The final hand is
+                    // still on screen, but which cards it replaced is gone.
+                    changes.push(Change::Noted {
+                        kind: "mulligan-choice-missed",
+                        label: "waiting-without-choosing".into(),
+                        detail: None,
+                    });
+                    self.flag("mulligan-choice-missed");
+                    return;
+                };
+                let patch =
+                    MatchPatch { mulligan_swapped: Some(swapped), ..Default::default() };
+                self.merge(&patch);
+                changes.push(Change::MatchUpdated { r#ref: match_id, patch });
+            }
+        }
+    }
+
     /// The centred splash the moment the battle ends.
     ///
     /// The outcome is recorded here so it survives a crash, but the mode stays
@@ -625,6 +684,14 @@ impl Machine {
             self.flag("ranked-no-numbers");
         }
 
+        // Every match has a mulligan, so never having read one is a recognition
+        // failure rather than a property of the match. Keyed on `reported` and
+        // not on the patch field, so "the panel was read and nothing was
+        // swapped" stays distinct from "the panel was never read".
+        if !self.opening.reported {
+            self.flag("mulligan-not-read");
+        }
+
         changes.push(Change::MatchFinished { r#ref, patch: self.collected.clone() });
         self.clear_match_state();
         self.phase = Phase::Idle { hint: None };
@@ -642,6 +709,7 @@ impl Machine {
         into.current_cr = patch.current_cr.or(into.current_cr);
         into.delta_cr = patch.delta_cr.or(into.delta_cr);
         into.clear_my_deck = patch.clear_my_deck.or(into.clear_my_deck);
+        into.mulligan_swapped = patch.mulligan_swapped.or(into.mulligan_swapped);
         // A patch that carries a mode always carries its confidence, so `or`
         // replaces on a correction and holds otherwise.
         into.mode_confidence = patch.mode_confidence.or(into.mode_confidence);

@@ -171,6 +171,12 @@ pub fn read(
         _ => None,
     };
 
+    // The mulligan panel, and which of its eight slots hold a card. Measured at
+    // 1.31-1.38ms against a whole read of ~49ms, so it runs unconditionally like
+    // every other calibrated window; the machine decides whether a panel means
+    // anything in this phase.
+    let mulligan = crate::mulligan::read(frame, store);
+
     let splash = scored(probe(cal::templates::RESULT_MID, cal::RESULT_MID));
     let final_banner = scored(probe(cal::templates::RESULT, cal::RESULT));
     let cpu_pre = scored(probe(cal::templates::MODES_CPU, cal::MODES_CPU_PRE_BATTLE));
@@ -230,6 +236,7 @@ pub fn read(
         replay_banner: banner.score > threshold::REPLAY_BANNER,
         replay_chrome: chrome.score > threshold::REPLAY_CHROME,
         versus,
+        mulligan,
         // The set holds `win` and `gameset`: a win shows its own banner, a loss
         // shows the neutral end-of-game one.
         battle_end_splash: (splash.score > threshold::RESULT_MID)

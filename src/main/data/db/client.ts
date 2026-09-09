@@ -152,6 +152,28 @@ export interface MatchTagRow {
 }
 
 /**
+ * One position of one opening hand. See
+ * `resources/migrations/014_add_opening_hand.sql`.
+ *
+ * Written by the engine only. Today it carries just `swapped` for the `'pre'`
+ * stage: which of the four dealt cards the player threw away, which the mulligan
+ * panel gives away through geometry alone. `cardId` stays null until card
+ * recognition lands, and null there means "not recognised", never "no card".
+ */
+export interface MatchOpeningCardRow {
+  matchId: number
+  /** `'pre'` = the hand as dealt, `'post'` = the hand it was played with. */
+  stage: string
+  /** 0..3, left to right on the panel. */
+  slot: number
+  cardId: number | null
+  confidence: number | null
+  /** 0/1 on `'pre'` rows. */
+  swapped: number | null
+  decidedBy: string | null
+}
+
+/**
  * Card pool membership. See `resources/migrations/010_add_card_pool.sql`.
  *
  * Keyed by format because legality belongs to the (card, format) pair - the
@@ -194,6 +216,7 @@ export interface Database {
   DeckCategory: DeckCategoryRow
   Tag: TagRow
   MatchTag: MatchTagRow
+  MatchOpeningCard: MatchOpeningCardRow
   DeckCard: DeckCardRow
   Card: CardRow
   CardPool: CardPoolRow
@@ -297,7 +320,8 @@ export const TABLE_COLUMNS = {
   ],
   CardPool: ['battleFormat', 'cardId', 'sortIndex'],
   CardPoolSync: ['classId', 'battleFormat', 'lang', 'cardCount', 'syncedAt'],
-  TelemetryState: ['key', 'value', 'updatedAt']
+  TelemetryState: ['key', 'value', 'updatedAt'],
+  MatchOpeningCard: ['matchId', 'stage', 'slot', 'cardId', 'confidence', 'swapped', 'decidedBy']
 } as const satisfies { [T in keyof Database]: readonly (keyof Database[T])[] }
 
 /**

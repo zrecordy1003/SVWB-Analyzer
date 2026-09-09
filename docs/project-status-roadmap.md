@@ -14,6 +14,8 @@ future changes that should still be considered. More focused notes live in:
   the public chart is deferred to a later release.
 - `docs/account-sync-plan.md` — Google sign-in and PC-to-PC data sync. Planning only; nothing
   implemented. Read it before touching primary keys, the migration set, or the telemetry identifiers.
+- `docs/opening-hand-plan.md` — the opening hand, before and after the mulligan. Stage 0 (measured)
+  and stage 1 (which cards were swapped) are shipped; card recognition is not.
 
 > Rewritten 2026-08-29. The previous revision described the pre-engine architecture (a forked JS
 > analyzer, Prisma, `src/main/forkedImageAnalyzer.ts`). None of those exist any more; the sections
@@ -49,6 +51,9 @@ testable without a game, a database, or Electron.
   recognised from. A picture and not text: OCR reads Latin names exactly and gets CJK ones wrong by
   a character or two every time, and the errors are systematic, so multi-frame consensus agrees on
   the same wrong string. Written straight to `Match.oppo_name_crop`; nothing reads it back.
+- `mulligan.rs` — the mulligan panel: which stage it shows, and which of its eight slots hold a
+  card. The swap is read off geometry - a card being thrown away is moved to the row above - so it
+  needs no card recognition. See `docs/opening-hand-plan.md`.
 - `machine.rs` (+ `machine/tick.rs`, `machine/scenarios.rs`) — `(phase, reading, now)` to a decision,
   as a pure function. Observing and acting are deliberately separated.
 - `phase.rs` — where the machine is in one match's life.
@@ -103,7 +108,8 @@ testable without a game, a database, or Electron.
 - Current migrations: `001_init`, `002_add_updated_column`, `003_add_sort_column_and_isdefault`,
   `004_add_cr_column`, `005_add_perf_indexes`, `006_add_mp_columns`,
   `007_add_match_list_filter_indexes`, `008_add_provenance`, `009_add_deck_import`,
-  `010_add_card_pool`, `011_add_deck_family`, `012_add_telemetry_state`.
+  `010_add_card_pool`, `011_add_deck_family`, `012_add_telemetry_state`,
+  `013_add_oppo_name_crop`, `014_add_opening_hand`.
 - The engine writes match recording; the UI writes user edits (decks, tags, notes) and does all
   reads.
 

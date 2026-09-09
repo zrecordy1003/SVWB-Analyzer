@@ -117,6 +117,17 @@ pub struct MatchPatch {
     /// 2Pick brings its own deck, so the pre-filled default deck must be cleared.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clear_my_deck: Option<bool>,
+    /// Which of the four dealt cards the player threw away, left to right.
+    ///
+    /// Read off the mulligan panel's geometry - a card being replaced is MOVED
+    /// to the row above, so this needs no card recognition. All-false is a real
+    /// answer ("kept everything"); `None` means the panel was never read, which
+    /// is what a match recorded before this existed also looks like.
+    ///
+    /// Sent once per match, when the panel confirms the choice. See
+    /// [`crate::mulligan`] and `docs/opening-hand-plan.md`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mulligan_swapped: Option<[bool; 4]>,
     /// How much the `mode` in this patch can be trusted.
     ///
     /// Always carried WITH a mode, never on its own, so a correction replaces

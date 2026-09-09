@@ -378,7 +378,7 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
         // it did when they worked.
         println!(
             "  match {}: {} vs {} ({}) mode={:?} result={:?} \
-             bp={:?} mp={:?} delta_mp={:?} cr={:?} delta_cr={:?}",
+             bp={:?} mp={:?} delta_mp={:?} cr={:?} delta_cr={:?} swapped={:?}",
             i + 1,
             m.my_class,
             m.oppo_class,
@@ -389,7 +389,8 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             m.patch.mp,
             m.patch.delta_mp,
             m.patch.current_cr,
-            m.patch.delta_cr
+            m.patch.delta_cr,
+            m.patch.mulligan_swapped
         );
     }
     // Diagnostics are printed even on success: a run that reaches the right
@@ -427,6 +428,11 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             "delta_mp": m.patch.delta_mp,
             "cr": m.patch.current_cr,
             "delta_cr": m.patch.delta_cr,
+            // Which of the four dealt cards were thrown away. Assertable here
+            // because it is read from a screen the recordings all contain and
+            // no still fixture can hold: the answer only exists as the
+            // difference between two frames several seconds apart.
+            "swapped": m.patch.mulligan_swapped,
         });
         for (key, wanted) in want.as_object().ok_or("--expect must be a JSON object")? {
             let actual = &got[key.as_str()];

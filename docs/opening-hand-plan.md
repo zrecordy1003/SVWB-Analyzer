@@ -7,9 +7,10 @@ Last updated: 2026-09-09
 `docs/project-status-roadmap.md`、`docs/engine-refactor-plan.md`（引擎為何是這個形狀）、
 `ASSETS_POLICY.md`（卡圖不得散布）。
 
-> 狀態：**階段 0（量測）已完成，2026-09-09；階段 1 起尚未實作。**
-> 量測是用既有的 `tests/fixtures/captures/` 錄影做的，沒有另外錄。結果改寫了原本的兩個假設：
+> 狀態（2026-09-09）：**階段 0（量測）與階段 1（換了哪幾張，從辨識到落庫）已完成。**
+> 量測是用既有的 `tests/fixtures/captures/` 錄影做的，沒有另外錄，而且改寫了原本的兩個假設：
 > 換掉的卡是**位移**而不是打標記，換後的四張**看得到**且與換前共用同一組 ROI。
+> 階段 2（卡片辨識）起尚未開始；`MatchOpeningCard.cardId` 目前一律是 NULL。
 
 ---
 
@@ -40,7 +41,7 @@ Last updated: 2026-09-09
 | 開局時 `my_deckId` 已由「該職業的預設牌組」預填                         | `store.rs:196`                                          | 候選集在換牌當下就拿得到——但它是猜測，可能是錯的牌組     |
 | 2Pick 之後會清掉 `my_deckId`（`clear_my_deck`）                         | `store.rs:242`                                          | 2Pick 沒有候選集，必須有退化路徑                          |
 | migration 由引擎讀目錄依序套用，檔名 `NNN_name.sql`                     | `store.rs:126`                                          | **新增 SQL 檔即可，不必改 Rust**                          |
-| 現有最新 migration 是 `013_add_oppo_name_crop.sql`（工作區）                     | `resources/migrations/`                                 | `013` 已被對手名牌佔用、`014` 由帳號同步保留，本計畫用 `015_`                                           |
+| 現有最新 migration 是 `014_add_opening_hand.sql`                       | `resources/migrations/`                                 | 本計畫用掉了 `014`（帳號同步的提案編號因此順延到 `015`／`016`）                                          |
 | `Card` 每張卡只有一個 `imageHash` / `bannerHash`                        | `009_add_deck_import.sql:88-89`                         | 見下節：官方資料**無法列舉插畫版本**                      |
 | 卡池與卡圖是「使用者自己的機器抓到自己硬碟」，不進 repo 與 installer    | `cardImages.ts:1-19`、`ASSETS_POLICY.md` §1             | 任何新的圖像樣本也必須留在本機                            |
 | `replay.rs` 能拿檔案當 frame source，測試不需要開遊戲                   | `replay.rs`                                             | fixture 驅動的測試是可行的                                |
@@ -108,7 +109,10 @@ Last updated: 2026-09-09
 
 ## 資料模型
 
-新增 `resources/migrations/015_add_opening_hand.sql`。
+**已落地**：`resources/migrations/014_add_opening_hand.sql`，內容如下。`CardArtSample` 沒有
+一起建——它屬於階段 2 的插畫比對，而階段 0 第 4 題還沒答，先不要為還沒決定要做的事建表。
+
+> 實際落地的檔案裡每個欄位都有註解，這裡只留形狀。
 
 ```sql
 -- ---------- MatchOpeningCard ----------
@@ -259,8 +263,23 @@ tiebreak，不是骨幹。
 `04-mulligan-waiting.png` 與 `04-mulligan-card-art.png`，README 一併更正。順帶澄清一件事：
 自訂房間標籤那個 0.6916 的著名誤判，撞到的是**換牌面板上的卡圖**，從來就不是戰場上的。
 
-還沒做（下一步）：把讀數接進 `machine`／`live`，用 `accumulate` 取共識，定出「最後一幀
-Choosing」與「第一幀 Waiting」，並決定要不要在這一階段就落庫。
+**接上狀態機與落庫也完成了（同日）**：`Reading.mulligan`（每 tick 讀，量到 1.31–1.38ms，整個
+read 約 49ms）、`Machine::observe_mulligan`、`MatchPatch.mulligan_swapped`、
+`014_add_opening_hand.sql` 的 `MatchOpeningCard`，以及 `store.rs` 寫入四列（`stage='pre'`，
+`cardId` 留 NULL）。七個 scenario 測試與三個 store 測試。
+
+規則是：**保留最後一幀「settled 的 Choosing」，等到出現 Waiting 幀才相信它。** Waiting 是
+「選擇已定案」的證明；CHANGE 列在那一刻就消失了，所以不先存起來就沒有第二次機會。飛在半空中的
+卡（某一欄兩排都有或兩排都沒有）不算 settled，不會覆蓋已記錄的選擇。
+
+一場只報一次。看到 Waiting 卻沒有任何 Choosing 紀錄時記 `mulligan-choice-missed`；整場結束都
+沒讀到面板記 `mulligan-not-read`——每場都有換牌階段，所以讀不到是辨識失敗而不是比賽的性質。
+
+**端到端已在真實錄影上驗證**：`engine:replay-cpu` / `-2k-windowed` / `-2k` 三支的 `--expect`
+現在也斷言 `swapped`，分別是 `[false,false,false,false]`、`[true,false,false,true]`、
+`[false,true,true,true]`，與逐格看到的一致。
+
+還沒做：`post` 那四列（要等卡片辨識才有內容）、UI 顯示、以及卡片層級統計。
 
 原本的階段 1 描述：
 
@@ -274,7 +293,7 @@ Choosing」與「第一幀 Waiting」，並決定要不要在這一階段就落�
 
 ### 階段 3：落庫與 UI
 
-`015_` migration、`MatchUpdated` patch 欄位、比賽詳情顯示起手手牌。
+`014_` migration、`MatchUpdated` patch 欄位、比賽詳情顯示起手手牌。
 
 ### 階段 4：卡片層級統計
 
@@ -288,7 +307,7 @@ Choosing」與「第一幀 Waiting」，並決定要不要在這一階段就落�
   要有自己的案例。
 - **fixture 驅動**：階段 0 的錄影切成 frame 檔，走 `replay.rs`。至少要有：正常四張、閃卡、
   替代插畫、換 0 張、換 4 張、面板淡入的第一幀。
-- **migration**：照 `store.rs` 既有 migration 測試的作法驗證 `015_` 可套用且冪等。
+- **migration**：照 `store.rs` 既有 migration 測試的作法驗證 `014_` 可套用且冪等。
 - **成本**：在 fixture 上量單 tick 成本並記錄在此文件，合併前確認沒有 `SlowTick`。
 
 ---

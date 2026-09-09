@@ -168,14 +168,15 @@ app                      系統瀏覽器                 Worker                 
 | SQLite session extension / WAL 複寫       | 兩台各自有本機寫入，不是主從關係。而且引擎與 UI 共用檔案，WAL 層的複寫會把引擎的寫入也當成位元組來複製，衝突無法在領域層解釋。                                          |
 | Google Drive appDataFolder 當儲存         | 省掉伺服器，但配額與速率由使用者的 Drive 決定、除錯時我們看不到任何東西、也拿不到「有幾個人在用同步」的健康指標。列為備案。                                              |
 
-### Schema 變更（提案 `014_add_sync_ids.sql` / `015_add_sync_tables.sql`）
+### Schema 變更（提案 `015_add_sync_ids.sql` / `016_add_sync_tables.sql`）
 
-> 編號原本是 013／014。`013_add_oppo_name_crop.sql`（對手名牌）先落地了，所以這裡順延。
+> 編號原本是 013／014，一路被先落地的東西擠：`013_add_oppo_name_crop.sql`（對手名牌）與
+> `014_add_opening_hand.sql`（起手手牌）。提案永遠讓路給已經進版的。
 
 拆兩個 migration：uid 是**領域表**的欄位、引擎也要寫；同步帳本是**同步自己的**表，引擎不碰。
 
 ```sql
--- 014：全域識別碼。刻意不加 DEFAULT：
+-- 015：全域識別碼。刻意不加 DEFAULT：
 -- 讓「忘記填 uid 的寫入路徑」在測試裡就爆，而不是靜靜產生一列同步不到的資料。
 ALTER TABLE "Match" ADD COLUMN "uid" TEXT;
 ALTER TABLE "Deck"  ADD COLUMN "uid" TEXT;
@@ -292,7 +293,7 @@ END;
 
 **階段 0：前提（沒有使用者可見變化）**
 
-- `014` uid 欄位 + 回填；引擎 `store.rs` INSERT 時填 uid；`ipc/decks.ts`、`ipc/tags.ts` 建立時填 uid。
+- `015` uid 欄位 + 回填；引擎 `store.rs` INSERT 時填 uid；`ipc/decks.ts`、`ipc/tags.ts` 建立時填 uid。
 - 隱私權政策與服務條款頁面上線（Google 同意畫面的必填欄位）。
 - Google Cloud 專案、OAuth client、同意畫面設定。
 - 驗收：既有測試全綠；`SELECT count(*) FROM Match WHERE uid IS NULL` 為 0；
@@ -308,7 +309,7 @@ END;
 
 **階段 2：單向備份（只推不拉）**
 
-- `015` 同步帳本 + 觸發器；outbox → 段落 → PUT；壓實。
+- `016` 同步帳本 + 觸發器；outbox → 段落 → PUT；壓實。
 - UI：手動「立即備份」、上次備份時間、雲端用量、裝置清單（`GET /v1/devices`）與撤銷。
 - 「還原到空資料庫」（新機器首次登入且本機沒有對局時直接套用全部段落——這條路徑沒有合併），
   結束時觸發一次 `cards:syncPool`（J-4）。
@@ -334,7 +335,7 @@ END;
   同名去重的勝者選擇，全部不碰 DB、不碰網路。
 - **對真實 schema 的測試**（`tests/main/`，已有 migration 測試的位置）：觸發器記帳
   （含牌組刪除的 `SET NULL` 連帶）、抑制旗標、套用後的應用層約束收斂（`isDefault`）。
-- **Rust**：`store.rs` 寫入必帶 uid；`store` 對出貨 migrations 的既有驗證要涵蓋 014/015。
+- **Rust**：`store.rs` 寫入必帶 uid；`store` 對出貨 migrations 的既有驗證要涵蓋 015/016。
 - **收斂性測試**：兩份記憶體內 DB、隨機產生操作序列、以任意順序交換段落，斷言最終狀態相同。
   這是唯一能抓到「規則在某個交錯下不收斂」的測試，值得寫成 property test。
 - **e2e**（Playwright，兩份 profile 已是既有能力）：`SVWB_SYNC_URL` 指向 `wrangler dev`

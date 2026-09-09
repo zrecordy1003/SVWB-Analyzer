@@ -43,7 +43,8 @@ const INK_ABOVE_MEDIAN: u32 = 50;
 const OCCUPIED_FRACTION: f64 = 0.04;
 
 /// Which half of the mulligan is on screen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum Stage {
     /// The player is still choosing. Both rows are drawn, and the KEEP row is
     /// the hand as it was DEALT minus whatever has been moved up so far.
@@ -54,7 +55,8 @@ pub enum Stage {
 }
 
 /// One frame of the mulligan panel.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Mulligan {
     pub stage: Stage,
     /// Which KEEP slots hold a card, left to right.

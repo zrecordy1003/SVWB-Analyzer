@@ -31,6 +31,7 @@ mod scenarios;
 
 use crate::accumulate::{Agreement, Consensus, Debounce};
 use crate::calibration::{self, ScoreSystemHit};
+use crate::mulligan::Mulligan;
 use crate::phase::Phase;
 use crate::protocol::{ClassName, Confidence, GameMode, MatchPatch, MatchRef, PlayOrder};
 use crate::templates::Hit;
@@ -85,6 +86,12 @@ pub struct Reading {
 
     /// All three of my class, the opponent's class and the play order were read.
     pub versus: Option<VersusScreen>,
+
+    /// The mulligan panel, if this frame is showing one.
+    ///
+    /// Carried unjudged like everything else here: the panel is only meaningful
+    /// inside an open match, and that is the machine's call, not the probe's.
+    pub mulligan: Option<Mulligan>,
 
     /// The centred WIN/LOSE splash thrown up when the battle ends.
     pub battle_end_splash: Option<bool>,
@@ -350,6 +357,9 @@ pub struct Machine {
     /// for about ten seconds, so a second frame costs nothing.
     versus_preempt: Debounce,
 
+    /// What the mulligan panel has shown so far for the open match.
+    opening: Opening,
+
     /// Which block this result screen owes, once its label has been read.
     owed: Option<NumberBlock>,
     /// One consensus per field. Rebuilt per match, because the agreement rule
@@ -383,6 +393,7 @@ impl Machine {
             // single-frame false positive.
             two_pick_versus: Debounce::consecutive(REQUIRED_HITS),
             versus_preempt: Debounce::consecutive(REQUIRED_HITS),
+            opening: Opening::default(),
             owed: None,
             bp: static_value(),
             delta_mp: static_value(),
@@ -417,6 +428,7 @@ impl Machine {
         self.ranked.reset();
         self.two_pick_versus.reset();
         self.versus_preempt.reset();
+        self.opening = Opening::default();
         self.owed = None;
         self.bp = static_value();
         self.delta_mp = static_value();
@@ -445,6 +457,26 @@ impl Default for Machine {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// What the mulligan panel has told the open match so far.
+///
+/// Two facts, and the order they arrive in is the whole design. While the player
+/// is choosing, the panel says which cards are ON THEIR WAY OUT - that is the
+/// only moment it is legible, because confirming makes the CHANGE row vanish.
+/// The frame after that says the choice is final. So the answer is "the last
+/// settled Choosing frame, believed once a Waiting frame follows it".
+///
+/// `settled` matters more than it sounds: cards fly between the two rows, and a
+/// frame caught mid-flight shows a column with a card in both rows or neither.
+/// Taking the last settled frame rather than the last frame is what keeps a
+/// card in the air out of the record. See [`Mulligan::is_settled`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Opening {
+    /// The most recent settled `Choosing` frame's CHANGE row.
+    choosing: Option<[bool; 4]>,
+    /// Whether the answer has already been sent. A match reports once.
+    reported: bool,
 }
 
 /// Consecutive frames a weak signal needs. Two, throughout: enough that a
