@@ -185,6 +185,21 @@ pub const MULLIGAN_BADGE_AGREEMENT_PX: u32 = 4;
 pub const MULLIGAN_ART_FROM_BADGE: (u32, u32) = (5, 19);
 pub const MULLIGAN_ART_SIZE: (u32, u32) = (128, 145);
 
+/// How well an illustration must match, and how far ahead of the runner-up.
+///
+/// **The margin is the real threshold.** A dim card in a dark scene scores lower
+/// against every reference including its own, so an absolute cut either rejects
+/// it or lets false matches through on brighter frames; the distance to the
+/// second-best answer is what holds still. Measured over a 63-card candidate
+/// set and eight known cards: right answers scored 0.669-0.872 and led by at
+/// least 0.389, while the best wrong answer anywhere scored 0.478.
+///
+/// Both numbers sit well inside that gap rather than against either edge, so a
+/// card the fixtures have not seen has room to score lower and still be taken,
+/// and a near-miss has room to score higher and still be refused.
+pub const CARD_ART_MIN_SCORE: f64 = 0.55;
+pub const CARD_ART_MIN_MARGIN: f64 = 0.15;
+
 /// The four card slots of the KEEP row, left to right.
 ///
 /// Column spans measured at 195-347, 400-551, 603-756, 807-960 with at most 2px

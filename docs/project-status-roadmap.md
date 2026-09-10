@@ -56,6 +56,9 @@ testable without a game, a database, or Electron.
   needs no card recognition. See `docs/opening-hand-plan.md`.
 - `card.rs` — where a card actually is inside a mulligan slot, found from its cost badge and
   refused when the panel is still moving. The gate every card-recognition read stands on.
+- `fingerprint.rs` — a card's illustration reduced to 32x36 grey, and which card it is. The margin
+  over the runner-up decides, not the score. Reading the cost digit was measured and rejected; see
+  `docs/opening-hand-plan.md`.
 - `machine.rs` (+ `machine/tick.rs`, `machine/scenarios.rs`) — `(phase, reading, now)` to a decision,
   as a pure function. Observing and acting are deliberately separated.
 - `phase.rs` — where the machine is in one match's life.
@@ -118,8 +121,9 @@ testable without a game, a database, or Electron.
 ### Tests
 
 - `cargo test` (`tools/`) — state machine scenarios (each one corresponding to a past incident), the
-  calibration table, consensus/debounce, `store` against the shipped migrations, and 15 fixture
-  tests over 44 of the 47 committed PNGs in `tests/fixtures/captures/`.
+  calibration table, consensus/debounce, `store` against the shipped migrations, and the fixture
+  tests over the committed PNGs in `tests/fixtures/captures/` - including the mulligan panel, the
+  card geometry gate, and card identification against `tests/fixtures/card-art/`.
 - `pnpm engine:replay` — five recordings driven through the _shipped_ state machine end to end,
   including BP value assertions read through the host's tesseract.
 - `pnpm test` (vitest, node environment) — `tests/main/` (migrations, IPC contract smoke, query

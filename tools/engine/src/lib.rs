@@ -19,6 +19,7 @@
 //!   [`nameplate`]     a picture of the opponent's name, cut from a frame
 //!   [`mulligan`]      the mulligan panel: its stage, and which slots hold a card
 //!   [`card`]          where a card actually is inside a mulligan slot
+//!   [`fingerprint`]   a card's illustration, reduced, and which card it is
 //!   [`machine`]       (phase, reading, now) -> what changed
 //!   [`phase`]         where the machine is in one match's life
 //!   [`accumulate`]    debouncing and multi-frame consensus
@@ -33,6 +34,7 @@ pub mod card;
 #[cfg(windows)]
 pub mod capture_source;
 pub mod diagnostics;
+pub mod fingerprint;
 pub mod frame;
 pub mod frame_source;
 pub mod host;

@@ -775,3 +775,102 @@ fn a_panel_in_motion_is_refused() {
         "a dismissing panel must not hand out card windows"
     );
 }
+
+/// Which cards are on the panel, against reference art.
+///
+/// The references are the committed fingerprints in `tests/fixtures/card-art/`,
+/// which include decoys - without those this would only prove that the single
+/// candidate wins. Both frames also hold cards whose reference is NOT in the
+/// set, and those must come back unrecognised: refusing is the behaviour that
+/// keeps a wrong card out of a match's history, and it is worth pinning.
+#[test]
+fn the_cards_on_a_settled_panel_are_named() {
+    use svwb_engine::card;
+    use svwb_engine::fingerprint;
+
+    let candidates = card_art_fingerprints();
+    assert!(candidates.len() >= 10, "the decoys are the point; found {}", candidates.len());
+
+    let read_hand = |fixture: &str| -> Vec<Option<i64>> {
+        let frame = frame_of(fixture);
+        let reading = mulligan::read(&frame, store()).expect(fixture);
+        let cards = card::locate(&frame, &reading).expect(fixture);
+        cards
+            .keep
+            .iter()
+            .flatten()
+            .map(|found| {
+                let art = fingerprint::of_screen_art(&frame, found.art)?;
+                fingerprint::identify(&art, &candidates).map(|hit| hit.card_id)
+            })
+            .collect()
+    };
+
+    // Three copies of 狂焰毀滅者 and one card the reference set does not have.
+    assert_eq!(
+        read_hand("ranked-bp-1280-windowed-lose/04-mulligan-waiting.png"),
+        vec![Some(10032120), Some(10032120), Some(10032120), None]
+    );
+
+    // 入神的實驗體, 人性之愛, one absent card, 智慧耀光.
+    assert_eq!(
+        read_hand("custom-1280-windowed-lose/04-mulligan-card-art.png"),
+        vec![Some(10931110), Some(10932310), None, Some(10031310)]
+    );
+}
+
+/// A card is only named when the winner is clearly ahead.
+///
+/// The margin is what decides, so the guard worth pinning is that a real
+/// screen's illustration beats every decoy by more than the threshold - not
+/// just that it wins.
+#[test]
+fn the_winning_card_is_clearly_ahead_of_the_rest() {
+    use svwb_engine::calibration as cal;
+    use svwb_engine::card;
+    use svwb_engine::fingerprint;
+
+    let candidates = card_art_fingerprints();
+    let fixture = "custom-1280-windowed-lose/04-mulligan-card-art.png";
+    let frame = frame_of(fixture);
+    let reading = mulligan::read(&frame, store()).expect(fixture);
+    let cards = card::locate(&frame, &reading).expect(fixture);
+
+    let found = cards.keep[3].expect("slot 4 holds a card");
+    let art = fingerprint::of_screen_art(&frame, found.art).expect("the art window is on canvas");
+    let hit = fingerprint::identify(&art, &candidates).expect("slot 4 is 智慧耀光");
+
+    assert_eq!(hit.card_id, 10031310);
+    assert!(
+        hit.score > 0.8 && hit.margin > 0.3,
+        "score {:.3} margin {:.3} - the fixtures measured 0.669-0.961 and 0.389+, so anything \
+         near the thresholds ({} / {}) means the reduction changed",
+        hit.score,
+        hit.margin,
+        cal::CARD_ART_MIN_SCORE,
+        cal::CARD_ART_MIN_MARGIN
+    );
+}
+
+/// The committed reference fingerprints, keyed by card id.
+fn card_art_fingerprints() -> Vec<(i64, svwb_engine::fingerprint::Fingerprint)> {
+    let dir = repo_root().join("tests/fixtures/card-art");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("the fingerprint fixtures").flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("fp") {
+            continue;
+        }
+        let card_id: i64 = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| panic!("{}: a fingerprint is named for its card", path.display()));
+        let bytes = std::fs::read(&path).expect("readable");
+        let fp = svwb_engine::fingerprint::Fingerprint::from_bytes(bytes).unwrap_or_else(|| {
+            panic!("{}: wrong length - regenerate after an ALGO_VERSION bump", path.display())
+        });
+        out.push((card_id, fp));
+    }
+    out
+}

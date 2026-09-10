@@ -52,6 +52,20 @@ fn main() -> ExitCode {
                 ExitCode::FAILURE
             }
         },
+        Some("fingerprint") => match fingerprint_cmd(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("svwb-engine: {message}");
+                ExitCode::FAILURE
+            }
+        },
+        Some("identify") => match identify_cmd(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(message) => {
+                eprintln!("svwb-engine: {message}");
+                ExitCode::FAILURE
+            }
+        },
         Some("mulligan") => match mulligan_cmd(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(message) => {
@@ -504,6 +518,103 @@ fn canvas(args: &[String]) -> Result<(), String> {
 
     use std::io::Write;
     std::io::stdout().write_all(&png).map_err(|e| e.to_string())
+}
+
+/// Write one reference card image's fingerprint to stdout, as raw bytes.
+///
+///   svwb-engine fingerprint --reference <png> > 10032120.fp
+///
+/// This is how the committed test fingerprints are made. It exists as a command
+/// rather than a script so that they are produced by the shipped code path, and
+/// so regenerating them after an `ALGO_VERSION` bump is one line.
+fn fingerprint_cmd(args: &[String]) -> Result<(), String> {
+    let mut reference: Option<PathBuf> = None;
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let mut next = || rest.next().ok_or_else(|| format!("{arg} needs a value"));
+        match arg.as_str() {
+            "--reference" => reference = Some(PathBuf::from(next()?)),
+            other => return Err(format!("unexpected argument `{other}`")),
+        }
+    }
+    let reference = reference.ok_or("--reference <png> is required")?;
+    let decoded = image::open(&reference)
+        .map_err(|e| format!("cannot decode {}: {e}", reference.display()))?;
+    let fp = svwb_engine::fingerprint::of_reference_card(&decoded)
+        .ok_or("the image is too small to hold a card")?;
+
+    use std::io::Write;
+    std::io::stdout().write_all(fp.as_bytes()).map_err(|e| e.to_string())
+}
+
+/// Name the cards on one mulligan frame against a directory of reference art.
+///
+///   svwb-engine identify --image <png> --cards <dir>
+///
+/// `<dir>` holds one `<cardId>.png` per candidate - the portal's own card images,
+/// which is what the app caches on the user's disk. This is how the matcher is
+/// checked against a real frame without a database or a deck: point it at a
+/// class pool and see whether the four cards come back.
+fn identify_cmd(args: &[String]) -> Result<(), String> {
+    let mut image_path: Option<PathBuf> = None;
+    let mut cards_dir: Option<PathBuf> = None;
+    let mut templates_dir = PathBuf::from("resources/templates");
+
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        let mut next = || rest.next().ok_or_else(|| format!("{arg} needs a value"));
+        match arg.as_str() {
+            "--image" => image_path = Some(PathBuf::from(next()?)),
+            "--cards" => cards_dir = Some(PathBuf::from(next()?)),
+            "--templates" => templates_dir = PathBuf::from(next()?),
+            other => return Err(format!("unexpected argument `{other}`")),
+        }
+    }
+    let image_path = image_path.ok_or("--image <png> is required")?;
+    let cards_dir = cards_dir.ok_or("--cards <dir> is required")?;
+
+    let mut candidates: Vec<(i64, svwb_engine::fingerprint::Fingerprint)> = Vec::new();
+    for entry in std::fs::read_dir(&cards_dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(card_id) = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse().ok())
+        else {
+            continue;
+        };
+        let decoded = image::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if let Some(fp) = svwb_engine::fingerprint::of_reference_card(&decoded) {
+            candidates.push((card_id, fp));
+        }
+    }
+    println!("{} candidates", candidates.len());
+
+    let decoded = image::open(&image_path)
+        .map_err(|e| format!("cannot decode {}: {e}", image_path.display()))?;
+    let frame = Frame::from_image(&decoded);
+    let store = TemplateStore::load(&templates_dir).map_err(|e| e.to_string())?;
+    let read = svwb_engine::mulligan::read(&frame, &store).ok_or("no mulligan panel")?;
+    let cards = svwb_engine::card::locate(&frame, &read)
+        .ok_or("the panel is not standing still, so no card can be read")?;
+
+    for (label, boxes) in [("keep", cards.keep), ("change", cards.change)] {
+        for (i, found) in boxes.iter().enumerate() {
+            let Some(found) = found else { continue };
+            let Some(art) = svwb_engine::fingerprint::of_screen_art(&frame, found.art) else {
+                println!("  {label} {}: art window is off-canvas", i + 1);
+                continue;
+            };
+            match svwb_engine::fingerprint::identify(&art, &candidates) {
+                Some(hit) => println!(
+                    "  {label} {}: card {} score {:.3} margin {:.3}",
+                    i + 1, hit.card_id, hit.score, hit.margin
+                ),
+                None => println!("  {label} {}: not recognised", i + 1),
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Print what the mulligan panel says about one frame, or fail saying there is
