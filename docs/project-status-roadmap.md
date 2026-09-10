@@ -14,8 +14,9 @@ future changes that should still be considered. More focused notes live in:
   the public chart is deferred to a later release.
 - `docs/account-sync-plan.md` — Google sign-in and PC-to-PC data sync. Planning only; nothing
   implemented. Read it before touching primary keys, the migration set, or the telemetry identifiers.
-- `docs/opening-hand-plan.md` — the opening hand, before and after the mulligan. Stage 0 (measured)
-  and stage 1 (which cards were swapped) are shipped; card recognition is not.
+- `docs/opening-hand-plan.md` — the opening hand, before and after the mulligan. Recognition is
+  wired end to end, verified against the recordings but not yet on a real machine; the UI that
+  shows it is not built.
 
 > Rewritten 2026-08-29. The previous revision described the pre-engine architecture (a forked JS
 > analyzer, Prisma, `src/main/forkedImageAnalyzer.ts`). None of those exist any more; the sections
