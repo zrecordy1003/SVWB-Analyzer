@@ -56,7 +56,7 @@ use std::path::Path;
 
 use rusqlite::Connection;
 
-use crate::protocol::{Confidence, GameMode, MatchPatch};
+use crate::protocol::{Confidence, GameMode, MatchPatch, OpeningHand};
 use crate::machine::VersusScreen;
 
 pub struct MatchStore {
@@ -272,8 +272,8 @@ impl MatchStore {
         if let Some(flags) = &patch.recog_flags {
             self.append_recog_flags(id, flags, now)?;
         }
-        if let Some(swapped) = patch.mulligan_swapped {
-            self.write_opening_hand(id, swapped)?;
+        if let Some(hand) = patch.opening_hand {
+            self.write_opening_hand(id, &hand)?;
         }
         if let Some(result) = patch.result {
             // The result carries the end of the battle with it, as the JS
@@ -305,27 +305,107 @@ impl MatchStore {
         Ok(())
     }
 
-    /// Record which of the four dealt cards were thrown away.
+    /// Record the opening hand: four positions before the swap, four after.
     ///
-    /// Four rows, one per position, `cardId` left NULL: what the mulligan panel
-    /// gives away for free is geometry, not identity (see [`crate::mulligan`]).
-    /// The rows exist now anyway, because their absence is the thing that says
-    /// "the panel was never read" - a match with no rows and a match whose four
-    /// rows all say `swapped = 0` are different outcomes.
+    /// Eight rows, `cardId` left NULL wherever nothing was recognised. The rows
+    /// exist either way, because their absence is what says the panel was never
+    /// read - a match with no rows and a match whose four `pre` rows all say
+    /// `swapped = 0` are different outcomes.
     ///
     /// `INSERT OR REPLACE` rather than a plain insert: the machine reports once
     /// per match, but the row may already exist if the same match was re-read
     /// after a restart, and a UNIQUE violation here would abort the whole patch
     /// - including the result it was carrying.
-    fn write_opening_hand(&self, id: i64, swapped: [bool; 4]) -> Result<(), StoreError> {
-        for (slot, thrown) in swapped.iter().enumerate() {
+    fn write_opening_hand(&self, id: i64, hand: &OpeningHand) -> Result<(), StoreError> {
+        for slot in 0..4 {
+            // 'art-portal' is the only way a card is named today. When observed
+            // samples land, this becomes the sample's own provenance.
+            let decided_by = hand.dealt[slot].map(|_| "art-portal");
             self.conn.execute(
-                "INSERT OR REPLACE INTO MatchOpeningCard (matchId, stage, slot, swapped)
-                 VALUES (?1, 'pre', ?2, ?3)",
-                rusqlite::params![id, slot as i64, *thrown as i64],
+                "INSERT OR REPLACE INTO MatchOpeningCard
+                   (matchId, stage, slot, cardId, swapped, decidedBy)
+                 VALUES (?1, 'pre', ?2, ?3, ?4, ?5)",
+                rusqlite::params![
+                    id,
+                    slot as i64,
+                    hand.dealt[slot],
+                    hand.swapped[slot] as i64,
+                    decided_by
+                ],
+            )?;
+            self.conn.execute(
+                "INSERT OR REPLACE INTO MatchOpeningCard
+                   (matchId, stage, slot, cardId, decidedBy)
+                 VALUES (?1, 'post', ?2, ?3, ?4)",
+                rusqlite::params![
+                    id,
+                    slot as i64,
+                    hand.kept[slot],
+                    hand.kept[slot].map(|_| "art-portal")
+                ],
             )?;
         }
         Ok(())
+    }
+
+    /// Store one card's fingerprint, as computed from the official card image.
+    ///
+    /// Replaces rather than accumulates: there is exactly one official image per
+    /// card, so a second row for the same (card, version) would be the same
+    /// vector twice and would double its weight in every comparison.
+    pub fn put_portal_fingerprint(
+        &self,
+        card_id: i64,
+        version: u32,
+        vector: &[u8],
+    ) -> Result<(), StoreError> {
+        let tx = self.conn.unchecked_transaction()?;
+        self.conn.execute(
+            "DELETE FROM CardArtSample
+             WHERE cardId = ?1 AND source = 'portal' AND algoVersion = ?2",
+            rusqlite::params![card_id, version],
+        )?;
+        self.conn.execute(
+            "INSERT INTO CardArtSample (cardId, source, algoVersion, seenAt, vector)
+             VALUES (?1, 'portal', ?2, ?3, ?4)",
+            rusqlite::params![card_id, version, epoch_ms(), vector],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The fingerprints of the cards in the player's default deck for `class`.
+    ///
+    /// This is the candidate set the mulligan panel is matched against, and it
+    /// is a GUESS: the row a match opens with is pre-filled from the default
+    /// deck (see [`Self::insert_match`]), and a player who brought a different
+    /// deck will hand the panel cards that are not in here. That is why the
+    /// matcher refuses a weak winner rather than taking the closest of these -
+    /// see `fingerprint::identify`.
+    ///
+    /// Empty is a normal answer, not a failure: no imported deck, a 2Pick run,
+    /// or a deck whose card images have never been fetched. The caller then
+    /// identifies nothing and the hand is recorded without card ids.
+    pub fn default_deck_fingerprints(
+        &self,
+        class: &str,
+        version: u32,
+    ) -> Result<Vec<(i64, Vec<u8>)>, StoreError> {
+        let mut q = self.conn.prepare(
+            "SELECT s.cardId, s.vector
+               FROM CardArtSample s
+               JOIN DeckCard dc ON dc.cardId = s.cardId
+               JOIN Deck d      ON d.id = dc.deckId
+              WHERE d.class = ?1 AND d.isDefault = 1 AND s.algoVersion = ?2",
+        )?;
+        let rows = q.query_map(rusqlite::params![class, version], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
     }
 
     /// Union the flags into whatever the row already holds.
@@ -566,27 +646,49 @@ mod tests {
             .update_match(
                 id,
                 &MatchPatch {
-                    mulligan_swapped: Some([true, false, false, true]),
+                    opening_hand: Some(OpeningHand {
+                        swapped: [true, false, false, true],
+                        dealt: [Some(101), Some(102), None, Some(104)],
+                        kept: [Some(201), Some(102), None, Some(204)],
+                    }),
                     ..Default::default()
                 },
             )
             .unwrap();
 
-        let mut q = store
-            .conn
-            .prepare("SELECT slot, stage, cardId, swapped FROM MatchOpeningCard
-                      WHERE matchId = ?1 ORDER BY slot")
-            .unwrap();
-        let rows: Vec<(i64, String, Option<i64>, i64)> = q
-            .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
+        let read = |stage: &str| -> Vec<(Option<i64>, Option<i64>, Option<String>)> {
+            let mut q = store
+                .conn
+                .prepare(
+                    "SELECT cardId, swapped, decidedBy FROM MatchOpeningCard
+                      WHERE matchId = ?1 AND stage = ?2 ORDER BY slot",
+                )
+                .unwrap();
+            let rows = q
+                .query_map(rusqlite::params![id, stage], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+                .unwrap();
+            rows.map(Result::unwrap).collect()
+        };
 
-        assert_eq!(rows.len(), 4);
-        assert_eq!(rows.iter().map(|r| r.3).collect::<Vec<_>>(), vec![1, 0, 0, 1]);
-        assert!(rows.iter().all(|r| r.1 == "pre"), "only the dealt hand is known yet");
-        assert!(rows.iter().all(|r| r.2.is_none()), "no card has been recognised yet");
+        let pre = read("pre");
+        assert_eq!(pre.len(), 4, "one row per position, recognised or not");
+        assert_eq!(pre.iter().map(|r| r.1).collect::<Vec<_>>(), vec![Some(1), Some(0), Some(0), Some(1)]);
+        assert_eq!(
+            pre.iter().map(|r| r.0).collect::<Vec<_>>(),
+            vec![Some(101), Some(102), None, Some(104)]
+        );
+        assert_eq!(pre[2].2, None, "an unrecognised card claims no method");
+        assert_eq!(pre[0].2.as_deref(), Some("art-portal"));
+
+        let post = read("post");
+        assert_eq!(
+            post.iter().map(|r| r.0).collect::<Vec<_>>(),
+            vec![Some(201), Some(102), None, Some(204)],
+            "the hand it was played with, which is not the hand it was dealt"
+        );
+        assert!(post.iter().all(|r| r.1.is_none()), "swapped is a question about the dealt hand");
     }
 
     /// Reporting the same match twice must not abort the patch it rides on.
@@ -598,7 +700,10 @@ mod tests {
     fn a_second_report_replaces_rather_than_fails() {
         let store = store_with_schema();
         let id = store.insert_match(&versus(), None, None).unwrap();
-        let patch = |swapped| MatchPatch { mulligan_swapped: Some(swapped), ..Default::default() };
+        let patch = |swapped| MatchPatch {
+            opening_hand: Some(OpeningHand { swapped, dealt: [None; 4], kept: [None; 4] }),
+            ..Default::default()
+        };
 
         store.update_match(id, &patch([true, true, true, true])).unwrap();
         store
@@ -616,7 +721,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(total, 1, "the second report wins, and there are still four rows");
+        assert_eq!(total, 1, "the second report wins, and there are still four pre rows");
         let result: Option<i64> = store
             .conn
             .query_row("SELECT result FROM Match WHERE id = ?1", [id], |r| r.get(0))
@@ -633,7 +738,14 @@ mod tests {
         store
             .update_match(
                 id,
-                &MatchPatch { mulligan_swapped: Some([true; 4]), ..Default::default() },
+                &MatchPatch {
+                    opening_hand: Some(OpeningHand {
+                        swapped: [true; 4],
+                        dealt: [None; 4],
+                        kept: [None; 4],
+                    }),
+                    ..Default::default()
+                },
             )
             .unwrap();
         store.delete_match(id).unwrap();

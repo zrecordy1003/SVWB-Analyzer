@@ -374,8 +374,20 @@ read 約 49ms）、`Machine::observe_mulligan`、`MatchPatch.mulligan_swapped`�
    - `ALGO_VERSION` 跟著指紋走，改演算法就整批作廢——指紋是衍生資料，重算便宜，不做升級路徑。
    - 引擎實測（`svwb-engine identify`，63 張候選、三份真實錄影）：**參考圖在候選集裡的 8 張全中**，
      分數 0.716–0.961、勝差 0.421–0.616；參考圖不在候選集裡的 4 張全部回報「認不出來」。
-4. 候選集（`DeckCard` → 職業卡池 → 放棄）與 `indexCards` / `CardArtSample`：**還沒做**。
-   目前指紋是即時從卡圖算的，沒有落庫。
+4. ~~候選集與落庫。~~ **引擎這側已完成（2026-09-11）**：
+   - `015_add_card_art_sample.sql` 的 `CardArtSample`（`portal` 來源一張卡一列，改
+     `ALGO_VERSION` 就整批作廢）。
+   - `store.default_deck_fingerprints(class, version)`：候選集是**該職業的預設牌組**——和開局
+     預填 `my_deckId` 用的是同一個猜測。查不到就是空的，然後什麼都不認，這是正常結果不是失敗。
+   - `live.rs` 在 `MatchStarted` 當下載入候選集；`fingerprint::CardReader` 是注入 `reading` 的
+     seam，形狀比照 `NumberReader`。
+   - `MatchPatch.opening_hand`（`swapped` / `dealt` / `kept` 一個欄位）→ `MatchOpeningCard`
+     八列，`pre` 帶 `swapped`、兩者都帶 `cardId` 與 `decidedBy='art-portal'`。
+   - **端到端驗證**：`svwb-engine replay <錄影> --cards <卡圖目錄>` 三支錄影都跑出正確的
+     `dealt` / `kept`，沒有參考圖的那幾張是 `None`。
+   
+   **還缺的是誰去填 `CardArtSample`**：host 要挑卡、確保卡圖已下載、再透過一個
+   `indexCards` 指令交給引擎算。在那之前實機上候選集永遠是空的，`cardId` 仍然是 NULL。
 5. 勝差不足時才跑 tiebreak；`ReadText` seam 與語言資料只有走到這一步才需要。**還沒做，而且
    看起來未必需要**——現有樣本的勝差都在 0.42 以上，離門檻很遠。
 

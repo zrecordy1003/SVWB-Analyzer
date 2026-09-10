@@ -13,7 +13,8 @@
 use std::time::{Duration, Instant};
 
 use super::{
-    Change, Located, Machine, ModeProbeScore, ModeProbeScores, NumberReads, Reading, VersusScreen,
+    Change, Located, Machine, ModeProbeScore, ModeProbeScores, NumberReads, PanelCardIds, Reading,
+    VersusScreen,
 };
 use crate::calibration::{ScoreSystem, ScoreSystemHit, timing};
 use crate::mulligan::{Mulligan, Stage};
@@ -881,7 +882,7 @@ fn waiting() -> Reading {
 
 fn swapped_in(changes: &[Change]) -> Option<[bool; 4]> {
     changes.iter().find_map(|c| match c {
-        Change::MatchUpdated { patch, .. } => patch.mulligan_swapped,
+        Change::MatchUpdated { patch, .. } => patch.opening_hand.map(|h| h.swapped),
         _ => None,
     })
 }
@@ -1023,4 +1024,79 @@ fn a_match_that_never_showed_a_panel_says_so() {
 
     let flags = finished.expect("the match must close").recog_flags.unwrap_or_default();
     assert!(flags.iter().any(|f| f == "mulligan-not-read"), "flags were {flags:?}");
+}
+
+/// The dealt hand is spread across both rows, and the named hand must be
+/// assembled from whichever row each column's card is in.
+///
+/// This is the case a single-row read would get wrong: card 1 is on its way out,
+/// so its name is only available from the CHANGE row, while cards 2-4 are still
+/// in KEEP. The hand that was DEALT is all four of them.
+#[test]
+fn the_dealt_hand_is_read_from_both_rows() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+
+    let choosing_named = Reading {
+        opening_cards: Some(PanelCardIds {
+            keep: [None, Some(202), Some(203), Some(204)],
+            change: [Some(101), None, None, None],
+        }),
+        ..choosing([true, false, false, false])
+    };
+    m.tick(&choosing_named, t + timing::TICK);
+
+    // The replacement arrives in slot 1; everything else is where it was.
+    let waiting_named = Reading {
+        opening_cards: Some(PanelCardIds {
+            keep: [Some(301), Some(202), Some(203), Some(204)],
+            change: [None; 4],
+        }),
+        ..waiting()
+    };
+    let changes = m.tick(&waiting_named, t + timing::TICK * 2);
+
+    let hand = changes
+        .iter()
+        .find_map(|c| match c {
+            Change::MatchUpdated { patch, .. } => patch.opening_hand,
+            _ => None,
+        })
+        .expect("the hand is reported");
+
+    assert_eq!(hand.swapped, [true, false, false, false]);
+    assert_eq!(
+        hand.dealt,
+        [Some(101), Some(202), Some(203), Some(204)],
+        "slot 1's name comes from the CHANGE row, where its card is sitting"
+    );
+    assert_eq!(hand.kept, [Some(301), Some(202), Some(203), Some(204)]);
+}
+
+/// A hand nothing could name is still a hand.
+///
+/// Every match before card recognition existed looks like this, and so does
+/// every match played with a deck the app has never seen. The swap is geometry
+/// and must survive on its own.
+#[test]
+fn an_unrecognised_hand_still_reports_its_swap() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&choosing([true, true, false, false]), t + timing::TICK);
+    let changes = m.tick(&waiting(), t + timing::TICK * 2);
+
+    let hand = changes
+        .iter()
+        .find_map(|c| match c {
+            Change::MatchUpdated { patch, .. } => patch.opening_hand,
+            _ => None,
+        })
+        .expect("the hand is reported");
+    assert_eq!(hand.swapped, [true, true, false, false]);
+    assert_eq!(hand.dealt, [None; 4]);
+    assert_eq!(hand.kept, [None; 4]);
 }

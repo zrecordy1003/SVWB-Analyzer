@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use svwb_engine::calibration::{self, ScoreSystem};
 use svwb_engine::frame::Frame;
 use svwb_engine::machine::{Located, Reading};
+use svwb_engine::fingerprint::NoCards;
 use svwb_engine::mulligan;
 use svwb_engine::nameplate;
 use svwb_engine::numbers::NoNumbers;
@@ -41,7 +42,7 @@ fn frame_of(relative: &str) -> Frame {
 }
 
 fn read_fixture(relative: &str) -> Reading {
-    reading::read(&frame_of(relative), store(), &mut NoNumbers, false)
+    reading::read(&frame_of(relative), store(), &mut NoNumbers, false, &NoCards)
 }
 
 /// Nothing on a home screen, a mulligan panel or a mid-battle frame may look

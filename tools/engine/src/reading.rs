@@ -143,6 +143,7 @@ pub fn read(
     store: &TemplateStore,
     reader: &mut dyn NumberReader,
     wants_numbers: bool,
+    cards: &dyn crate::fingerprint::CardReader,
 ) -> Reading {
     let probe = |set: &str, window| store.best_in(frame, set, window);
     let no_hit = Hit { name: String::new(), score: -1.0, x: 0, y: 0 };
@@ -176,6 +177,13 @@ pub fn read(
     // every other calibrated window; the machine decides whether a panel means
     // anything in this phase.
     let mulligan = crate::mulligan::read(frame, store);
+
+    // Naming the cards is the expensive half, and it only pays off on a frame
+    // that has one to name: an unsettled panel is refused by `card::locate`
+    // anyway, and every other screen never gets here at all.
+    let opening_cards = mulligan
+        .filter(crate::mulligan::Mulligan::is_settled)
+        .and_then(|panel| identify_panel(frame, &panel, cards));
 
     let splash = scored(probe(cal::templates::RESULT_MID, cal::RESULT_MID));
     let final_banner = scored(probe(cal::templates::RESULT, cal::RESULT));
@@ -237,6 +245,7 @@ pub fn read(
         replay_chrome: chrome.score > threshold::REPLAY_CHROME,
         versus,
         mulligan,
+        opening_cards,
         // The set holds `win` and `gameset`: a win shows its own banner, a loss
         // shows the neutral end-of-game one.
         battle_end_splash: (splash.score > threshold::RESULT_MID)
@@ -335,4 +344,31 @@ mod tests {
         let weak = hit("witch", 0.5);
         assert!(best_above(&[&weak], threshold::CLASS).is_none());
     }
+}
+
+/// Name every card the panel is showing, or return `None` if the frame is not
+/// one cards can be read from.
+///
+/// A row that cannot be located refuses the whole frame rather than half of it:
+/// `card::locate` only fails when the panel is moving, and a panel is not
+/// half-still.
+fn identify_panel(
+    frame: &Frame,
+    panel: &crate::mulligan::Mulligan,
+    cards: &dyn crate::fingerprint::CardReader,
+) -> Option<crate::machine::PanelCardIds> {
+    let located = crate::card::locate(frame, panel)?;
+    let name_row = |boxes: [Option<crate::card::CardBox>; 4]| {
+        let mut ids: [Option<i64>; 4] = [None; 4];
+        for (i, found) in boxes.iter().enumerate() {
+            let Some(found) = found else { continue };
+            let Some(art) = crate::fingerprint::of_screen_art(frame, found.art) else { continue };
+            ids[i] = cards.identify(&art).map(|hit| hit.card_id);
+        }
+        ids
+    };
+    Some(crate::machine::PanelCardIds {
+        keep: name_row(located.keep),
+        change: name_row(located.change),
+    })
 }

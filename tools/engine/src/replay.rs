@@ -140,6 +140,7 @@ pub fn run(
     video: &Path,
     store: &TemplateStore,
     reader: &mut dyn NumberReader,
+    cards: &dyn crate::fingerprint::CardReader,
     options: &ReplayOptions,
 ) -> Result<ReplayReport, ReplayError> {
     if !has_ffmpeg() {
@@ -171,7 +172,7 @@ pub fn run(
             // - but the gate is kept identical so a replay exercises the same
             // code path the shipped analyzer takes.
             let wants_numbers = machine.phase().wants_numbers();
-            let reading = reading::read(&frame, store, reader, wants_numbers);
+            let reading = reading::read(&frame, store, reader, wants_numbers, cards);
             let now = origin + Duration::from_secs_f64(frame_index as f64 / options.fps);
             frame_index += 1;
             report.frames += 1;

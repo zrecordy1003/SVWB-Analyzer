@@ -159,6 +159,57 @@ fn reduce(patch: &GrayImage) -> Fingerprint {
     Fingerprint { bytes }
 }
 
+/// The candidate cards a match could be holding, and the answer to "which one
+/// is this".
+///
+/// A seam for the same reason [`crate::numbers::NumberReader`] is one: the
+/// observation layer must not know where fingerprints are stored. A replay with
+/// no database still reads panels, a state-machine test has no frame at all, and
+/// the live engine looks the candidates up per match from the deck it thinks is
+/// being played.
+pub trait CardReader {
+    /// `None` when nothing in the candidate set is clearly the best answer -
+    /// which is also what an empty candidate set means.
+    fn identify(&self, art: &Fingerprint) -> Option<Identified>;
+}
+
+/// Recognises nothing, always.
+///
+/// Not a stub to be removed: identifying cards needs a candidate set, and a
+/// replay checking classes and outcomes has no deck to build one from.
+pub struct NoCards;
+
+impl CardReader for NoCards {
+    fn identify(&self, _art: &Fingerprint) -> Option<Identified> {
+        None
+    }
+}
+
+/// A candidate set held in memory: the deck's cards, or a class pool.
+pub struct CardIndex {
+    candidates: Vec<(i64, Fingerprint)>,
+}
+
+impl CardIndex {
+    pub fn new(candidates: Vec<(i64, Fingerprint)>) -> Self {
+        Self { candidates }
+    }
+
+    pub fn len(&self) -> usize {
+        self.candidates.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.candidates.is_empty()
+    }
+}
+
+impl CardReader for CardIndex {
+    fn identify(&self, art: &Fingerprint) -> Option<Identified> {
+        identify(art, &self.candidates)
+    }
+}
+
 /// Which card an illustration is, and how safely.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Identified {

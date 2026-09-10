@@ -20,6 +20,8 @@ use crate::machine::{Change, Machine};
 use crate::protocol::MatchRef;
 use crate::store::MatchStore;
 use crate::protocol::{BattleStatus, Command, Event};
+use crate::fingerprint::{CardIndex, CardReader, Fingerprint, NoCards};
+use crate::protocol::ClassName;
 use crate::reading;
 use crate::templates::TemplateStore;
 
@@ -71,6 +73,9 @@ where
     })?;
 
     let mut machine = Machine::new();
+    // Nothing to recognise until a match names its class; see `candidates_for`.
+    let mut cards: Box<dyn crate::fingerprint::CardReader> =
+        Box::new(crate::fingerprint::NoCards);
     let mut status = BattleStatus::default();
     // MatchRef -> row id. This mapping used to live in the HOST, which meant
     // every patch crossed a process boundary to be written; now the decision
@@ -180,7 +185,7 @@ where
         if attached_to.is_some() {
             frames_this_session += 1;
         }
-        let reading = reading::read(&timed.frame, store, channel, wants_numbers);
+        let reading = reading::read(&timed.frame, store, channel, wants_numbers, &*cards);
         // Emitted before the tick so a score that is about to stop clearing its
         // threshold is on record even if the decision it feeds goes the other way.
         for watched in reading.watched {
@@ -195,6 +200,12 @@ where
             }
         }
         for change in machine.tick(&reading, timed.at) {
+            // The candidate set is per match, and the match names its class as
+            // it opens. Loaded here rather than inside `apply` because it is not
+            // an effect of the change - it is the next few frames' equipment.
+            if let Change::MatchStarted { versus, .. } = &change {
+                cards = candidates_for(&options.store, versus.my_class);
+            }
             apply(change, channel, &mut status, options, &mut rows, Some(&timed.frame), timed.at)?;
         }
         // ~20 MB of buffers. Dropped before the sleep, not after, so the idle
@@ -229,6 +240,31 @@ fn persist<W: std::io::Write>(
         }
     }
     Ok(())
+}
+
+/// The candidate cards for a match of this class, from the player's default deck.
+///
+/// A miss is silent and normal: no store, no imported deck, no fingerprints yet,
+/// or a deck whose cards have never had their images fetched. All of them mean
+/// the same thing downstream - the hand is recorded without card ids, which is
+/// what every match recorded before this existed also looks like.
+fn candidates_for(store: &Option<MatchStore>, class: ClassName) -> Box<dyn CardReader> {
+    let Some(store) = store else {
+        return Box::new(NoCards);
+    };
+    let class = format!("{class:?}").to_lowercase();
+    let version = crate::fingerprint::ALGO_VERSION;
+    let Ok(rows) = store.default_deck_fingerprints(&class, version) else {
+        return Box::new(NoCards);
+    };
+    let candidates: Vec<_> = rows
+        .into_iter()
+        .filter_map(|(card_id, bytes)| Some((card_id, Fingerprint::from_bytes(bytes)?)))
+        .collect();
+    if candidates.is_empty() {
+        return Box::new(NoCards);
+    }
+    Box::new(CardIndex::new(candidates))
 }
 
 /// Close an open match because the capture is going away rather than because

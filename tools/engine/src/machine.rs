@@ -52,6 +52,17 @@ pub struct VersusScreen {
     pub play_order: PlayOrder,
 }
 
+/// The cards the mulligan panel is showing, by slot.
+///
+/// Parallel to [`Mulligan::keep`] and [`Mulligan::change`], and read off the
+/// same frame, so slot `i` here is the card whose occupancy is slot `i` there.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelCardIds {
+    pub keep: [Option<i64>; 4],
+    pub change: [Option<i64>; 4],
+}
+
 /// A weak signal that needs a position, not just a score.
 ///
 /// A UI label is pixel-stable on the normalised canvas; drifting card text is
@@ -92,6 +103,14 @@ pub struct Reading {
     /// Carried unjudged like everything else here: the panel is only meaningful
     /// inside an open match, and that is the machine's call, not the probe's.
     pub mulligan: Option<Mulligan>,
+
+    /// Which card is in each slot, when the frame is settled enough to say.
+    ///
+    /// `None` covers both "no panel" and "the panel is still moving"; a slot's
+    /// `None` covers both "no card here" and "not recognised". The machine does
+    /// not need to tell those apart - an unrecognised card and an absent one are
+    /// both a hand position it cannot name.
+    pub opening_cards: Option<PanelCardIds>,
 
     /// The centred WIN/LOSE splash thrown up when the battle ends.
     pub battle_end_splash: Option<bool>,
@@ -473,8 +492,9 @@ impl Default for Machine {
 /// card in the air out of the record. See [`Mulligan::is_settled`].
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Opening {
-    /// The most recent settled `Choosing` frame's CHANGE row.
-    choosing: Option<[bool; 4]>,
+    /// The most recent settled `Choosing` frame: which columns were on their
+    /// way out, and which card each column held.
+    choosing: Option<([bool; 4], [Option<i64>; 4])>,
     /// Whether the answer has already been sent. A match reports once.
     reported: bool,
 }

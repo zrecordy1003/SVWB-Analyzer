@@ -17,7 +17,7 @@ use super::{
 use crate::calibration::{ScoreSystem, timing};
 use crate::mulligan::Stage;
 use crate::phase::{Awaiting, ModeHint, Phase};
-use crate::protocol::{Confidence, GameMode, MatchRef};
+use crate::protocol::{Confidence, GameMode, MatchRef, OpeningHand};
 
 /// Stand-in position for signals whose debounce does not check position.
 const UNPOSITIONED: Located = Located { x: 0, y: 0 };
@@ -372,10 +372,19 @@ impl Machine {
         }
 
         match mulligan.stage {
-            Stage::Choosing => self.opening.choosing = Some(mulligan.change),
+            Stage::Choosing => {
+                // The dealt hand is spread across both rows: whichever row holds
+                // a column's card is where that card's name comes from.
+                let named = reading.opening_cards.unwrap_or_default();
+                let mut dealt = [None; 4];
+                for i in 0..4 {
+                    dealt[i] = if mulligan.change[i] { named.change[i] } else { named.keep[i] };
+                }
+                self.opening.choosing = Some((mulligan.change, dealt));
+            }
             Stage::Waiting => {
                 self.opening.reported = true;
-                let Some(swapped) = self.opening.choosing else {
+                let Some((swapped, dealt)) = self.opening.choosing else {
                     // The choice was already in by the first frame we read, so
                     // the CHANGE row never existed for us. The final hand is
                     // still on screen, but which cards it replaced is gone.
@@ -387,8 +396,11 @@ impl Machine {
                     self.flag("mulligan-choice-missed");
                     return;
                 };
-                let patch =
-                    MatchPatch { mulligan_swapped: Some(swapped), ..Default::default() };
+                let kept = reading.opening_cards.unwrap_or_default().keep;
+                let patch = MatchPatch {
+                    opening_hand: Some(OpeningHand { swapped, dealt, kept }),
+                    ..Default::default()
+                };
                 self.merge(&patch);
                 changes.push(Change::MatchUpdated { r#ref: match_id, patch });
             }
@@ -709,7 +721,7 @@ impl Machine {
         into.current_cr = patch.current_cr.or(into.current_cr);
         into.delta_cr = patch.delta_cr.or(into.delta_cr);
         into.clear_my_deck = patch.clear_my_deck.or(into.clear_my_deck);
-        into.mulligan_swapped = patch.mulligan_swapped.or(into.mulligan_swapped);
+        into.opening_hand = patch.opening_hand.or(into.opening_hand);
         // A patch that carries a mode always carries its confidence, so `or`
         // replaces on a correction and holds otherwise.
         into.mode_confidence = patch.mode_confidence.or(into.mode_confidence);

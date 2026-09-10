@@ -28,6 +28,7 @@ use svwb_vision_native::Rect;
 use svwb_engine::frame_source::FileSource;
 
 use svwb_engine::templates::TemplateStore;
+use svwb_engine::fingerprint::NoCards;
 use svwb_engine::numbers::{self, NoNumbers};
 use svwb_engine::{calibration, diagnostics, host, live, reading, replay, store};
 
@@ -333,6 +334,29 @@ fn live_run(args: &[String]) -> Result<(), String> {
     live::run(&mut source, &store, &mut channel, &mut options).map_err(|e| e.to_string())
 }
 
+/// Every `<cardId>.png` in a directory, as a candidate set.
+///
+/// The shipped path reads its candidates out of the database; this is the same
+/// index built from loose files, so a replay can check recognition without one.
+fn reference_index(dir: &Path) -> Result<svwb_engine::fingerprint::CardIndex, String> {
+    let mut candidates = Vec::new();
+    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("png") {
+            continue;
+        }
+        let Some(card_id) = path.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse().ok())
+        else {
+            continue;
+        };
+        let decoded = image::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if let Some(fp) = svwb_engine::fingerprint::of_reference_card(&decoded) {
+            candidates.push((card_id, fp));
+        }
+    }
+    Ok(svwb_engine::fingerprint::CardIndex::new(candidates))
+}
+
 /// Replay a recording through the shipped state machine and check the outcome.
 ///
 ///   svwb-engine replay <video> --templates <dir> [--fps n]
@@ -347,6 +371,7 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
     let mut expect_matches: Option<usize> = None;
     let mut options = replay::ReplayOptions::default();
     let mut numbers_source = String::from("none");
+    let mut cards_dir: Option<PathBuf> = None;
 
     let mut rest = args.iter();
     while let Some(arg) = rest.next() {
@@ -368,6 +393,10 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             // over the same protocol `live` uses. That is what lets a fixture
             // assert a BP value against the shipped state machine.
             "--numbers" => numbers_source = next()?.clone(),
+            // A directory of `<cardId>.png` reference art, which is what makes a
+            // replay able to check card recognition. Without it the run reads
+            // panels and swaps as before and names nothing.
+            "--cards" => cards_dir = Some(PathBuf::from(next()?)),
             other => video = Some(PathBuf::from(other)),
         }
     }
@@ -375,10 +404,14 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
     let video = video.ok_or("a recording is required")?;
     let templates_dir = templates_dir.ok_or("--templates <dir> is required")?;
     let store = TemplateStore::load(&templates_dir).map_err(|e| e.to_string())?;
+    let cards: Box<dyn svwb_engine::fingerprint::CardReader> = match &cards_dir {
+        None => Box::new(NoCards),
+        Some(dir) => Box::new(reference_index(dir)?),
+    };
 
     let report = match numbers_source.as_str() {
-        "none" => replay::run(&video, &store, &mut NoNumbers, &options),
-        "host" => replay::run(&video, &store, &mut host::over_stdio(), &options),
+        "none" => replay::run(&video, &store, &mut NoNumbers, cards.as_ref(), &options),
+        "host" => replay::run(&video, &store, &mut host::over_stdio(), cards.as_ref(), &options),
         other => return Err(format!("--numbers must be `none` or `host`, not `{other}`")),
     }
     .map_err(|e| e.to_string())?;
@@ -392,7 +425,8 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
         // it did when they worked.
         println!(
             "  match {}: {} vs {} ({}) mode={:?} result={:?} \
-             bp={:?} mp={:?} delta_mp={:?} cr={:?} delta_cr={:?} swapped={:?}",
+             bp={:?} mp={:?} delta_mp={:?} cr={:?} delta_cr={:?}
+                   swapped={:?} dealt={:?} kept={:?}",
             i + 1,
             m.my_class,
             m.oppo_class,
@@ -404,7 +438,9 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             m.patch.delta_mp,
             m.patch.current_cr,
             m.patch.delta_cr,
-            m.patch.mulligan_swapped
+            m.patch.opening_hand.map(|h| h.swapped),
+            m.patch.opening_hand.map(|h| h.dealt),
+            m.patch.opening_hand.map(|h| h.kept)
         );
     }
     // Diagnostics are printed even on success: a run that reaches the right
@@ -446,7 +482,11 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             // because it is read from a screen the recordings all contain and
             // no still fixture can hold: the answer only exists as the
             // difference between two frames several seconds apart.
-            "swapped": m.patch.mulligan_swapped,
+            "swapped": m.patch.opening_hand.map(|h| h.swapped),
+            // The named hand, so a replay with `--cards` asserts recognition
+            // and not just geometry.
+            "dealt": m.patch.opening_hand.map(|h| h.dealt),
+            "kept": m.patch.opening_hand.map(|h| h.kept),
         });
         for (key, wanted) in want.as_object().ok_or("--expect must be a JSON object")? {
             let actual = &got[key.as_str()];
@@ -775,7 +815,7 @@ fn read_dump(args: &[String]) -> Result<(), String> {
         let decoded = image::open(image_path)
             .map_err(|e| format!("cannot decode {}: {e}", image_path.display()))?;
         let frame = Frame::from_image(&decoded);
-        let reading = reading::read(&frame, &store, &mut NoNumbers, false);
+        let reading = reading::read(&frame, &store, &mut NoNumbers, false, &NoCards);
         let body = serde_json::to_string(&reading).map_err(|e| e.to_string())?;
         println!("{{\"image\":{:?},\"reading\":{body}}}", stable_label(image_path));
     }

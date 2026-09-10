@@ -85,6 +85,30 @@ pub struct MatchRef(pub u64);
 
 // ------------------------------------------------------------------ match patch
 
+/// The four cards a match was opened with, before and after the swap.
+///
+/// Read off two frames of the mulligan panel: the last one where the player was
+/// still choosing, and the first one after the choice was confirmed. See
+/// `docs/opening-hand-plan.md`.
+///
+/// The card ids are `None` where nothing was recognised, which is not the same
+/// as "no card there" - every position of a dealt hand holds a card. Today they
+/// are `None` whenever the player's deck is unknown or its fingerprints have not
+/// been computed, so a hand with `swapped` and no ids is the ordinary case
+/// rather than a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpeningHand {
+    /// Which of the four dealt cards were thrown away, left to right. Read off
+    /// geometry alone - a card being replaced is MOVED to the row above - so it
+    /// is known even when the cards are not.
+    pub swapped: [bool; 4],
+    /// The hand as it was dealt.
+    pub dealt: [Option<i64>; 4],
+    /// The hand the match was actually played with.
+    pub kept: [Option<i64>; 4],
+}
+
 /// Fields the engine has newly resolved for a match.
 ///
 /// Every event that reports progress carries the values themselves, never just
@@ -117,17 +141,14 @@ pub struct MatchPatch {
     /// 2Pick brings its own deck, so the pre-filled default deck must be cleared.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub clear_my_deck: Option<bool>,
-    /// Which of the four dealt cards the player threw away, left to right.
+    /// The opening hand, sent once per match when the panel confirms the choice.
     ///
-    /// Read off the mulligan panel's geometry - a card being replaced is MOVED
-    /// to the row above, so this needs no card recognition. All-false is a real
-    /// answer ("kept everything"); `None` means the panel was never read, which
-    /// is what a match recorded before this existed also looks like.
-    ///
-    /// Sent once per match, when the panel confirms the choice. See
-    /// [`crate::mulligan`] and `docs/opening-hand-plan.md`.
+    /// One field rather than three, because it is one fact read off one pair of
+    /// frames: separating them would let a patch carry a swap without the hand
+    /// it applies to. `None` means the panel was never read, which is what a
+    /// match recorded before this existed also looks like.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mulligan_swapped: Option<[bool; 4]>,
+    pub opening_hand: Option<OpeningHand>,
     /// How much the `mode` in this patch can be trusted.
     ///
     /// Always carried WITH a mode, never on its own, so a correction replaces
