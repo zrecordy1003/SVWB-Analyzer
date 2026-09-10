@@ -211,6 +211,13 @@ pub enum Event {
     Ready {
         version: String,
         templates_loaded: u32,
+        /// Which fingerprint algorithm this build compares card art with.
+        ///
+        /// Reported so the host can tell which stored fingerprints are still
+        /// usable without holding a copy of the constant. A bump means every
+        /// card has to be indexed again; the host is the only one that knows
+        /// where the images are, so it has to be told rather than guess.
+        card_algo_version: u32,
     },
 
     /// A new match began. The host is expected to create the row and remember
@@ -257,6 +264,13 @@ pub enum Event {
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<serde_json::Value>,
     },
+
+    /// How an [`Command::IndexCards`] went.
+    ///
+    /// `failed` counts images that could not be decoded or were too small to
+    /// hold a card - a truncated download, most likely. The host can refetch
+    /// those; it cannot do anything about them if it is not told.
+    CardsIndexed { indexed: u32, failed: u32 },
 
     /// Ask the host to read one number out of a binarised crop.
     ///
@@ -331,6 +345,25 @@ pub enum Command {
         #[serde(skip_serializing_if = "Option::is_none")]
         diagnostics_enabled: Option<bool>,
     },
+    /// Compute and store the fingerprints of these cards' official images.
+    ///
+    /// The host owns the images - it knows the hashes, the cache layout and how
+    /// to fetch a missing one - and the engine owns the reduction, because a
+    /// fingerprint computed by a different pipeline cannot be compared with one
+    /// taken off a frame. So the host says "these files are these cards" and the
+    /// engine does the rest. See `crate::fingerprint`.
+    ///
+    /// Idempotent per card: a card already indexed at this algorithm version is
+    /// replaced with the same bytes.
+    IndexCards { cards: Vec<CardImage> },
+}
+
+/// One card and the file holding its official image.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CardImage {
+    pub card_id: i64,
+    pub path: String,
 }
 
 #[cfg(test)]
@@ -398,9 +431,14 @@ mod tests {
         let line = serde_json::to_string(&Event::Ready {
             version: "0.1.0".into(),
             templates_loaded: 42,
+            card_algo_version: 1,
         })
         .unwrap();
-        assert_eq!(line, "{\"event\":\"ready\",\"version\":\"0.1.0\",\"templatesLoaded\":42}");
+        let want = concat!(
+            r#"{"event":"ready","version":"0.1.0","#,
+            r#""templatesLoaded":42,"cardAlgoVersion":1}"#
+        );
+        assert_eq!(line, want);
 
         let line = serde_json::to_string(&Event::SlowTick { elapsed_ms: 612, budget_ms: 500 }).unwrap();
         assert_eq!(line, "{\"event\":\"slowTick\",\"elapsedMs\":612,\"budgetMs\":500}");

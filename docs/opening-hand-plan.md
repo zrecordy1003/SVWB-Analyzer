@@ -386,8 +386,15 @@ read 約 49ms）、`Machine::observe_mulligan`、`MatchPatch.mulligan_swapped`�
    - **端到端驗證**：`svwb-engine replay <錄影> --cards <卡圖目錄>` 三支錄影都跑出正確的
      `dealt` / `kept`，沒有參考圖的那幾張是 `None`。
    
-   **還缺的是誰去填 `CardArtSample`**：host 要挑卡、確保卡圖已下載、再透過一個
-   `indexCards` 指令交給引擎算。在那之前實機上候選集永遠是空的，`cardId` 仍然是 NULL。
+5. ~~誰去填 `CardArtSample`。~~ **已完成（2026-09-11）**：
+   - `Command::IndexCards { cards: [{cardId, path}] }`：host 說「這些檔案是這些卡」，引擎負責
+     縮成指紋並落庫。分工的理由是**指紋必須由引擎的 pipeline 算**，別條路算出來的沒得比。
+   - `Event::Ready` 現在帶 `cardAlgoVersion`，host 用它判斷哪些指紋還有效，不必自己抄一份常數。
+   - `src/main/recognition/cardIndex.ts`：挑**預設牌組**的卡（和引擎開局預填 `my_deckId` 是同一
+     個猜測）、跳過已建索引的、透過既有的卡圖快取取得路徑、送出指令。引擎 ready 時在背景跑，
+     不擋第一幀。
+   - **每次啟動最多下載 60 張**（`MAX_DOWNLOADS_PER_RUN`）。已在快取裡的不算，剩下的下次啟動
+     再補——新安裝分幾次暖機，而不是在使用者想打牌時抓 100MB。
 5. 勝差不足時才跑 tiebreak；`ReadText` seam 與語言資料只有走到這一步才需要。**還沒做，而且
    看起來未必需要**——現有樣本的勝差都在 0.42 以上，離門檻很遠。
 

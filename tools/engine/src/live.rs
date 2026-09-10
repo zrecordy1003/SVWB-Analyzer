@@ -70,6 +70,7 @@ where
     channel.emit(&Event::Ready {
         version: env!("CARGO_PKG_VERSION").to_string(),
         templates_loaded: store.len() as u32,
+        card_algo_version: crate::fingerprint::ALGO_VERSION,
     })?;
 
     let mut machine = Machine::new();
@@ -143,6 +144,10 @@ where
                     })?;
                 }
                 frames_this_session = 0;
+            }
+            Inbox::Command(Command::IndexCards { cards }) => {
+                let (indexed, failed) = index_cards(&options.store, &cards);
+                channel.emit(&Event::CardsIndexed { indexed, failed })?;
             }
             Inbox::Command(Command::Start) | Inbox::Command(Command::Configure { .. })
             | Inbox::Empty => {}
@@ -240,6 +245,33 @@ fn persist<W: std::io::Write>(
         }
     }
     Ok(())
+}
+
+/// Reduce each card's official image to a fingerprint and store it.
+///
+/// Errors are counted rather than raised: one unreadable image out of thirty is
+/// a card that will not be recognised, not a reason to abandon the other
+/// twenty-nine. With no store there is nowhere to put them, which is the
+/// `--image` and test path - the count then honestly reports zero.
+fn index_cards(store: &Option<MatchStore>, cards: &[crate::protocol::CardImage]) -> (u32, u32) {
+    let Some(store) = store else {
+        return (0, cards.len() as u32);
+    };
+    let version = crate::fingerprint::ALGO_VERSION;
+    let mut indexed = 0;
+    let mut failed = 0;
+    for card in cards {
+        let computed = image::open(&card.path)
+            .ok()
+            .and_then(|decoded| crate::fingerprint::of_reference_card(&decoded));
+        match computed {
+            Some(fp) if store.put_portal_fingerprint(card.card_id, version, fp.as_bytes()).is_ok() => {
+                indexed += 1
+            }
+            _ => failed += 1,
+        }
+    }
+    (indexed, failed)
 }
 
 /// The candidate cards for a match of this class, from the player's default deck.

@@ -249,7 +249,13 @@ mod tests {
         let mut out = Vec::new();
         {
             let mut channel = HostChannel::new(&mut out, crx, rrx);
-            channel.emit(&Event::Ready { version: "0.1.0".into(), templates_loaded: 21 }).unwrap();
+            channel
+                .emit(&Event::Ready {
+                    version: "0.1.0".into(),
+                    templates_loaded: 21,
+                    card_algo_version: 1,
+                })
+                .unwrap();
             channel
                 .emit(&Event::MatchUpdated {
                     r#ref: MatchRef(1),

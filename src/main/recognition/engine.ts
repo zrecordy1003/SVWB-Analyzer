@@ -32,9 +32,11 @@ import readline from 'node:readline'
 import type { BattleStatus } from '../../shared/types.js'
 import { ENGINE_BINARY } from '../../shared/engineBinary.js'
 
+import type { PortalLang } from '../data/svwbApi.js'
 import { getTesseractCacheDir } from '../paths.js'
 import { store } from '../store.js'
 import { broadcast } from '../utils/broadcast.js'
+import { buildIndexCardsCommand } from './cardIndex.js'
 import { configureNumberReader, disposeNumberReader, readNumber } from './engineNumbers.js'
 import {
   configureDiagnostics,
@@ -294,6 +296,30 @@ export function startEngine(_mainWindow: BrowserWindow): void {
  * UNCAUGHT `ERR_STREAM_WRITE_AFTER_END` that surfaces as an error dialog over
  * the closing app, so writability is checked here, once, for every sender.
  */
+/**
+ * Compute the fingerprints the engine is missing, in the background.
+ *
+ * Every failure here is silent on purpose. The whole feature is an enrichment -
+ * a match records its opening hand's positions with or without card names - so
+ * a database that is not ready, a portal that is down, or a user who has
+ * imported no decks must cost nothing but the names.
+ *
+ * `algoVersion` of 0 means an engine too old to report one; there is nothing
+ * sensible to index against, so nothing is.
+ */
+async function indexCardsInBackground(algoVersion: number): Promise<void> {
+  if (algoVersion <= 0) return
+  try {
+    const lang = (store.get('settings.cardLang') as PortalLang | undefined) ?? 'cht'
+    const command = await buildIndexCardsCommand(algoVersion, lang)
+    if (!command) return
+    logRuntime('Engine', `indexCards cards=${command.cards.length}`)
+    send(command as unknown as Record<string, unknown>)
+  } catch (e) {
+    logRuntime('Engine', `indexCards skipped: ${String(e)}`)
+  }
+}
+
 function send(command: Record<string, unknown>): void {
   const stdin = engineProcess?.stdin
   if (!stdin || !stdin.writable) return
@@ -416,6 +442,14 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
       // found its templates and is watching for frames.
       engineReady = true
       logRuntime('Engine', `ready templatesLoaded=${event.templatesLoaded}`)
+      // Card fingerprints, if any are missing. Deliberately not awaited: it
+      // reads the database and may download pictures, and neither should stand
+      // between the engine being ready and the first frame.
+      void indexCardsInBackground(Number(event.cardAlgoVersion ?? 0))
+      break
+
+    case 'cardsIndexed':
+      logRuntime('Engine', `cardsIndexed indexed=${event.indexed} failed=${event.failed}`)
       break
 
     case 'readNumber': {
