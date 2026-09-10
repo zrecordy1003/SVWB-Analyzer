@@ -15,6 +15,7 @@ use std::sync::OnceLock;
 use svwb_engine::calibration::{self, ScoreSystem};
 use svwb_engine::frame::Frame;
 use svwb_engine::machine::{Located, Reading};
+use svwb_engine::mulligan;
 use svwb_engine::nameplate;
 use svwb_engine::numbers::NoNumbers;
 use svwb_engine::protocol::PlayOrder;
@@ -687,4 +688,90 @@ fn other_screens_are_not_a_mulligan() {
             "{fixture}: found a mulligan panel on a screen that has none"
         );
     }
+}
+
+/// A settled panel gives up a card box for every card, and they agree.
+///
+/// This is the gate everything in stage 2 stands on: the art comparison is only
+/// meaningful if the window it cuts is the window the reference art was
+/// calibrated against. The assertions are about geometry rather than scores -
+/// the badges must land where the layout puts them, and the columns must be one
+/// pitch apart, on every resolution and in both stages.
+#[test]
+fn a_settled_panel_locates_every_card() {
+    use svwb_engine::card::{self, Row};
+    use svwb_engine::calibration as cal;
+
+    for (fixture, stage_note) in [
+        ("ranked-1920-windowed-2560-desktop/01-mulligan-two-changed.png", "choosing"),
+        ("ranked-gm-mp-2560-fullscreen/02-mulligan-three-changed.png", "choosing"),
+        ("ranked-bp-1280-windowed-lose/04-mulligan-waiting.png", "waiting"),
+        ("custom-1280-windowed-lose/04-mulligan-card-art.png", "waiting"),
+    ] {
+        let frame = frame_of(fixture);
+        let reading = mulligan::read(&frame, store()).expect(fixture);
+        let cards = card::locate(&frame, &reading)
+            .unwrap_or_else(|| panic!("{fixture} ({stage_note}): a settled panel was refused"));
+
+        for (row, boxes, occupied) in [
+            (Row::Keep, cards.keep, reading.keep),
+            (Row::Change, cards.change, reading.change),
+        ] {
+            for (i, occupied) in occupied.iter().enumerate() {
+                let found = boxes[i];
+                assert_eq!(
+                    found.is_some(),
+                    *occupied,
+                    "{fixture}: {row:?} slot {} - a located card and an occupied slot must be the same thing",
+                    i + 1
+                );
+                let Some(found) = found else { continue };
+
+                let (dx, dy) = match row {
+                    Row::Keep => cal::MULLIGAN_BADGE_IN_KEEP,
+                    Row::Change => cal::MULLIGAN_BADGE_IN_CHANGE,
+                };
+                let top = match row {
+                    Row::Keep => cal::MULLIGAN_KEEP_TOP,
+                    Row::Change => cal::MULLIGAN_CHANGE_TOP,
+                };
+                let want_x = cal::MULLIGAN_CARD_X[i] + dx;
+                let want_y = top + dy;
+                let drift_x = found.badge.x.abs_diff(want_x);
+                let drift_y = found.badge.y.abs_diff(want_y);
+                assert!(
+                    drift_x <= 4 && drift_y <= 4,
+                    "{fixture}: {row:?} slot {} badge at ({},{}) is {drift_x},{drift_y} from ({want_x},{want_y})",
+                    i + 1, found.badge.x, found.badge.y
+                );
+                assert_eq!(
+                    (found.art.w, found.art.h),
+                    cal::MULLIGAN_ART_SIZE,
+                    "{fixture}: the art window is the size the comparison was calibrated for"
+                );
+            }
+        }
+    }
+}
+
+/// A panel that is still moving is refused, even though its slots read as full.
+///
+/// `cpu-practice/04-mulligan-waiting.png` is the frame the panel dismisses on:
+/// the four cards have begun sliding out towards the hand, and over the two
+/// seconds that follow they drift 5px per frame. Occupancy is right about it -
+/// there ARE four cards - and a fixed art window over it would cut a smear of
+/// two. This is the whole reason `card` exists as a separate step from
+/// `mulligan`, so the two answers being different here is the point, not a
+/// contradiction.
+#[test]
+fn a_panel_in_motion_is_refused() {
+    let fixture = "cpu-practice-1920-fullscreen/04-mulligan-waiting.png";
+    let frame = frame_of(fixture);
+    let reading = mulligan::read(&frame, store()).expect("the labels are still up");
+
+    assert_eq!(reading.keep, [true; 4], "occupancy still sees four cards");
+    assert!(
+        svwb_engine::card::locate(&frame, &reading).is_none(),
+        "a dismissing panel must not hand out card windows"
+    );
 }

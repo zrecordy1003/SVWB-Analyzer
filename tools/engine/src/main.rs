@@ -535,7 +535,8 @@ fn mulligan_cmd(args: &[String]) -> Result<(), String> {
         .map_err(|e| format!("cannot decode {}: {e}", image_path.display()))?;
     let store = TemplateStore::load(&templates_dir).map_err(|e| e.to_string())?;
 
-    let read = svwb_engine::mulligan::read(&Frame::from_image(&decoded), &store)
+    let frame = Frame::from_image(&decoded);
+    let read = svwb_engine::mulligan::read(&frame, &store)
         .ok_or("no mulligan panel on this frame")?;
     let row = |slots: [bool; 4]| {
         slots.iter().map(|f| if *f { "[card]" } else { "[    ]" }).collect::<Vec<_>>().join(" ")
@@ -543,6 +544,24 @@ fn mulligan_cmd(args: &[String]) -> Result<(), String> {
     println!("stage    {:?}{}", read.stage, if read.is_settled() { "" } else { " (unsettled)" });
     println!("change   {}", row(read.change));
     println!("keep     {}", row(read.keep));
+
+    // Where the cards actually are, which is a stricter question than whether a
+    // slot holds one - see `svwb_engine::card`.
+    match svwb_engine::card::locate(&frame, &read) {
+        None => println!("geometry refused: the panel is not standing still"),
+        Some(cards) => {
+            for (label, boxes) in [("keep", cards.keep), ("change", cards.change)] {
+                for (i, found) in boxes.iter().enumerate() {
+                    if let Some(b) = found {
+                        println!(
+                            "  {label} {} badge ({},{})  art {},{} {}x{}",
+                            i + 1, b.badge.x, b.badge.y, b.art.x, b.art.y, b.art.w, b.art.h
+                        );
+                    }
+                }
+            }
+        }
+    }
     Ok(())
 }
 

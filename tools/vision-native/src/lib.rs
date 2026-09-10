@@ -24,7 +24,7 @@ pub const BASE_HEIGHT: u32 = 720;
 pub const GAME_ASPECT_RATIO: f64 = BASE_WIDTH as f64 / BASE_HEIGHT as f64;
 
 /// An axis-aligned search window in normalized (1280x720) canvas coordinates.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
     pub x: u32,
     pub y: u32,

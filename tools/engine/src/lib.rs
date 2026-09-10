@@ -18,6 +18,7 @@
 //!   [`reading`]       scores -> an interpreted [`machine::Reading`]
 //!   [`nameplate`]     a picture of the opponent's name, cut from a frame
 //!   [`mulligan`]      the mulligan panel: its stage, and which slots hold a card
+//!   [`card`]          where a card actually is inside a mulligan slot
 //!   [`machine`]       (phase, reading, now) -> what changed
 //!   [`phase`]         where the machine is in one match's life
 //!   [`accumulate`]    debouncing and multi-frame consensus
@@ -28,6 +29,7 @@
 
 pub mod accumulate;
 pub mod calibration;
+pub mod card;
 #[cfg(windows)]
 pub mod capture_source;
 pub mod diagnostics;

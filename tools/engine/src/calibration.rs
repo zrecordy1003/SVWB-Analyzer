@@ -139,6 +139,52 @@ pub const NAMEPLATE_GAP: u32 = 24;
 pub const MULLIGAN_CHANGE: Rect = Rect::new(495, 30, 170, 72);
 pub const MULLIGAN_KEEP: Rect = Rect::new(520, 620, 120, 68);
 
+/// The left edge of each card column, and the top edge of a card in each row.
+///
+/// Everything else about a card is measured from these: the occupancy windows
+/// below, the cost badge, and the illustration window the art comparison uses.
+/// Column spans measured at 195-347, 400-551, 603-756, 807-960 across five
+/// recordings, with at most 2px of drift between them.
+pub const MULLIGAN_CARD_X: [u32; 4] = [195, 400, 603, 807];
+pub const MULLIGAN_KEEP_TOP: u32 = 408;
+pub const MULLIGAN_CHANGE_TOP: u32 = 112;
+
+/// Where the cost badge's centre sits, measured from the card's own corner.
+///
+/// The CHANGE row draws its cards higher in the slot than the KEEP row, which is
+/// the only reason these are two constants rather than one. Measured on settled
+/// frames across four recordings: KEEP at +5..+8, +19..+21; CHANGE at +6..+8,
+/// +6..+8. On a frame where the panel is sliding in or dismissing the badge is
+/// nowhere near either - the practice recording's dismissal drifts it to -15,
+/// +45 over two seconds - which is what [`crate::card`] refuses on.
+pub const MULLIGAN_BADGE_IN_KEEP: (u32, u32) = (7, 21);
+pub const MULLIGAN_BADGE_IN_CHANGE: (u32, u32) = (7, 7);
+
+/// The badge's radius, how far from its nominal place it is looked for, how much
+/// brighter than its surroundings it has to be, and how much the badges of one
+/// row may disagree.
+///
+/// The search reach is deliberately small. A badge more than this far from where
+/// the layout puts it is a card in flight, and a wider search would find it and
+/// report a card that has already moved on.
+///
+/// The agreement bound is the guard against bright card art winning the search:
+/// measured over the fixtures, art beat the badge on two individual slots and
+/// both times landed 8px or more away from what the rest of the row said.
+pub const MULLIGAN_BADGE_RADIUS: u32 = 19;
+pub const MULLIGAN_BADGE_SEARCH_PX: u32 = 10;
+pub const MULLIGAN_BADGE_CONTRAST: f64 = 40.0;
+pub const MULLIGAN_BADGE_AGREEMENT_PX: u32 = 4;
+
+/// The illustration window, measured from the badge's centre, and its size.
+///
+/// With the badge at its nominal place this is the card's corner + (12, 40),
+/// 128x145 - the window the portal-art comparison was calibrated on: 8/8 correct
+/// against a 63-card candidate set, true matches 0.669-0.872 against a worst
+/// wrong match of 0.427. See `docs/opening-hand-plan.md`.
+pub const MULLIGAN_ART_FROM_BADGE: (u32, u32) = (5, 19);
+pub const MULLIGAN_ART_SIZE: (u32, u32) = (128, 145);
+
 /// The four card slots of the KEEP row, left to right.
 ///
 /// Column spans measured at 195-347, 400-551, 603-756, 807-960 with at most 2px

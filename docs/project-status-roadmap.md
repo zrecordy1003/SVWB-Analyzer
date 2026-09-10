@@ -54,6 +54,8 @@ testable without a game, a database, or Electron.
 - `mulligan.rs` — the mulligan panel: which stage it shows, and which of its eight slots hold a
   card. The swap is read off geometry - a card being thrown away is moved to the row above - so it
   needs no card recognition. See `docs/opening-hand-plan.md`.
+- `card.rs` — where a card actually is inside a mulligan slot, found from its cost badge and
+  refused when the panel is still moving. The gate every card-recognition read stands on.
 - `machine.rs` (+ `machine/tick.rs`, `machine/scenarios.rs`) — `(phase, reading, now)` to a decision,
   as a pure function. Observing and acting are deliberately separated.
 - `phase.rs` — where the machine is in one match's life.
