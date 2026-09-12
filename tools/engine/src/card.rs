@@ -173,6 +173,14 @@ fn art_window(badge: Point) -> Rect {
     )
 }
 
+/// How far past the disc's radius the ring reaches, and the gap between them.
+///
+/// The ring is the pixels further than `radius + RING_GAP` from the centre but
+/// within `radius + RING_REACH` of it: a two-pixel guard band so the disc's own
+/// anti-aliased edge counts for neither side, then three pixels of rim.
+const RING_GAP: u32 = 2;
+const RING_REACH: u32 = 5;
+
 /// The badge's centre, searched for near where it should be.
 ///
 /// Scored by "how much brighter is this disc than the ring just outside it",
@@ -180,43 +188,95 @@ fn art_window(badge: Point) -> Rect {
 /// search is bounded to [`cal::MULLIGAN_BADGE_SEARCH_PX`] around the nominal
 /// position: a badge further away than that is a card in flight, and widening
 /// the search would find it and report a card that is no longer where it says.
+///
+/// # How it is computed
+///
+/// The disc and the ring are both unions of horizontal runs, one per row, and
+/// every candidate centre reads the same rows shifted by a pixel. So the patch
+/// under the search is summed once per row (a prefix sum), and each candidate
+/// costs one subtraction per run instead of one read per pixel. Measured on the
+/// four settled fixtures this took locating a row from 3.8-4.0ms to well under a
+/// millisecond, and it is arithmetically the same score: the same integer sums
+/// over the same pixel sets, so the threshold measured for the pixel walk keeps
+/// its meaning. The test below holds the two forms to identical output.
+///
+/// Not the frame's box integrals, although they are already built: a box is not
+/// a disc, and a badge's rim is what separates it from bright art. Scoring a
+/// square would change what [`cal::MULLIGAN_BADGE_CONTRAST`] measures.
 fn find_badge(frame: &Frame, centre_x: u32, centre_y: u32) -> Option<Point> {
-    let r = cal::MULLIGAN_BADGE_RADIUS;
-    let reach = cal::MULLIGAN_BADGE_SEARCH_PX;
+    let r = i64::from(cal::MULLIGAN_BADGE_RADIUS);
+    let reach = i64::from(cal::MULLIGAN_BADGE_SEARCH_PX);
+    let pad = r + i64::from(RING_REACH);
+    let (width, height) = (i64::from(frame.width()), i64::from(frame.height()));
 
+    // Candidate centres whose whole ring lies on the canvas. The nominal
+    // positions are hundreds of pixels in, so this never actually clips; it is
+    // here so the function cannot read outside the image.
+    let cx_lo = (i64::from(centre_x) - reach).max(pad);
+    let cx_hi = (i64::from(centre_x) + reach).min(width - pad - 1);
+    let cy_lo = (i64::from(centre_y) - reach).max(pad);
+    let cy_hi = (i64::from(centre_y) + reach).min(height - pad - 1);
+    if cx_lo > cx_hi || cy_lo > cy_hi {
+        return None;
+    }
+
+    // Per row offset from a centre: how far the disc and the guard band extend.
+    // `None` where the row misses the shape entirely.
+    let half_width = |dy: i64, radius: i64| -> Option<i64> {
+        let rest = radius * radius - dy * dy;
+        (rest >= 0).then(|| (rest as f64).sqrt().floor() as i64)
+    };
+    let guard = r + i64::from(RING_GAP);
+    let rows: Vec<(i64, Option<i64>, Option<i64>)> =
+        (-pad..=pad).map(|dy| (dy, half_width(dy, r), half_width(dy, guard))).collect();
+    let inside_n: i64 = rows.iter().filter_map(|(_, disc, _)| disc.map(|h| 2 * h + 1)).sum();
+    let outside_n: i64 = rows
+        .iter()
+        .map(|(_, _, band)| (2 * pad + 1) - band.map_or(0, |h| 2 * h + 1))
+        .sum();
+    if inside_n == 0 || outside_n == 0 {
+        return None;
+    }
+
+    // Prefix sums of the patch every candidate reads from: `prefix[row][k]` is
+    // the sum of the first `k` pixels of that row, starting at `x_lo`.
     let source = &frame.levels[0];
+    let x_lo = cx_lo - pad;
+    let patch_w = (cx_hi + pad - x_lo + 1) as usize;
+    let y_lo = cy_lo - pad;
+    let patch_h = (cy_hi + pad - y_lo + 1) as usize;
+    let stride = patch_w + 1;
+    let mut prefix = vec![0u64; stride * patch_h];
+    for (py, row) in prefix.chunks_exact_mut(stride).enumerate() {
+        let y = (y_lo + py as i64) as u32;
+        let mut acc = 0u64;
+        for (px, cell) in row.iter_mut().enumerate().skip(1) {
+            acc += u64::from(source.get_pixel((x_lo + px as i64 - 1) as u32, y)[0]);
+            *cell = acc;
+        }
+    }
+    // Sum of the row's pixels from `a` to `b` inclusive, in canvas coordinates.
+    let run = |py: usize, a: i64, b: i64| -> u64 {
+        let row = &prefix[py * stride..(py + 1) * stride];
+        row[(b - x_lo + 1) as usize] - row[(a - x_lo) as usize]
+    };
+
     let mut best: Option<(f64, Point)> = None;
-    for cy in centre_y.saturating_sub(reach)..=centre_y + reach {
-        for cx in centre_x.saturating_sub(reach)..=centre_x + reach {
-            if cx < r + 5 || cy < r + 5 || cx + r + 5 >= frame.width() || cy + r + 5 >= frame.height()
-            {
-                continue;
-            }
+    for cy in cy_lo..=cy_hi {
+        for cx in cx_lo..=cx_hi {
             let mut inside = 0u64;
-            let mut inside_n = 0u64;
             let mut outside = 0u64;
-            let mut outside_n = 0u64;
-            for dy in -(r as i64 + 5)..=(r as i64 + 5) {
-                for dx in -(r as i64 + 5)..=(r as i64 + 5) {
-                    let d2 = (dx * dx + dy * dy) as u64;
-                    let value = u64::from(
-                        source.get_pixel((cx as i64 + dx) as u32, (cy as i64 + dy) as u32)[0],
-                    );
-                    if d2 <= u64::from(r * r) {
-                        inside += value;
-                        inside_n += 1;
-                    } else if d2 > u64::from((r + 2) * (r + 2)) {
-                        outside += value;
-                        outside_n += 1;
-                    }
+            for (dy, disc, band) in &rows {
+                let py = (cy + dy - y_lo) as usize;
+                if let Some(h) = disc {
+                    inside += run(py, cx - h, cx + h);
                 }
-            }
-            if inside_n == 0 || outside_n == 0 {
-                continue;
+                let whole = run(py, cx - pad, cx + pad);
+                outside += whole - band.map_or(0, |h| run(py, cx - h, cx + h));
             }
             let score = inside as f64 / inside_n as f64 - outside as f64 / outside_n as f64;
             if best.is_none_or(|(b, _)| score > b) {
-                best = Some((score, Point { x: cx, y: cy }));
+                best = Some((score, Point { x: cx as u32, y: cy as u32 }));
             }
         }
     }
@@ -227,6 +287,91 @@ fn find_badge(frame: &Frame, centre_x: u32, centre_y: u32) -> Option<Point> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::Luma;
+    use svwb_vision_native::GrayImage;
+
+    /// The badge search as it was first written: every pixel of the square
+    /// around every candidate centre, classified by its distance. Kept as the
+    /// oracle for [`find_badge`], which must produce the same answer from the
+    /// same pixels.
+    fn find_badge_by_pixels(frame: &Frame, centre_x: u32, centre_y: u32) -> Option<(f64, Point)> {
+        let r = cal::MULLIGAN_BADGE_RADIUS;
+        let reach = cal::MULLIGAN_BADGE_SEARCH_PX;
+        let source = &frame.levels[0];
+        let mut best: Option<(f64, Point)> = None;
+        for cy in centre_y.saturating_sub(reach)..=centre_y + reach {
+            for cx in centre_x.saturating_sub(reach)..=centre_x + reach {
+                if cx < r + 5 || cy < r + 5 || cx + r + 5 >= frame.width() || cy + r + 5 >= frame.height() {
+                    continue;
+                }
+                let (mut inside, mut inside_n, mut outside, mut outside_n) = (0u64, 0u64, 0u64, 0u64);
+                for dy in -(r as i64 + 5)..=(r as i64 + 5) {
+                    for dx in -(r as i64 + 5)..=(r as i64 + 5) {
+                        let d2 = (dx * dx + dy * dy) as u64;
+                        let value = u64::from(
+                            source.get_pixel((cx as i64 + dx) as u32, (cy as i64 + dy) as u32)[0],
+                        );
+                        if d2 <= u64::from(r * r) {
+                            inside += value;
+                            inside_n += 1;
+                        } else if d2 > u64::from((r + 2) * (r + 2)) {
+                            outside += value;
+                            outside_n += 1;
+                        }
+                    }
+                }
+                let score = inside as f64 / inside_n as f64 - outside as f64 / outside_n as f64;
+                if best.is_none_or(|(b, _)| score > b) {
+                    best = Some((score, Point { x: cx, y: cy }));
+                }
+            }
+        }
+        best
+    }
+
+    /// A canvas of deterministic texture with a bright disc painted on it, the
+    /// texture so that every candidate position scores differently and a slip
+    /// in either form shows up as a different argmax, not a rounding wobble.
+    fn textured_canvas_with_disc(disc: Point, radius: u32) -> Frame {
+        let mut gray = GrayImage::new(1280, 720);
+        let mut seed = 0x2545_F491u32;
+        for y in 0..720 {
+            for x in 0..1280 {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                let noise = (seed % 60) as i64;
+                let d2 = (i64::from(x) - i64::from(disc.x)).pow(2) + (i64::from(y) - i64::from(disc.y)).pow(2);
+                let value = if d2 <= i64::from(radius * radius) { 170 + noise } else { 40 + noise };
+                gray.put_pixel(x, y, Luma([value as u8]));
+            }
+        }
+        Frame::from_image(&image::DynamicImage::ImageLuma8(gray))
+    }
+
+    /// The run-sum search and the pixel walk are the same function.
+    ///
+    /// Checked with the disc where the layout puts it, a few pixels off (the
+    /// drift the search exists to absorb), and beyond the reach (where both must
+    /// pick the same best-of-nothing), on the textured canvas above.
+    #[test]
+    fn the_run_sum_search_matches_the_pixel_walk() {
+        let nominal = Point {
+            x: cal::MULLIGAN_CARD_X[1] + cal::MULLIGAN_BADGE_IN_KEEP.0,
+            y: cal::MULLIGAN_KEEP_TOP + cal::MULLIGAN_BADGE_IN_KEEP.1,
+        };
+        for (dx, dy) in [(0i64, 0i64), (3, -2), (-7, 6), (10, 10), (-25, 0)] {
+            let disc = Point { x: (nominal.x as i64 + dx) as u32, y: (nominal.y as i64 + dy) as u32 };
+            let frame = textured_canvas_with_disc(disc, cal::MULLIGAN_BADGE_RADIUS);
+            let oracle = find_badge_by_pixels(&frame, nominal.x, nominal.y).expect("some best");
+            let fast = find_badge(&frame, nominal.x, nominal.y);
+            let accepted = oracle.0 >= cal::MULLIGAN_BADGE_CONTRAST;
+            assert_eq!(fast, accepted.then_some(oracle.1), "disc at {disc:?}: oracle scored {:.3}", oracle.0);
+            if dx.abs() <= 10 && dy.abs() <= 10 {
+                assert_eq!(fast, Some(disc), "a disc within reach is found exactly");
+            }
+        }
+    }
 
     #[test]
     fn the_art_window_travels_with_the_badge() {

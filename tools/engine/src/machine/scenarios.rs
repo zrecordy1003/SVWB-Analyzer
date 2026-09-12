@@ -19,7 +19,7 @@ use super::{
 use crate::calibration::{ScoreSystem, ScoreSystemHit, timing};
 use crate::mulligan::{Mulligan, Stage};
 use crate::phase::Phase;
-use crate::protocol::{ClassName, GameMode, PlayOrder};
+use crate::protocol::{ClassName, GameMode, OpeningHand, PlayOrder};
 
 fn versus() -> VersusScreen {
     VersusScreen {
@@ -880,15 +880,25 @@ fn waiting() -> Reading {
     }
 }
 
-fn swapped_in(changes: &[Change]) -> Option<[bool; 4]> {
+/// The battlefield after the panel has gone - or any frame with no panel on it.
+fn no_panel() -> Reading {
+    Reading::default()
+}
+
+fn hand_in(changes: &[Change]) -> Option<OpeningHand> {
     changes.iter().find_map(|c| match c {
-        Change::MatchUpdated { patch, .. } => patch.opening_hand.map(|h| h.swapped),
+        Change::MatchUpdated { patch, .. } => patch.opening_hand,
         _ => None,
     })
 }
 
+fn swapped_in(changes: &[Change]) -> Option<[bool; 4]> {
+    hand_in(changes).map(|h| h.swapped)
+}
+
 /// The ordinary run: a match opens, the player throws two cards away, the panel
-/// confirms, and the swap is reported once.
+/// confirms, the final hand sits there for a couple of ticks, and the swap is
+/// reported once the panel goes away.
 #[test]
 fn the_confirmed_mulligan_reports_which_cards_went() {
     let mut m = Machine::new();
@@ -902,11 +912,18 @@ fn the_confirmed_mulligan_reports_which_cards_went() {
     m.tick(&choosing([true, false, false, false]), t + timing::TICK * 2);
     m.tick(&choosing([true, false, false, true]), t + timing::TICK * 3);
 
-    let changes = m.tick(&waiting(), t + timing::TICK * 4);
+    assert_eq!(
+        swapped_in(&m.tick(&waiting(), t + timing::TICK * 4)),
+        None,
+        "the final hand is still up and may still be read; nothing goes out yet"
+    );
+    m.tick(&waiting(), t + timing::TICK * 5);
+
+    let changes = m.tick(&no_panel(), t + timing::TICK * 6);
     assert_eq!(
         swapped_in(&changes),
         Some([true, false, false, true]),
-        "the last settled Choosing frame is the answer, believed once Waiting arrives"
+        "the last settled Choosing frame is the answer, believed once Waiting followed it"
     );
 }
 
@@ -919,9 +936,23 @@ fn keeping_everything_is_reported_too() {
 
     m.tick(&on_versus_screen(), t);
     m.tick(&choosing([false; 4]), t + timing::TICK);
-    let changes = m.tick(&waiting(), t + timing::TICK * 2);
+    m.tick(&waiting(), t + timing::TICK * 2);
+    let changes = m.tick(&no_panel(), t + timing::TICK * 3);
 
     assert_eq!(swapped_in(&changes), Some([false; 4]));
+}
+
+/// The opponent can confirm fast: a single Waiting tick followed by the battle
+/// is still a confirmed hand.
+#[test]
+fn one_waiting_frame_is_enough() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&choosing([false, true, false, false]), t + timing::TICK);
+    m.tick(&waiting(), t + timing::TICK * 2);
+    assert_eq!(swapped_in(&m.tick(&no_panel(), t + timing::TICK * 3)), Some([false, true, false, false]));
 }
 
 /// A card in the air belongs to neither row, and a frame that catches one must
@@ -945,7 +976,8 @@ fn a_card_in_flight_does_not_overwrite_the_choice() {
     };
     m.tick(&in_flight, t + timing::TICK * 2);
 
-    let changes = m.tick(&waiting(), t + timing::TICK * 3);
+    m.tick(&waiting(), t + timing::TICK * 3);
+    let changes = m.tick(&no_panel(), t + timing::TICK * 4);
     assert_eq!(
         swapped_in(&changes),
         Some([true, false, false, false]),
@@ -963,10 +995,14 @@ fn the_swap_is_reported_once() {
 
     m.tick(&on_versus_screen(), t);
     m.tick(&choosing([true, false, false, false]), t + timing::TICK);
-    assert!(swapped_in(&m.tick(&waiting(), t + timing::TICK * 2)).is_some());
+    m.tick(&waiting(), t + timing::TICK * 2);
+    assert!(swapped_in(&m.tick(&no_panel(), t + timing::TICK * 3)).is_some());
 
-    for i in 3..6 {
-        let changes = m.tick(&waiting(), t + timing::TICK * i);
+    for i in 4..8 {
+        // Whatever the battlefield throws up later - including a frame that
+        // happens to read as the panel again - is not a second answer.
+        let frame = if i % 2 == 0 { no_panel() } else { waiting() };
+        let changes = m.tick(&frame, t + timing::TICK * i);
         assert_eq!(swapped_in(&changes), None, "tick {i} reported the swap again");
     }
 }
@@ -979,7 +1015,8 @@ fn a_confirmed_hand_with_no_choice_behind_it_is_a_diagnostic() {
     let t = Instant::now();
 
     m.tick(&on_versus_screen(), t);
-    let changes = m.tick(&waiting(), t + timing::TICK);
+    m.tick(&waiting(), t + timing::TICK);
+    let changes = m.tick(&no_panel(), t + timing::TICK * 2);
 
     assert_eq!(swapped_in(&changes), None, "an unseen choice must not read as 'kept everything'");
     assert!(
@@ -1056,15 +1093,10 @@ fn the_dealt_hand_is_read_from_both_rows() {
         }),
         ..waiting()
     };
-    let changes = m.tick(&waiting_named, t + timing::TICK * 2);
+    m.tick(&waiting_named, t + timing::TICK * 2);
+    let changes = m.tick(&no_panel(), t + timing::TICK * 3);
 
-    let hand = changes
-        .iter()
-        .find_map(|c| match c {
-            Change::MatchUpdated { patch, .. } => patch.opening_hand,
-            _ => None,
-        })
-        .expect("the hand is reported");
+    let hand = hand_in(&changes).expect("the hand is reported");
 
     assert_eq!(hand.swapped, [true, false, false, false]);
     assert_eq!(
@@ -1087,16 +1119,81 @@ fn an_unrecognised_hand_still_reports_its_swap() {
 
     m.tick(&on_versus_screen(), t);
     m.tick(&choosing([true, true, false, false]), t + timing::TICK);
-    let changes = m.tick(&waiting(), t + timing::TICK * 2);
+    m.tick(&waiting(), t + timing::TICK * 2);
+    let changes = m.tick(&no_panel(), t + timing::TICK * 3);
 
-    let hand = changes
-        .iter()
-        .find_map(|c| match c {
-            Change::MatchUpdated { patch, .. } => patch.opening_hand,
-            _ => None,
-        })
-        .expect("the hand is reported");
+    let hand = hand_in(&changes).expect("the hand is reported");
     assert_eq!(hand.swapped, [true, true, false, false]);
     assert_eq!(hand.dealt, [None; 4]);
     assert_eq!(hand.kept, [None; 4]);
+}
+
+/// A Waiting frame with named cards, wrapped in `Reading`.
+fn waiting_with(keep: [Option<i64>; 4]) -> Reading {
+    Reading { opening_cards: Some(PanelCardIds { keep, change: [None; 4] }), ..waiting() }
+}
+
+/// The kept hand is read from the frames that can be read, not the first one.
+///
+/// This is what both swap recordings do: after the choice is confirmed the
+/// replacements fly in enlarged, so the first settled Waiting frames have four
+/// occupied slots and no locatable card (`opening_cards: None`). Reporting on
+/// the first Waiting frame recorded the kept hand as four unknowns in every
+/// match where anything was swapped.
+#[test]
+fn the_kept_hand_survives_the_replacements_flying_in() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    let choosing_named = Reading {
+        opening_cards: Some(PanelCardIds {
+            keep: [None, Some(202), Some(203), Some(204)],
+            change: [Some(101), None, None, None],
+        }),
+        ..choosing([true, false, false, false])
+    };
+    m.tick(&choosing_named, t + timing::TICK);
+
+    // Two ticks of cards in the air: settled by occupancy, nothing located.
+    for i in 2..4 {
+        let changes = m.tick(&waiting(), t + timing::TICK * i);
+        assert_eq!(hand_in(&changes), None, "tick {i}: an unreadable frame must not be the answer");
+    }
+    m.tick(&waiting_with([Some(301), Some(202), Some(203), Some(204)]), t + timing::TICK * 4);
+    let hand = hand_in(&m.tick(&no_panel(), t + timing::TICK * 5)).expect("the hand is reported");
+
+    assert_eq!(hand.swapped, [true, false, false, false]);
+    assert_eq!(hand.dealt, [Some(101), Some(202), Some(203), Some(204)]);
+    assert_eq!(hand.kept, [Some(301), Some(202), Some(203), Some(204)], "read off the landed frame");
+}
+
+/// One frame's misreading of one card is outvoted by the frames around it.
+///
+/// A cursor or a tooltip over a card on one frame changes what that frame
+/// says; the panel is static for seconds, so the other frames say otherwise.
+/// A frame that recognised nothing in a slot casts no vote there - it saw no
+/// card it knew, not a different one - and an even split is no answer.
+#[test]
+fn a_single_misread_frame_is_outvoted() {
+    let mut m = Machine::new();
+    let t = Instant::now();
+
+    m.tick(&on_versus_screen(), t);
+    m.tick(&choosing([false; 4]), t + timing::TICK);
+
+    let clean = [Some(1), Some(2), Some(3), Some(4)];
+    m.tick(&waiting_with(clean), t + timing::TICK * 2);
+    // Slot 2 misread, slot 3 unreadable, slot 4 read as something else.
+    m.tick(&waiting_with([Some(1), Some(9), None, Some(8)]), t + timing::TICK * 3);
+    m.tick(&waiting_with(clean), t + timing::TICK * 4);
+    // Slot 4 again read as the other card: two votes each.
+    m.tick(&waiting_with([Some(1), Some(2), Some(3), Some(8)]), t + timing::TICK * 5);
+
+    let hand = hand_in(&m.tick(&no_panel(), t + timing::TICK * 6)).expect("the hand is reported");
+    assert_eq!(
+        hand.kept,
+        [Some(1), Some(2), Some(3), None],
+        "plurality wins slots 2 and 3; the tie in slot 4 is refused rather than guessed"
+    );
 }

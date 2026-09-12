@@ -49,16 +49,29 @@ pub const FINGERPRINT_BYTES: usize = (FINGERPRINT_W * FINGERPRINT_H) as usize;
 /// silently comparing old vectors with new ones. There is no migration path for
 /// a fingerprint and there should not be: they are derived data, and recomputing
 /// them from the card images already on disk is cheap.
-pub const ALGO_VERSION: u32 = 1;
+///
+/// 2: the top edge of [`PORTAL_ART_FRACTION`] moved (2026-09-12).
+pub const ALGO_VERSION: u32 = 2;
 
 /// Which part of a portal card image is the illustration.
 ///
 /// The portal ships the whole card - frame, name band, cost badge, the lot - at
-/// 530x687, while the screen shows it cropped tighter. Fitted against a real
-/// frame: aligning the whole card scores 0.346, aligning these fractions scores
+/// 530x687, while the screen shows it cropped tighter. First fitted against one
+/// real frame: aligning the whole card scores 0.346, aligning the illustration
 /// 0.695 on the same pair. The fractions rather than pixels because the portal
 /// has shipped more than one image size.
-pub const PORTAL_ART_FRACTION: (f64, f64, f64, f64) = (0.140, 0.198, 0.853, 0.837);
+///
+/// Re-fitted 2026-09-12 against every located slot of five recordings (340
+/// slot-frames, 139 of them with a known card, five distinct cards, 63
+/// candidates), searching +-0.03 on every edge and then +-0.0125 in steps of
+/// 0.0025. Three edges were already optimal; the top edge was 0.02 too high,
+/// which took 14 rows of name band into the reference and shifted the whole
+/// art by three rows against the screen. Moving it lifted the lowest correct
+/// score from 0.715 to 0.871 and the smallest winning margin from 0.421 to
+/// 0.503, on every one of the eight known slots, while the best score any
+/// absent card reached stayed at 0.519. The margin falls off smoothly on all
+/// four edges (about 0.02 per 0.005), so this is a peak, not a plateau edge.
+pub const PORTAL_ART_FRACTION: (f64, f64, f64, f64) = (0.140, 0.218, 0.853, 0.837);
 
 /// One card's illustration, reduced.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -226,9 +239,14 @@ pub struct Identified {
 /// **The margin decides, not the score.** A dim card in a dark scene scores
 /// lower against everything, including itself, so an absolute threshold either
 /// rejects it or admits false matches on brighter frames; the distance to the
-/// runner-up is what stays stable. Measured over a 63-card candidate set: right
-/// answers led by 0.389 or more, and the best wrong answer anywhere scored
-/// 0.478.
+/// runner-up is what stays stable. See [`cal::CARD_ART_MIN_MARGIN`] for the
+/// measured distributions both cuts were placed in.
+///
+/// The runner-up is the best OTHER card, not the second-best sample. A card may
+/// be in the list more than once - that is the shape observed samples will
+/// take, one card with several stored looks - and two samples of one card
+/// scoring alike is agreement, not a tie. Without this, a card stored twice
+/// could never be recognised: it would be its own runner-up at margin zero.
 ///
 /// A single candidate has no runner-up, so its margin is measured from the floor
 /// instead - the alternative is to accept whatever is in the list.
@@ -238,10 +256,14 @@ pub fn identify(art: &Fingerprint, candidates: &[(i64, Fingerprint)]) -> Option<
     for (card_id, candidate) in candidates {
         let score = art.similarity(candidate);
         match best {
+            Some((b, id)) if id == *card_id => {
+                if score > b {
+                    best = Some((score, id));
+                }
+            }
             Some((b, _)) if score <= b => second = second.max(score),
-            Some((b, id)) => {
+            Some((b, _)) => {
                 second = second.max(b);
-                let _ = id;
                 best = Some((score, *card_id));
             }
             None => best = Some((score, *card_id)),
@@ -315,6 +337,19 @@ mod tests {
     fn a_tie_is_refused() {
         let art = fp(|x, y| ((x * 7 + y * 3) % 256) as u8);
         assert!(identify(&art, &[(1, art.clone()), (2, art.clone())]).is_none());
+    }
+
+    /// One card stored twice is one card. Its second sample must not be taken
+    /// for the runner-up, or a card with two looks on file could never win.
+    #[test]
+    fn a_second_sample_of_the_same_card_is_not_a_rival() {
+        let art = fp(|x, y| ((x * 7 + y * 3) % 256) as u8);
+        let near = fp(|x, y| ((x * 7 + y * 3) % 256).saturating_sub(3) as u8);
+        let other = fp(|x, y| ((x * 3 + y * 11) % 256) as u8);
+        let found = identify(&art, &[(1, other), (2, near), (2, art.clone())]).expect("a winner");
+        assert_eq!(found.card_id, 2);
+        assert!((found.score - 1.0).abs() < 1e-9, "the better of its samples counts");
+        assert!(found.margin > cal::CARD_ART_MIN_MARGIN, "measured against card 1, not itself");
     }
 
     #[test]

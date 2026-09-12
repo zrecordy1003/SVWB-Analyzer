@@ -483,20 +483,85 @@ impl Default for Machine {
 /// Two facts, and the order they arrive in is the whole design. While the player
 /// is choosing, the panel says which cards are ON THEIR WAY OUT - that is the
 /// only moment it is legible, because confirming makes the CHANGE row vanish.
-/// The frame after that says the choice is final. So the answer is "the last
-/// settled Choosing frame, believed once a Waiting frame follows it".
+/// The frames after that show the final hand. So the swap is "the last settled
+/// Choosing frame, believed once a Waiting frame follows it", and the whole
+/// answer is sent when the panel goes away.
 ///
 /// `settled` matters more than it sounds: cards fly between the two rows, and a
 /// frame caught mid-flight shows a column with a card in both rows or neither.
 /// Taking the last settled frame rather than the last frame is what keeps a
 /// card in the air out of the record. See [`Mulligan::is_settled`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+///
+/// # Why the cards are voted on, and why the report waits
+///
+/// The card names are not taken from one frame. Two things on the recordings
+/// forbid it:
+///
+/// - **The first Waiting frames are unreadable.** When cards were swapped, the
+///   replacements fly in enlarged and land over the next second: occupancy sees
+///   four cards, so the frame is "settled", but `card::locate` refuses it. On
+///   both recordings with a swap (2560 fullscreen, 1920 windowed) the first
+///   THREE settled Waiting frames at 4fps are like that. Reporting on the first
+///   one, as this first did, recorded the kept hand as four unknowns in every
+///   match where anything was swapped - which is most of them.
+/// - **The player's mouse is on the panel.** Hovering a card opens a detail
+///   tooltip of up to 470 rows that covers a whole column of both rows; one
+///   recording shows it for 3.5s. A frame like that either fails to settle or
+///   fails to locate today, but a shorter tooltip or the cursor itself could
+///   cover part of one card's art and still read, and then a single-frame
+///   answer is whatever that frame said.
+///
+/// So every located frame casts a vote per position and the plurality wins,
+/// which is the same posture every other weak signal in this machine takes (see
+/// `accumulate`). The panel is static for seconds - the shortest measured stage
+/// is 1.5s, and even the swap recordings leave two located Waiting frames at
+/// 2fps - so the votes are free. The report goes out on the first frame that no
+/// longer shows a settled Waiting panel, i.e. when the last vote is in.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Opening {
     /// The most recent settled `Choosing` frame: which columns were on their
-    /// way out, and which card each column held.
-    choosing: Option<([bool; 4], [Option<i64>; 4])>,
+    /// way out. Geometry only; believed once Waiting follows.
+    swapped: Option<[bool; 4]>,
+    /// Votes for the card each column was DEALT, from every located Choosing
+    /// frame. A column's card is the same card whichever row it is sitting in.
+    dealt: [Votes; 4],
+    /// Votes for the card each slot ended up KEEPING, from every located
+    /// Waiting frame.
+    kept: [Votes; 4],
+    /// A settled Waiting frame has been seen: the choice is final, and the
+    /// answer goes out as soon as the panel stops showing one.
+    waiting_seen: bool,
     /// Whether the answer has already been sent. A match reports once.
     reported: bool,
+}
+
+/// Which card one hand position has been read as, frame by frame.
+///
+/// A plurality, not a debounce: the panel is read until it goes away, and the
+/// name most frames agreed on wins. Frames on which nothing was recognised do
+/// not vote - a refused frame is a frame that saw no card it knew, not a frame
+/// that saw a different one - so a card that was covered on most frames and
+/// read cleanly on one is still that card. A tie between two names is no name.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Votes {
+    tally: Vec<(i64, u32)>,
+}
+
+impl Votes {
+    fn cast(&mut self, card_id: Option<i64>) {
+        let Some(card_id) = card_id else { return };
+        match self.tally.iter_mut().find(|(id, _)| *id == card_id) {
+            Some((_, n)) => *n += 1,
+            None => self.tally.push((card_id, 1)),
+        }
+    }
+
+    fn winner(&self) -> Option<i64> {
+        let top = self.tally.iter().map(|(_, n)| *n).max()?;
+        let mut leaders = self.tally.iter().filter(|(_, n)| *n == top);
+        let (card_id, _) = leaders.next()?;
+        leaders.next().is_none().then_some(*card_id)
+    }
 }
 
 /// Consecutive frames a weak signal needs. Two, throughout: enough that a

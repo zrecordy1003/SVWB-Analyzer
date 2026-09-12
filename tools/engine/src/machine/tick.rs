@@ -338,25 +338,31 @@ impl Machine {
         changes.push(Change::MatchStarted { r#ref, versus, mode: hint });
     }
 
-    /// Watch the mulligan panel, and report the swap once the choice is final.
+    /// Watch the mulligan panel while it is up, and report once it is gone.
     ///
-    /// The panel is legible in two halves and only one of them says anything:
-    /// while the player is choosing, the cards on their way out are sitting in
-    /// the CHANGE row; the moment the choice is confirmed that row is gone. So
-    /// this keeps the last settled `Choosing` frame and believes it when a
+    /// The panel is legible in two halves and only one of them says which cards
+    /// went: while the player is choosing, the cards on their way out are
+    /// sitting in the CHANGE row; the moment the choice is confirmed that row is
+    /// gone. So the swap is the last settled `Choosing` frame, believed once a
     /// `Waiting` frame arrives - the frame that proves the choice was made
     /// rather than still being made.
     ///
+    /// The swap needs no second frame, unlike the mode signals. The panel is not
+    /// a weak signal: measured over 1293 fixture frames its label scores
+    /// 0.891-1.000 when present and at most 0.549 when not, and `is_settled` is
+    /// a structural check on top of that - four columns, each holding its card
+    /// in exactly one row.
+    ///
+    /// The card NAMES are another matter: they are votes across every located
+    /// frame of each stage, and the report waits for the panel to leave so the
+    /// last vote is in. See `Opening` for the two recordings that forced this.
+    /// The budget is still tight - the confirmed hand is on screen for as
+    /// little as 1.50s, three ticks, and the first of those are the replacements
+    /// sliding in - which is why a single vote is accepted rather than two
+    /// agreeing ones being required.
+    ///
     /// Bounded to one report per match by `opening.reported`, which also stops
     /// the rest of the battle from being asked about a panel that cannot return.
-    ///
-    /// A single frame is enough here, unlike the mode signals that need two. The
-    /// panel is not a weak signal: measured over 1293 fixture frames its label
-    /// scores 0.891-1.000 when present and at most 0.549 when not, and
-    /// `is_settled` is a structural check on top of that - four columns, each
-    /// holding its card in exactly one row. The budget is also tighter than the
-    /// mode probes': the confirmed hand is on screen for as little as 1.50s,
-    /// three ticks, and the first of those can be the cards still sliding in.
     fn observe_mulligan(&mut self, reading: &Reading, changes: &mut Vec<Change>) {
         let Phase::InBattle { match_id } = self.phase else {
             return;
@@ -364,30 +370,44 @@ impl Machine {
         if self.opening.reported {
             return;
         }
-        let Some(mulligan) = reading.mulligan else {
-            return;
-        };
-        if !mulligan.is_settled() {
-            return;
-        }
 
-        match mulligan.stage {
-            Stage::Choosing => {
-                // The dealt hand is spread across both rows: whichever row holds
-                // a column's card is where that card's name comes from.
-                let named = reading.opening_cards.unwrap_or_default();
-                let mut dealt = [None; 4];
-                for i in 0..4 {
-                    dealt[i] = if mulligan.change[i] { named.change[i] } else { named.keep[i] };
+        // Only a settled panel says anything. `opening_cards` is `None` on a
+        // settled panel whose cards could not be located - the fly-in after a
+        // swap, the slide-out before the battle - and such a frame casts no
+        // vote, while still counting as the panel being up.
+        let settled = reading.mulligan.filter(crate::mulligan::Mulligan::is_settled);
+        match settled.map(|panel| (panel.stage, panel)) {
+            Some((Stage::Choosing, panel)) => {
+                self.opening.swapped = Some(panel.change);
+                if let Some(named) = reading.opening_cards {
+                    // The dealt hand is spread across both rows: whichever row
+                    // holds a column's card is where that card's name comes
+                    // from, and it is the same card in either.
+                    for i in 0..4 {
+                        let id = if panel.change[i] { named.change[i] } else { named.keep[i] };
+                        self.opening.dealt[i].cast(id);
+                    }
                 }
-                self.opening.choosing = Some((mulligan.change, dealt));
             }
-            Stage::Waiting => {
+            Some((Stage::Waiting, _)) => {
+                self.opening.waiting_seen = true;
+                if let Some(named) = reading.opening_cards {
+                    for i in 0..4 {
+                        self.opening.kept[i].cast(named.keep[i]);
+                    }
+                }
+            }
+            None => {
+                if !self.opening.waiting_seen {
+                    return;
+                }
+                // The final hand has been on screen and now is not: every frame
+                // that could vote has voted.
                 self.opening.reported = true;
-                let Some((swapped, dealt)) = self.opening.choosing else {
+                let Some(swapped) = self.opening.swapped else {
                     // The choice was already in by the first frame we read, so
-                    // the CHANGE row never existed for us. The final hand is
-                    // still on screen, but which cards it replaced is gone.
+                    // the CHANGE row never existed for us. The final hand was
+                    // on screen, but which cards it replaced is gone.
                     changes.push(Change::Noted {
                         kind: "mulligan-choice-missed",
                         label: "waiting-without-choosing".into(),
@@ -396,7 +416,8 @@ impl Machine {
                     self.flag("mulligan-choice-missed");
                     return;
                 };
-                let kept = reading.opening_cards.unwrap_or_default().keep;
+                let dealt = std::array::from_fn(|i| self.opening.dealt[i].winner());
+                let kept = std::array::from_fn(|i| self.opening.kept[i].winner());
                 let patch = MatchPatch {
                     opening_hand: Some(OpeningHand { swapped, dealt, kept }),
                     ..Default::default()

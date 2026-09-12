@@ -190,15 +190,30 @@ pub const MULLIGAN_ART_SIZE: (u32, u32) = (128, 145);
 /// **The margin is the real threshold.** A dim card in a dark scene scores lower
 /// against every reference including its own, so an absolute cut either rejects
 /// it or lets false matches through on brighter frames; the distance to the
-/// second-best answer is what holds still. Measured over a 63-card candidate
-/// set and eight known cards: right answers scored 0.669-0.872 and led by at
-/// least 0.389, while the best wrong answer anywhere scored 0.478.
+/// second-best answer is what holds still.
 ///
-/// Both numbers sit well inside that gap rather than against either edge, so a
-/// card the fixtures have not seen has room to score lower and still be taken,
-/// and a near-miss has room to score higher and still be refused.
-pub const CARD_ART_MIN_SCORE: f64 = 0.55;
-pub const CARD_ART_MIN_MARGIN: f64 = 0.15;
+/// Re-derived 2026-09-12 from every located slot of the five recordings rather
+/// than the eight crops the first values came from: 340 slot-frames against 63
+/// candidates, 139 of them holding a card whose reference is in the set and
+/// 201 holding a card that is NOT - two whole recordings of another class's
+/// deck, which is exactly the "player brought a different deck" case the
+/// matcher has to refuse. With the re-fitted crop (`PORTAL_ART_FRACTION`):
+///
+/// - present cards: score 0.871-1.000, margin over the best other card 0.503
+///   or more, 139/139 won;
+/// - absent cards: the best any candidate reached was 0.519, and the widest
+///   gap between a first and second place 0.142 (a dragon spell's white burst
+///   against a neutral card, on nine frames of one recording).
+///
+/// The first values (0.55 / 0.15) sat 0.03 and 0.01 above that absent-card
+/// edge - one brighter frame away from writing a wrong card. These sit near the
+/// middle of both gaps: 0.13 above the highest absent score and 0.22 under the
+/// lowest present one, 0.16 above the widest absent margin and 0.20 under the
+/// narrowest present one, so an unseen dark scene has room to score lower and
+/// still be taken, and a near-miss has room to score higher and still be
+/// refused.
+pub const CARD_ART_MIN_SCORE: f64 = 0.65;
+pub const CARD_ART_MIN_MARGIN: f64 = 0.30;
 
 /// The four card slots of the KEEP row, left to right.
 ///
