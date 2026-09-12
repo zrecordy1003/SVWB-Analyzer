@@ -178,9 +178,12 @@ pub fn read(
     // anything in this phase.
     let mulligan = crate::mulligan::read(frame, store);
 
-    // Naming the cards is the expensive half, and it only pays off on a frame
-    // that has one to name: an unsettled panel is refused by `card::locate`
-    // anyway, and every other screen never gets here at all.
+    // Naming the cards only pays off on a frame that has one to name: an
+    // unsettled panel is refused by `card::locate` anyway, and every other
+    // screen never gets here at all. On a settled panel the whole path -
+    // locate, cut, compare against 63 candidates - measured 0.8ms (2026-09-12;
+    // it was 4.4ms while the badge search walked every pixel). It runs on
+    // every settled frame on purpose: the machine votes across them.
     let opening_cards = mulligan
         .filter(crate::mulligan::Mulligan::is_settled)
         .and_then(|panel| identify_panel(frame, &panel, cards));
@@ -273,6 +276,33 @@ pub fn read(
     }
 }
 
+/// Name every card the panel is showing, or return `None` if the frame is not
+/// one cards can be read from.
+///
+/// A row that cannot be located refuses the whole frame rather than half of it:
+/// `card::locate` only fails when the panel is moving, and a panel is not
+/// half-still.
+fn identify_panel(
+    frame: &Frame,
+    panel: &crate::mulligan::Mulligan,
+    cards: &dyn crate::fingerprint::CardReader,
+) -> Option<crate::machine::PanelCardIds> {
+    let located = crate::card::locate(frame, panel)?;
+    let name_row = |boxes: [Option<crate::card::CardBox>; 4]| {
+        let mut ids: [Option<i64>; 4] = [None; 4];
+        for (i, found) in boxes.iter().enumerate() {
+            let Some(found) = found else { continue };
+            let Some(art) = crate::fingerprint::of_screen_art(frame, found.art) else { continue };
+            ids[i] = cards.identify(&art).map(|hit| hit.card_id);
+        }
+        ids
+    };
+    Some(crate::machine::PanelCardIds {
+        keep: name_row(located.keep),
+        change: name_row(located.change),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,31 +374,4 @@ mod tests {
         let weak = hit("witch", 0.5);
         assert!(best_above(&[&weak], threshold::CLASS).is_none());
     }
-}
-
-/// Name every card the panel is showing, or return `None` if the frame is not
-/// one cards can be read from.
-///
-/// A row that cannot be located refuses the whole frame rather than half of it:
-/// `card::locate` only fails when the panel is moving, and a panel is not
-/// half-still.
-fn identify_panel(
-    frame: &Frame,
-    panel: &crate::mulligan::Mulligan,
-    cards: &dyn crate::fingerprint::CardReader,
-) -> Option<crate::machine::PanelCardIds> {
-    let located = crate::card::locate(frame, panel)?;
-    let name_row = |boxes: [Option<crate::card::CardBox>; 4]| {
-        let mut ids: [Option<i64>; 4] = [None; 4];
-        for (i, found) in boxes.iter().enumerate() {
-            let Some(found) = found else { continue };
-            let Some(art) = crate::fingerprint::of_screen_art(frame, found.art) else { continue };
-            ids[i] = cards.identify(&art).map(|hit| hit.card_id);
-        }
-        ids
-    };
-    Some(crate::machine::PanelCardIds {
-        keep: name_row(located.keep),
-        change: name_row(located.change),
-    })
 }
