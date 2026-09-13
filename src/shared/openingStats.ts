@@ -235,9 +235,26 @@ export type OpeningSummary = {
   /** Slots that are still waiting for a name in the background. */
   pendingRetry: number
 
-  /** Average cards swapped per hand, over `preComplete` matches. */
+  /**
+   * Average cards swapped per hand, over every match whose panel was read.
+   *
+   * Note the denominator: every hand with four `pre` slots, NOT `preComplete`.
+   * How many cards were swapped is read off the panel's geometry and does not
+   * depend on naming any of them, so restricting it to fully-named hands would
+   * introduce selection into the one measurement on this page that had none -
+   * and not harmlessly, since a hand full of alternate illustrations is
+   * precisely the hand that fails to be named.
+   */
   avgSwapped: number | null
-  /** Win rate by how many cards were swapped. Selection-contaminated; labelled as such. */
+  /**
+   * Win rate by how many cards were swapped, over the same denominator.
+   *
+   * Unlike everything else here this one IS selection-contaminated, and not by
+   * recognition: people swap more when the hand is bad, so the low bands carry
+   * the good hands. It is kept because "how often do I mulligan, and how does
+   * that go" is a fair question about one's own habits, and dropped from any
+   * reading about card quality. The renderer must say so beside the number.
+   */
   swapBands: SwapBand[]
   /** Same, split by turn order, because the decision differs and `play_order` is recorded. */
   swapByPlayOrder: { first: SwapBand[]; second: SwapBand[] }
