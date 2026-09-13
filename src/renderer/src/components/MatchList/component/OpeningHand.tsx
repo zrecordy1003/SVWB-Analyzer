@@ -8,9 +8,9 @@
  *   讀到但認不出來  有列、`cardId` 是 null → 候選集裡沒有這張卡
  *   認出來了        有卡名與卡圖
  *
- * 「認不出來」是目前最常見的結果，而且多半不是 bug：候選集來自你**這個職業的所有
- * 牌組**，所以只有卡表匯入過的牌組才數得進去。舊的「只有名字」的牌組沒有卡表，
- * 自然認不出任何東西——區塊底下那行字就是在講這件事。
+ * 「認不出來」多半不是 bug，而是**卡圖還沒建好索引**：候選集是你這個職業的整個卡池，
+ * 而卡圖要一張一張從官方抓下來（一個職業約 175 張）。剛開始打某個職業的頭幾分鐘會是
+ * 這個狀態，之後就不會了——區塊底下那行字就是在講這件事。
  */
 import { Box, Chip, Skeleton, Stack, Tooltip, Typography } from '@mui/material'
 import AutorenewIcon from '@mui/icons-material/Autorenew'
@@ -176,8 +176,8 @@ const OpeningHand: React.FC<OpeningHandProps> = ({ matchId }) => {
 
       {named === 0 && (
         <Typography variant="caption" color="text.secondary">
-          位置讀到了、卡片沒認出來。候選卡片來自**這個職業所有匯入過卡表的牌組**——
-          只有名字的舊牌組不算。把你實際在打的那副牌匯入，下一場就會認得。
+          位置讀到了、卡片沒認出來。卡圖索引是開啟 app 之後在背景建的，一個職業約 175
+          張；剛開始打某個職業時還沒建完，過幾分鐘再打一場就會認得。
         </Typography>
       )}
     </Stack>

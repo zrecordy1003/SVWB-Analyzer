@@ -36,7 +36,7 @@ import type { PortalLang } from '../data/svwbApi.js'
 import { getTesseractCacheDir } from '../paths.js'
 import { store } from '../store.js'
 import { broadcast } from '../utils/broadcast.js'
-import { buildIndexCardsCommand } from './cardIndex.js'
+import { indexMissingCards } from './cardIndex.js'
 import { configureNumberReader, disposeNumberReader, readNumber } from './engineNumbers.js'
 import {
   configureDiagnostics,
@@ -311,10 +311,10 @@ async function indexCardsInBackground(algoVersion: number): Promise<void> {
   if (algoVersion <= 0) return
   try {
     const lang = (store.get('settings.cardLang') as PortalLang | undefined) ?? 'cht'
-    const command = await buildIndexCardsCommand(algoVersion, lang)
-    if (!command) return
-    logRuntime('Engine', `indexCards cards=${command.cards.length}`)
-    send(command as unknown as Record<string, unknown>)
+    const { needed, sent } = await indexMissingCards(algoVersion, lang, (command) => {
+      send(command as unknown as Record<string, unknown>)
+    })
+    if (needed > 0) logRuntime('Engine', `indexCards needed=${needed} sent=${sent}`)
   } catch (e) {
     logRuntime('Engine', `indexCards skipped: ${String(e)}`)
   }

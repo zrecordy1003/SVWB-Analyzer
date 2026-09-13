@@ -14,8 +14,8 @@ import { sql } from 'kysely'
 
 import { setCardImageFetchForTests } from '../../src/main/data/cardImages'
 import {
-  buildIndexCardsCommand,
   cardsNeedingFingerprints,
+  indexMissingCards,
   resolveCardsToIndex
 } from '../../src/main/recognition/cardIndex'
 import { createMigratedTestDb, removeTestDb, testDb, type TestDb } from '../helpers/db'
@@ -146,37 +146,71 @@ describe('choosing which cards to fingerprint', () => {
     // A pool card of a class with no deck and no match.
     await seedCard(3001, 7)
     expect(await cardsNeedingFingerprints(1)).toEqual([])
-    expect(await buildIndexCardsCommand(1, 'cht', { root })).toBeNull()
+    const sends: unknown[] = []
+    expect(await indexMissingCards(1, 'cht', (c) => sends.push(c), { root })).toEqual({
+      needed: 0,
+      sent: 0
+    })
+    expect(sends).toEqual([])
   })
 })
 
 describe('fetching the pictures', () => {
-  it('stops downloading at the cap, and resumes next time', async () => {
-    const cards = [1, 2, 3, 4, 5].map((n) => ({
-      cardId: n,
-      imageHash: hashOf(n),
+  /// Everything missing, in one run. An earlier version stopped after 60
+  /// pictures per launch, so a pool took three launches to become usable and
+  /// the feature silently did nothing in between - which a user cannot tell
+  /// apart from it being broken.
+  it('fetches everything that is missing, not a slice of it', async () => {
+    const cards = Array.from({ length: 12 }, (_, i) => ({
+      cardId: i + 1,
+      imageHash: hashOf(i + 1),
       className: 'witch'
     }))
 
-    const first = await resolveCardsToIndex(cards, 'cht', { root, maxDownloads: 2 })
-    expect(first).toHaveLength(2)
-    expect(fetched).toHaveLength(2)
+    const resolved = await resolveCardsToIndex(cards, 'cht', { root })
+    expect(resolved).toHaveLength(12)
+    expect(fetched).toHaveLength(12)
+  })
 
-    // The two already on disk are free, so the cap buys two more.
-    const second = await resolveCardsToIndex(cards, 'cht', { root, maxDownloads: 2 })
-    expect(second).toHaveLength(4)
-    expect(fetched).toHaveLength(4)
+  /// A picture already on disk costs nothing and is not fetched again.
+  it('does not re-fetch what is already cached', async () => {
+    const cards = [1, 2].map((n) => ({ cardId: n, imageHash: hashOf(n), className: 'witch' }))
+
+    await resolveCardsToIndex(cards, 'cht', { root })
+    expect(fetched).toHaveLength(2)
+    await resolveCardsToIndex(cards, 'cht', { root })
+    expect(fetched).toHaveLength(2)
+  })
+
+  /// Batched so that a long index is useful while it runs: each batch that
+  /// lands is a set of cards the next match can be matched against.
+  it('hands the engine batches as they resolve', async () => {
+    await seedDeck({ isDefault: true, cards: [1001], klass: 'witch', cardClass: 3 })
+    for (const id of [1500, 1501, 1502, 1503]) await seedCard(id, 3)
+
+    const batches: number[] = []
+    const result = await indexMissingCards(
+      1,
+      'cht',
+      (command) => batches.push(command.cards.length),
+      { root, batch: 2 }
+    )
+
+    expect(result.needed).toBe(5)
+    expect(result.sent).toBe(5)
+    expect(batches).toEqual([2, 2, 1])
   })
 
   it('builds a command the engine can act on', async () => {
     await seedDeck({ isDefault: true, cards: [1001], klass: 'witch', cardClass: 3 })
-    const command = await buildIndexCardsCommand(1, 'cht', { root })
+    const sent: { command: string; cards: { cardId: number; path: string; class: string }[] }[] = []
+    await indexMissingCards(1, 'cht', (c) => sent.push(c), { root })
 
-    expect(command?.command).toBe('indexCards')
-    expect(command?.cards).toHaveLength(1)
-    expect(command?.cards[0].cardId).toBe(1001)
-    expect(command?.cards[0].class).toBe('witch')
+    expect(sent).toHaveLength(1)
+    expect(sent[0].command).toBe('indexCards')
+    expect(sent[0].cards[0].cardId).toBe(1001)
+    expect(sent[0].cards[0].class).toBe('witch')
     // A real path on this machine, because the engine opens it by name.
-    await expect(fs.access(command!.cards[0].path)).resolves.toBeUndefined()
+    await expect(fs.access(sent[0].cards[0].path)).resolves.toBeUndefined()
   })
 })

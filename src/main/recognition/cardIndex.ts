@@ -27,8 +27,17 @@
  *
  * Which classes: the ones the user has actually played or built a deck for. A
  * pool is ~92MB of pictures, so indexing all seven would be most of a gigabyte
- * for classes they have never touched. Deck cards are fetched first within each
- * class, because those are the cards most likely to be in the next hand.
+ * for classes they have never touched - and a class nobody plays can never be in
+ * a hand. The class played most recently comes first, then deck cards within
+ * each class, because those are the cards most likely to be in the next hand.
+ *
+ * # It finishes
+ *
+ * An earlier version stopped after 60 pictures per launch, which meant a pool
+ * took three launches to become usable and the feature silently did nothing in
+ * between. That is a worse failure than a long download: the user cannot tell it
+ * from being broken. This now indexes everything that is missing, in batches, so
+ * recognition improves as it goes rather than only at the end.
  *
  * # Why it is capped
  *
@@ -37,26 +46,33 @@
  * [`MAX_DOWNLOADS_PER_RUN`] bounds that; whatever is left is picked up the next
  * time the app starts, and a card that is already cached never counts against it.
  */
-import fs from 'node:fs/promises'
-
 import { sql } from 'kysely'
 
 import { CLASS_NAME_TO_ID } from '../../shared/deckImport.js'
 import type { ClassName } from '../../shared/domain.js'
 import { getDb } from '../data/db/client.js'
-import { DEFAULT_CACHE_LIMIT_BYTES, cacheFilePath, resolveCardImage } from '../data/cardImages.js'
+import { DEFAULT_CACHE_LIMIT_BYTES, resolveCardImage } from '../data/cardImages.js'
 import type { PortalLang } from '../data/svwbApi.js'
 import { getCardImageCacheRoot } from '../paths.js'
 
 /**
- * How many pictures one run may fetch that are not already on disk.
+ * How many pictures are fetched at once.
  *
- * A deck is ~30 unique cards, so this is roughly two decks' worth of cold cache
- * per launch. Deliberately not "all of them": the point is that a new install
- * warms up over a few sessions instead of pulling 100MB while the user is
- * trying to play.
+ * The portal is somebody else's server and this is a background chore, so the
+ * requests are spread rather than fired all at once - but one at a time turns a
+ * 175-card pool into minutes of waiting. Five is enough to make the wait a
+ * minute or so without looking like a flood.
  */
-export const MAX_DOWNLOADS_PER_RUN = 60
+export const FETCH_CONCURRENCY = 5
+
+/**
+ * How many cards are handed to the engine at a time.
+ *
+ * Batching rather than one big command at the end is what makes a long index
+ * useful while it runs: each batch that lands is a set of cards the next match
+ * can be matched against, and an app closed half way keeps what it already did.
+ */
+export const INDEX_BATCH = 25
 
 export type CardToIndex = { cardId: number; path: string; class: string }
 
@@ -112,30 +128,59 @@ export async function cardsNeedingFingerprints(
                 AND s.source = 'portal'
                 AND s.algoVersion = ${algoVersion}
            )
-     ORDER BY inDeck DESC, c.cardId
   `.execute(getDb())
 
-  return rows.rows.map((r) => ({
-    cardId: Number(r.cardId),
-    imageHash: r.imageHash,
-    className: wanted.get(Number(r.classId)) ?? 'neutral'
-  }))
+  // Order here rather than in SQL: the ranking is "which class did you play most
+  // recently", which is a fact this side already has and SQL would need a CASE
+  // ladder to express. Neutral cards rank with whichever class is first, since
+  // they can turn up in any hand.
+  const rank = new Map(classes.map((name, i) => [name, i]))
+  return rows.rows
+    .map((r) => ({
+      cardId: Number(r.cardId),
+      imageHash: r.imageHash,
+      className: wanted.get(Number(r.classId)) ?? 'neutral',
+      inDeck: Number(r.inDeck) === 1
+    }))
+    .sort(
+      (a, b) =>
+        (rank.get(a.className) ?? 0) - (rank.get(b.className) ?? 0) ||
+        Number(b.inDeck) - Number(a.inDeck) ||
+        a.cardId - b.cardId
+    )
+    .map(({ cardId, imageHash, className }) => ({ cardId, imageHash, className }))
 }
 
 /**
- * The classes worth spending downloads on: played, or built a deck for.
+ * The classes worth spending downloads on, most recently played first.
  *
- * Both halves matter. A class only ever played is one the user plays without
- * importing anything - the case this whole widening exists for - and a class
- * with only a deck is one they have prepared but not yet taken to a match.
+ * Both halves of the union matter. A class only ever played is one the user
+ * plays without importing anything - the case this whole widening exists for -
+ * and a class with only a deck is one they have prepared but not yet taken to a
+ * match.
+ *
+ * The order is what makes a long index useful early: whatever was played last is
+ * what is most likely to be played next, so its pool is the one worth having
+ * first.
  */
 async function playedClasses(): Promise<string[]> {
-  const rows = await sql<{ name: string }>`
-    SELECT DISTINCT my_class AS name FROM Match WHERE my_class IS NOT NULL
-    UNION
+  const recent = await sql<{ name: string; lastPlayed: number }>`
+    SELECT my_class AS name, max(playedAt) AS lastPlayed
+      FROM Match
+     WHERE my_class IS NOT NULL
+     GROUP BY my_class
+     ORDER BY lastPlayed DESC
+  `.execute(getDb())
+
+  const decks = await sql<{ name: string }>`
     SELECT DISTINCT class AS name FROM Deck WHERE class IS NOT NULL
   `.execute(getDb())
-  return rows.rows.map((r) => r.name).filter(Boolean)
+
+  const ordered: string[] = []
+  for (const name of [...recent.rows.map((r) => r.name), ...decks.rows.map((r) => r.name)]) {
+    if (name && !ordered.includes(name)) ordered.push(name)
+  }
+  return ordered
 }
 
 /**
@@ -148,58 +193,58 @@ async function playedClasses(): Promise<string[]> {
 export async function resolveCardsToIndex(
   cards: CardNeedingFingerprint[],
   lang: PortalLang,
-  options: { root?: string; maxDownloads?: number } = {}
+  options: { root?: string; concurrency?: number } = {}
 ): Promise<CardToIndex[]> {
   const root = options.root ?? getCardImageCacheRoot()
-  const maxDownloads = options.maxDownloads ?? MAX_DOWNLOADS_PER_RUN
+  const concurrency = Math.max(1, options.concurrency ?? FETCH_CONCURRENCY)
   const out: CardToIndex[] = []
-  let downloads = 0
 
-  for (const card of cards) {
-    const req = { variant: 'card', hash: card.imageHash } as const
-    // Looking first is the only way to tell a cache hit from a download, and the
-    // cap is about downloads: a card already on disk costs nothing and must not
-    // use up the budget.
-    const cached = await fileExists(cacheFilePath(root, req, lang))
-    if (!cached && downloads >= maxDownloads) continue
-
-    const file = await resolveCardImage(req, {
-      root,
-      lang,
-      maxBytes: DEFAULT_CACHE_LIMIT_BYTES
-    })
-    if (!file) continue
-    if (!cached) downloads++
-    out.push({ cardId: card.cardId, path: file, class: card.className })
+  // A fixed pool of workers pulling from one cursor, rather than chunking: the
+  // pictures differ in size and a slow one must not hold up the four beside it.
+  let next = 0
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const i = next++
+      if (i >= cards.length) return
+      const card = cards[i]
+      const file = await resolveCardImage(
+        { variant: 'card', hash: card.imageHash },
+        { root, lang, maxBytes: DEFAULT_CACHE_LIMIT_BYTES }
+      )
+      // A picture that cannot be had is skipped, not reported: it will be tried
+      // again next run, and one missing illustration costs one unrecognised card
+      // rather than an unrecognised hand.
+      if (file) out.push({ cardId: card.cardId, path: file, class: card.className })
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(concurrency, cards.length) }, worker))
   return out
 }
 
 /**
- * Work out what needs indexing and hand it to the engine.
+ * Fingerprint everything that is missing, in batches, and report the total.
  *
- * Returns the command to send, or `null` when there is nothing to do - which is
- * the normal case on every run after the first.
+ * `send` is called once per batch with a command the engine acts on. It is not
+ * awaited and cannot fail here - the engine answers with its own `cardsIndexed`
+ * event - so what comes back is what this side managed to resolve, not what the
+ * engine managed to store.
  */
-export async function buildIndexCardsCommand(
+export async function indexMissingCards(
   algoVersion: number,
   lang: PortalLang,
-  options: { root?: string; maxDownloads?: number } = {}
-): Promise<{ command: 'indexCards'; cards: CardToIndex[] } | null> {
+  send: (command: { command: 'indexCards'; cards: CardToIndex[] }) => void,
+  options: { root?: string; concurrency?: number; batch?: number } = {}
+): Promise<{ needed: number; sent: number }> {
   const needed = await cardsNeedingFingerprints(algoVersion)
-  if (needed.length === 0) return null
+  if (needed.length === 0) return { needed: 0, sent: 0 }
 
-  const cards = await resolveCardsToIndex(needed, lang, options)
-  if (cards.length === 0) return null
-
-  return { command: 'indexCards', cards }
-}
-
-async function fileExists(file: string): Promise<boolean> {
-  try {
-    await fs.access(file)
-    return true
-  } catch {
-    return false
+  const batchSize = Math.max(1, options.batch ?? INDEX_BATCH)
+  let sent = 0
+  for (let i = 0; i < needed.length; i += batchSize) {
+    const cards = await resolveCardsToIndex(needed.slice(i, i + batchSize), lang, options)
+    if (cards.length === 0) continue
+    send({ command: 'indexCards', cards })
+    sent += cards.length
   }
+  return { needed: needed.length, sent }
 }
