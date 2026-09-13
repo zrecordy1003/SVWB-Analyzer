@@ -116,7 +116,7 @@ testable without a game, a database, or Electron.
   `007_add_match_list_filter_indexes`, `008_add_provenance`, `009_add_deck_import`,
   `010_add_card_pool`, `011_add_deck_family`, `012_add_telemetry_state`,
   `013_add_oppo_name_crop`, `014_add_opening_hand`, `015_add_card_art_sample`,
-  `016_add_card_art_class`.
+  `016_add_card_art_class`, `017_add_opening_card_art`.
 - The engine writes match recording; the UI writes user edits (decks, tags, notes) and does all
   reads.
 

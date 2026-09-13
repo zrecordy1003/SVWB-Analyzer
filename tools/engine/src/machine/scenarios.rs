@@ -887,7 +887,7 @@ fn no_panel() -> Reading {
 
 fn hand_in(changes: &[Change]) -> Option<OpeningHand> {
     changes.iter().find_map(|c| match c {
-        Change::MatchUpdated { patch, .. } => patch.opening_hand,
+        Change::MatchUpdated { patch, .. } => patch.opening_hand.clone(),
         _ => None,
     })
 }
@@ -900,6 +900,7 @@ fn named_evidence() -> PanelCardIds {
         keep: [None; 4],
         change: [None; 4],
         evidence: NamingEvidence { candidates: 30, best_score: Some(0.95) },
+        ..Default::default()
     }
 }
 

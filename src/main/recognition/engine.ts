@@ -315,6 +315,12 @@ async function indexCardsInBackground(algoVersion: number): Promise<void> {
       send(command as unknown as Record<string, unknown>)
     })
     if (needed > 0) logRuntime('Engine', `indexCards needed=${needed} sent=${sent}`)
+
+    // Matches played before the pool finished downloading kept the picture of
+    // every card nothing could name, and the answer has just changed. Sent even
+    // when nothing was indexed this run: an earlier run may have left work here,
+    // and asking costs one query on an indexed column.
+    send({ command: 'retryUnnamedCards' })
   } catch (e) {
     logRuntime('Engine', `indexCards skipped: ${String(e)}`)
   }
@@ -450,6 +456,16 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
 
     case 'cardsIndexed':
       logRuntime('Engine', `cardsIndexed indexed=${event.indexed} failed=${event.failed}`)
+      break
+
+    case 'unnamedCardsRetried':
+      // Only worth a line when it did something: this fires on every launch.
+      if (Number(event.named) > 0 || Number(event.stillUnnamed) > 0) {
+        logRuntime(
+          'Engine',
+          `unnamedCardsRetried named=${event.named} stillUnnamed=${event.stillUnnamed}`
+        )
+      }
       break
 
     case 'readNumber': {

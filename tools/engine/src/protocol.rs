@@ -96,7 +96,7 @@ pub struct MatchRef(pub u64);
 /// are `None` whenever the player's deck is unknown or its fingerprints have not
 /// been computed, so a hand with `swapped` and no ids is the ordinary case
 /// rather than a failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OpeningHand {
     /// Which of the four dealt cards were thrown away, left to right. Read off
@@ -107,6 +107,17 @@ pub struct OpeningHand {
     pub dealt: [Option<i64>; 4],
     /// The hand the match was actually played with.
     pub kept: [Option<i64>; 4],
+    /// The reduced illustration of each position nothing could name, so the
+    /// answer can be found later - a match played while the class pool was
+    /// still downloading is worth naming once it arrives. `None` for a position
+    /// that was named, and for every position once the retry succeeds.
+    ///
+    /// Not sent over the wire: the host has no use for a thousand grey samples,
+    /// and the engine is the only thing that writes them.
+    #[serde(skip)]
+    pub dealt_art: [Option<Vec<u8>>; 4],
+    #[serde(skip)]
+    pub kept_art: [Option<Vec<u8>>; 4],
 }
 
 /// Fields the engine has newly resolved for a match.
@@ -265,6 +276,14 @@ pub enum Event {
         detail: Option<serde_json::Value>,
     },
 
+    /// How a [`Command::RetryUnnamedCards`] went.
+    ///
+    /// `named` is positions that now have a card; `still_unnamed` is those the
+    /// wider candidate set still cannot explain, which are the ones worth
+    /// looking at - an alternate illustration, or a card the portal does not
+    /// publish.
+    UnnamedCardsRetried { named: u32, still_unnamed: u32 },
+
     /// How an [`Command::IndexCards`] went.
     ///
     /// `failed` counts images that could not be decoded or were too small to
@@ -356,6 +375,13 @@ pub enum Command {
     /// Idempotent per card: a card already indexed at this algorithm version is
     /// replaced with the same bytes.
     IndexCards { cards: Vec<CardImage> },
+    /// Try again to name the opening-hand positions that were left unnamed.
+    ///
+    /// Sent after indexing, because that is the only thing that changes the
+    /// answer: the frames are long gone, so a retry is the stored fingerprint
+    /// against a candidate set that has since grown. See
+    /// `017_add_opening_card_art.sql`.
+    RetryUnnamedCards,
 }
 
 /// One card and the file holding its official image.

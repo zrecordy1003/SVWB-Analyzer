@@ -379,23 +379,37 @@ impl Machine {
         match settled.map(|panel| (panel.stage, panel)) {
             Some((Stage::Choosing, panel)) => {
                 self.opening.swapped = Some(panel.change);
-                if let Some(named) = reading.opening_cards {
+                if let Some(named) = &reading.opening_cards {
                     self.opening.evidence.absorb(named.evidence);
                     // The dealt hand is spread across both rows: whichever row
                     // holds a column's card is where that card's name comes
                     // from, and it is the same card in either.
                     for i in 0..4 {
-                        let id = if panel.change[i] { named.change[i] } else { named.keep[i] };
+                        let (id, art) = if panel.change[i] {
+                            (named.change[i], &named.change_art[i])
+                        } else {
+                            (named.keep[i], &named.keep_art[i])
+                        };
                         self.opening.dealt[i].cast(id);
+                        // The last look at a slot nobody could name is the one
+                        // worth keeping: every frame of a settled panel shows
+                        // the same card, so any of them would do, and the last
+                        // costs no bookkeeping.
+                        if id.is_none() {
+                            self.opening.dealt_art[i].clone_from(art);
+                        }
                     }
                 }
             }
             Some((Stage::Waiting, _)) => {
                 self.opening.waiting_seen = true;
-                if let Some(named) = reading.opening_cards {
+                if let Some(named) = &reading.opening_cards {
                     self.opening.evidence.absorb(named.evidence);
                     for i in 0..4 {
                         self.opening.kept[i].cast(named.keep[i]);
+                        if named.keep[i].is_none() {
+                            self.opening.kept_art[i].clone_from(&named.keep_art[i]);
+                        }
                     }
                 }
             }
@@ -447,7 +461,13 @@ impl Machine {
                     self.flag(kind);
                 }
                 let patch = MatchPatch {
-                    opening_hand: Some(OpeningHand { swapped, dealt, kept }),
+                    opening_hand: Some(OpeningHand {
+                        swapped,
+                        dealt,
+                        kept,
+                        dealt_art: std::mem::take(&mut self.opening.dealt_art),
+                        kept_art: std::mem::take(&mut self.opening.kept_art),
+                    }),
                     ..Default::default()
                 };
                 self.merge(&patch);
@@ -770,7 +790,7 @@ impl Machine {
         into.current_cr = patch.current_cr.or(into.current_cr);
         into.delta_cr = patch.delta_cr.or(into.delta_cr);
         into.clear_my_deck = patch.clear_my_deck.or(into.clear_my_deck);
-        into.opening_hand = patch.opening_hand.or(into.opening_hand);
+        into.opening_hand = patch.opening_hand.clone().or_else(|| into.opening_hand.clone());
         // A patch that carries a mode always carries its confidence, so `or`
         // replaces on a correction and holds otherwise.
         into.mode_confidence = patch.mode_confidence.or(into.mode_confidence);

@@ -107,6 +107,17 @@ fn confidence_text(confidence: Confidence) -> &'static str {
     }
 }
 
+/// One opening-hand position that is still waiting for a name.
+pub struct UnnamedOpeningCard {
+    pub match_id: i64,
+    pub stage: String,
+    pub slot: i64,
+    /// The class the match was played with, which bounds the candidate set.
+    pub class: String,
+    /// The reduced illustration, as stored.
+    pub vector: Vec<u8>,
+}
+
 impl MatchStore {
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         if let Some(parent) = path.parent() {
@@ -272,8 +283,8 @@ impl MatchStore {
         if let Some(flags) = &patch.recog_flags {
             self.append_recog_flags(id, flags, now)?;
         }
-        if let Some(hand) = patch.opening_hand {
-            self.write_opening_hand(id, &hand)?;
+        if let Some(hand) = &patch.opening_hand {
+            self.write_opening_hand(id, hand)?;
         }
         if let Some(result) = patch.result {
             // The result carries the end of the battle with it, as the JS
@@ -320,31 +331,95 @@ impl MatchStore {
         for slot in 0..4 {
             // 'art-portal' is the only way a card is named today. When observed
             // samples land, this becomes the sample's own provenance.
-            let decided_by = hand.dealt[slot].map(|_| "art-portal");
+            let version = crate::fingerprint::ALGO_VERSION;
             self.conn.execute(
                 "INSERT OR REPLACE INTO MatchOpeningCard
-                   (matchId, stage, slot, cardId, swapped, decidedBy)
-                 VALUES (?1, 'pre', ?2, ?3, ?4, ?5)",
+                   (matchId, stage, slot, cardId, swapped, decidedBy, artVector, artAlgoVersion)
+                 VALUES (?1, 'pre', ?2, ?3, ?4, ?5, ?6, ?7)",
                 rusqlite::params![
                     id,
                     slot as i64,
                     hand.dealt[slot],
                     hand.swapped[slot] as i64,
-                    decided_by
+                    hand.dealt[slot].map(|_| "art-portal"),
+                    hand.dealt_art[slot],
+                    hand.dealt_art[slot].as_ref().map(|_| version),
                 ],
             )?;
             self.conn.execute(
                 "INSERT OR REPLACE INTO MatchOpeningCard
-                   (matchId, stage, slot, cardId, decidedBy)
-                 VALUES (?1, 'post', ?2, ?3, ?4)",
+                   (matchId, stage, slot, cardId, decidedBy, artVector, artAlgoVersion)
+                 VALUES (?1, 'post', ?2, ?3, ?4, ?5, ?6)",
                 rusqlite::params![
                     id,
                     slot as i64,
                     hand.kept[slot],
-                    hand.kept[slot].map(|_| "art-portal")
+                    hand.kept[slot].map(|_| "art-portal"),
+                    hand.kept_art[slot],
+                    hand.kept_art[slot].as_ref().map(|_| version),
                 ],
             )?;
         }
+        Ok(())
+    }
+
+    /// Every opening-hand position still waiting for a name, with the class of
+    /// the match it belongs to.
+    ///
+    /// The class comes from the match rather than the row because that is where
+    /// it is known, and it is what bounds the candidate set the retry will use -
+    /// exactly as it would have at the time.
+    ///
+    /// Only this algorithm version: a vector computed by another one cannot be
+    /// compared with today's references, so retrying it would produce a number
+    /// rather than an answer.
+    pub fn unnamed_opening_cards(
+        &self,
+        version: u32,
+    ) -> Result<Vec<UnnamedOpeningCard>, StoreError> {
+        let mut q = self.conn.prepare(
+            "SELECT o.matchId, o.stage, o.slot, m.my_class, o.artVector
+               FROM MatchOpeningCard o
+               JOIN Match m ON m.id = o.matchId
+              WHERE o.cardId IS NULL
+                AND o.artVector IS NOT NULL
+                AND o.artAlgoVersion = ?1",
+        )?;
+        let rows = q.query_map([version], |r| {
+            Ok(UnnamedOpeningCard {
+                match_id: r.get(0)?,
+                stage: r.get(1)?,
+                slot: r.get(2)?,
+                class: r.get(3)?,
+                vector: r.get(4)?,
+            })
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Give a position its name, and let go of the picture.
+    ///
+    /// Clearing `artVector` is the point of the whole mechanism: the space was
+    /// borrowed until the answer was known, and the answer is now known. A row
+    /// that keeps its vector is one the retry could not explain, which is worth
+    /// keeping for the next time the candidate set grows.
+    pub fn name_opening_card(
+        &self,
+        card: &UnnamedOpeningCard,
+        card_id: i64,
+        confidence: f64,
+    ) -> Result<(), StoreError> {
+        self.conn.execute(
+            "UPDATE MatchOpeningCard
+                SET cardId = ?4, confidence = ?5, decidedBy = 'art-portal-retry',
+                    artVector = NULL, artAlgoVersion = NULL
+              WHERE matchId = ?1 AND stage = ?2 AND slot = ?3",
+            rusqlite::params![card.match_id, card.stage, card.slot, card_id, confidence],
+        )?;
         Ok(())
     }
 
@@ -380,9 +455,9 @@ impl MatchStore {
     /// **Not the deck's cards, the class's.** This started as "the default
     /// deck", then "every deck of the class", and both were wrong for the same
     /// reason: they made recognition depend on the player having imported the
-    /// deck they happen to be playing. A player who forgot to switch the default
-    /// - or who never imported anything - got four nulls, which looks exactly
-    /// like recognition being broken.
+    /// deck they happen to be playing. A player who forgot to switch the
+    /// default, or who never imported anything at all, got four nulls, which
+    /// looks exactly like recognition being broken.
     ///
     /// Widening does not cost accuracy, which is the part worth knowing.
     /// Measured over five recordings, going from a 63-card set to a full class
@@ -663,6 +738,10 @@ mod tests {
                         swapped: [true, false, false, true],
                         dealt: [Some(101), Some(102), None, Some(104)],
                         kept: [Some(201), Some(102), None, Some(204)],
+                        // The one nobody could name keeps its picture, so the
+                        // retry pass has something to work from.
+                        dealt_art: [None, None, Some(vec![9u8; 1152]), None],
+                        kept_art: [None, None, Some(vec![9u8; 1152]), None],
                     }),
                     ..Default::default()
                 },
@@ -714,7 +793,13 @@ mod tests {
         let store = store_with_schema();
         let id = store.insert_match(&versus(), None, None).unwrap();
         let patch = |swapped| MatchPatch {
-            opening_hand: Some(OpeningHand { swapped, dealt: [None; 4], kept: [None; 4] }),
+            opening_hand: Some(OpeningHand {
+                swapped,
+                dealt: [None; 4],
+                kept: [None; 4],
+                dealt_art: Default::default(),
+                kept_art: Default::default(),
+            }),
             ..Default::default()
         };
 
@@ -756,6 +841,8 @@ mod tests {
                         swapped: [true; 4],
                         dealt: [None; 4],
                         kept: [None; 4],
+                        dealt_art: Default::default(),
+                        kept_art: Default::default(),
                     }),
                     ..Default::default()
                 },
@@ -820,6 +907,90 @@ mod tests {
         let rows = store.class_fingerprints("witch", 1).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].1, vec![2u8; 8], "the newer vector wins");
+    }
+
+    /// A position nobody could name keeps its picture until somebody can.
+    ///
+    /// This is the whole point of `017`: a match played while the class pool was
+    /// still downloading is worth naming once it arrives, and by then the frame
+    /// is long gone. The row borrows 1152 bytes until the answer is known and
+    /// gives them back the moment it is.
+    #[test]
+    fn an_unnamed_position_keeps_its_picture_until_it_is_named() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None, None).unwrap();
+        let art = vec![3u8; 1152];
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    opening_hand: Some(OpeningHand {
+                        swapped: [false; 4],
+                        dealt: [Some(11), None, None, None],
+                        kept: [Some(11), None, None, None],
+                        dealt_art: [None, Some(art.clone()), None, None],
+                        kept_art: Default::default(),
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        let waiting = store.unnamed_opening_cards(crate::fingerprint::ALGO_VERSION).unwrap();
+        assert_eq!(waiting.len(), 1, "only the position with a picture is waiting");
+        assert_eq!(waiting[0].slot, 1);
+        assert_eq!(waiting[0].stage, "pre");
+        assert_eq!(waiting[0].class, "witch", "the class comes from the match");
+        assert_eq!(waiting[0].vector, art);
+
+        store.name_opening_card(&waiting[0], 99, 0.91).unwrap();
+
+        let (card_id, vector, decided): (Option<i64>, Option<Vec<u8>>, Option<String>) = store
+            .conn
+            .query_row(
+                "SELECT cardId, artVector, decidedBy FROM MatchOpeningCard
+                  WHERE matchId = ?1 AND stage = 'pre' AND slot = 1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(card_id, Some(99));
+        assert_eq!(vector, None, "the space was borrowed, not spent");
+        assert_eq!(decided.as_deref(), Some("art-portal-retry"));
+        assert!(
+            store.unnamed_opening_cards(crate::fingerprint::ALGO_VERSION).unwrap().is_empty()
+        );
+    }
+
+    /// A picture computed by another algorithm version cannot be compared with
+    /// today's references, so it is not offered for retry at all.
+    #[test]
+    fn a_picture_from_another_version_is_not_retried() {
+        let store = store_with_schema();
+        let id = store.insert_match(&versus(), None, None).unwrap();
+        store
+            .update_match(
+                id,
+                &MatchPatch {
+                    opening_hand: Some(OpeningHand {
+                        swapped: [false; 4],
+                        dealt: [None; 4],
+                        kept: [None; 4],
+                        dealt_art: [Some(vec![1u8; 1152]), None, None, None],
+                        kept_art: Default::default(),
+                    }),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.unnamed_opening_cards(crate::fingerprint::ALGO_VERSION).unwrap().len(),
+            1
+        );
+        assert!(
+            store.unnamed_opening_cards(crate::fingerprint::ALGO_VERSION + 1).unwrap().is_empty()
+        );
     }
 
     /// The engine never writes the columns the UI owns.    /// The engine never writes the columns the UI owns. `edited_fields` is the

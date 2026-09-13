@@ -56,11 +56,24 @@ pub struct VersusScreen {
 ///
 /// Parallel to [`Mulligan::keep`] and [`Mulligan::change`], and read off the
 /// same frame, so slot `i` here is the card whose occupancy is slot `i` there.
-#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelCardIds {
     pub keep: [Option<i64>; 4],
     pub change: [Option<i64>; 4],
+    /// The reduced illustration of each slot that could NOT be named.
+    ///
+    /// Kept so the naming can be retried later, when the class pool has
+    /// finished downloading - the frame is gone by then, and this is the only
+    /// part of it worth 1152 bytes. Named slots carry `None`: their answer is
+    /// already known and re-deriving it would be work for nothing.
+    ///
+    /// Not serialised. A diagnostic dump is for reading, and a thousand grey
+    /// samples per slot is not reading material.
+    #[serde(skip)]
+    pub keep_art: [Option<Vec<u8>>; 4],
+    #[serde(skip)]
+    pub change_art: [Option<Vec<u8>>; 4],
     /// How the naming went, whether or not it committed.
     ///
     /// Carried because a slot recorded with no card is otherwise
@@ -124,7 +137,7 @@ impl From<&Hit> for Located {
 /// the machine. That division is what made the five module-level `*Detect`
 /// variables a bug source - they looked like observations and behaved like
 /// state.
-#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Reading {
     /// "開始播放對戰紀錄" - a replay just STARTED.
@@ -559,6 +572,11 @@ struct Opening {
     /// The best the candidate set ever did for this match, across every frame
     /// that tried. Kept so a hand with no names can say WHY it has none.
     evidence: NamingEvidence,
+    /// The reduced illustration of each position that could not be named, so
+    /// the answer can be looked up again once the pool has been indexed. See
+    /// `017_add_opening_card_art.sql`.
+    dealt_art: [Option<Vec<u8>>; 4],
+    kept_art: [Option<Vec<u8>>; 4],
     /// The most recent settled `Choosing` frame: which columns were on their
     /// way out. Geometry only; believed once Waiting follows.
     swapped: Option<[bool; 4]>,

@@ -171,6 +171,13 @@ export interface MatchOpeningCardRow {
   /** 0/1 on `'pre'` rows. */
   swapped: number | null
   decidedBy: string | null
+  /**
+   * The reduced illustration of a position nothing could name yet, kept so the
+   * answer can be found once the class pool has been indexed. Set back to null
+   * the moment it is. See `resources/migrations/017_add_opening_card_art.sql`.
+   */
+  artVector: Uint8Array | null
+  artAlgoVersion: number | null
 }
 
 /**
@@ -321,7 +328,17 @@ export const TABLE_COLUMNS = {
   CardPool: ['battleFormat', 'cardId', 'sortIndex'],
   CardPoolSync: ['classId', 'battleFormat', 'lang', 'cardCount', 'syncedAt'],
   TelemetryState: ['key', 'value', 'updatedAt'],
-  MatchOpeningCard: ['matchId', 'stage', 'slot', 'cardId', 'confidence', 'swapped', 'decidedBy']
+  MatchOpeningCard: [
+    'matchId',
+    'stage',
+    'slot',
+    'cardId',
+    'confidence',
+    'swapped',
+    'decidedBy',
+    'artVector',
+    'artAlgoVersion'
+  ]
 } as const satisfies { [T in keyof Database]: readonly (keyof Database[T])[] }
 
 /**

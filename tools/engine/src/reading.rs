@@ -291,11 +291,17 @@ fn identify_panel(
     let mut evidence = crate::machine::NamingEvidence::default();
     let mut name_row = |boxes: [Option<crate::card::CardBox>; 4]| {
         let mut ids: [Option<i64>; 4] = [None; 4];
+        let mut unnamed: [Option<Vec<u8>>; 4] = [None, None, None, None];
         for (i, found) in boxes.iter().enumerate() {
             let Some(found) = found else { continue };
             let Some(art) = crate::fingerprint::of_screen_art(frame, found.art) else { continue };
             let naming = cards.name(&art);
             ids[i] = naming.card.map(|hit| hit.card_id);
+            // Only what could not be named is worth keeping: a named slot has
+            // its answer, and the retry pass would have nothing to do with it.
+            if ids[i].is_none() {
+                unnamed[i] = Some(art.as_bytes().to_vec());
+            }
             // The frame's evidence is the best any of its slots managed: the
             // question it answers is "could this deck have named anything",
             // which is about the candidate set rather than one card.
@@ -307,11 +313,11 @@ fn identify_panel(
                 });
             }
         }
-        ids
+        (ids, unnamed)
     };
-    let keep = name_row(located.keep);
-    let change = name_row(located.change);
-    Some(crate::machine::PanelCardIds { keep, change, evidence })
+    let (keep, keep_art) = name_row(located.keep);
+    let (change, change_art) = name_row(located.change);
+    Some(crate::machine::PanelCardIds { keep, change, keep_art, change_art, evidence })
 }
 
 #[cfg(test)]

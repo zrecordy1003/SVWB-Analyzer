@@ -438,9 +438,9 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             m.patch.delta_mp,
             m.patch.current_cr,
             m.patch.delta_cr,
-            m.patch.opening_hand.map(|h| h.swapped),
-            m.patch.opening_hand.map(|h| h.dealt),
-            m.patch.opening_hand.map(|h| h.kept)
+            m.patch.opening_hand.as_ref().map(|h| h.swapped),
+            m.patch.opening_hand.as_ref().map(|h| h.dealt),
+            m.patch.opening_hand.as_ref().map(|h| h.kept)
         );
     }
     // Diagnostics are printed even on success: a run that reaches the right
@@ -482,11 +482,11 @@ fn replay_recording(args: &[String]) -> Result<bool, String> {
             // because it is read from a screen the recordings all contain and
             // no still fixture can hold: the answer only exists as the
             // difference between two frames several seconds apart.
-            "swapped": m.patch.opening_hand.map(|h| h.swapped),
+            "swapped": m.patch.opening_hand.as_ref().map(|h| h.swapped),
             // The named hand, so a replay with `--cards` asserts recognition
             // and not just geometry.
-            "dealt": m.patch.opening_hand.map(|h| h.dealt),
-            "kept": m.patch.opening_hand.map(|h| h.kept),
+            "dealt": m.patch.opening_hand.as_ref().map(|h| h.dealt),
+            "kept": m.patch.opening_hand.as_ref().map(|h| h.kept),
         });
         for (key, wanted) in want.as_object().ok_or("--expect must be a JSON object")? {
             let actual = &got[key.as_str()];

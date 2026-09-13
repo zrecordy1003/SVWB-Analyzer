@@ -149,6 +149,10 @@ where
                 let (indexed, failed) = index_cards(&options.store, &cards);
                 channel.emit(&Event::CardsIndexed { indexed, failed })?;
             }
+            Inbox::Command(Command::RetryUnnamedCards) => {
+                let (named, still_unnamed) = retry_unnamed(&options.store);
+                channel.emit(&Event::UnnamedCardsRetried { named, still_unnamed })?;
+            }
             Inbox::Command(Command::Start) | Inbox::Command(Command::Configure { .. })
             | Inbox::Empty => {}
         }
@@ -283,6 +287,49 @@ fn index_cards(store: &Option<MatchStore>, cards: &[crate::protocol::CardImage])
     (indexed, failed)
 }
 
+/// Name the opening-hand positions that could not be named when they happened.
+///
+/// The frames are long gone; what was kept is each position's own fingerprint
+/// (see `017_add_opening_card_art.sql`), so this is those against a candidate
+/// set that has since grown. Nothing else changes an answer, which is why this
+/// runs after indexing rather than on a timer.
+///
+/// One index per class, built once: a user with three hundred unnamed positions
+/// across two classes should build two candidate sets, not three hundred.
+fn retry_unnamed(store: &Option<MatchStore>) -> (u32, u32) {
+    let Some(store) = store else {
+        return (0, 0);
+    };
+    let version = crate::fingerprint::ALGO_VERSION;
+    let Ok(waiting) = store.unnamed_opening_cards(version) else {
+        return (0, 0);
+    };
+
+    let mut by_class: HashMap<String, Box<dyn CardReader>> = HashMap::new();
+    let mut named = 0;
+    let mut still_unnamed = 0;
+    for card in &waiting {
+        let Some(art) = Fingerprint::from_bytes(card.vector.clone()) else {
+            // A stored vector of the wrong length is from another algorithm
+            // version that the query should have excluded. Counting it as
+            // unnamed is honest; guessing at it would not be.
+            still_unnamed += 1;
+            continue;
+        };
+        let index = by_class
+            .entry(card.class.clone())
+            .or_insert_with(|| candidates_for_class(store, &card.class));
+
+        match index.name(&art).card {
+            Some(hit) if store.name_opening_card(card, hit.card_id, hit.score).is_ok() => {
+                named += 1
+            }
+            _ => still_unnamed += 1,
+        }
+    }
+    (named, still_unnamed)
+}
+
 /// The candidate cards for a match of this class: every fingerprint indexed for
 /// it, plus the neutrals.
 ///
@@ -294,9 +341,13 @@ fn candidates_for(store: &Option<MatchStore>, class: ClassName) -> Box<dyn CardR
     let Some(store) = store else {
         return Box::new(NoCards);
     };
-    let class = format!("{class:?}").to_lowercase();
+    candidates_for_class(store, &format!("{class:?}").to_lowercase())
+}
+
+/// The same, for a class already spelled the way the column holds it.
+fn candidates_for_class(store: &MatchStore, class: &str) -> Box<dyn CardReader> {
     let version = crate::fingerprint::ALGO_VERSION;
-    let Ok(rows) = store.class_fingerprints(&class, version) else {
+    let Ok(rows) = store.class_fingerprints(class, version) else {
         return Box::new(NoCards);
     };
     let candidates: Vec<_> = rows
