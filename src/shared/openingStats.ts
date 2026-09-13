@@ -166,8 +166,22 @@ export type OpeningCardStat = {
   dealRateSuspect: boolean
   /**
    * Of the matches where a deck containing this card was attached, the share
-   * whose pre-mulligan hand was fully identified. Below ~0.9 every other
-   * number on this row deserves a warning beside it.
+   * whose pre-mulligan hand was fully identified. Below
+   * `OPENING_THRESHOLDS.recognisedShare`, every other number on this row
+   * deserves a warning beside it.
+   *
+   * NOT this card's own recognition rate, and the name flatters itself. The
+   * numerator is hand-level: a hand is either read whole or it is not, and
+   * whichever card spoiled it spoils it for every card in that hand. So a
+   * perfectly legible card sitting in a deck full of unreadable ones reads
+   * low, and with a single deck in range every card in it reads the same
+   * number.
+   *
+   * That is the honest shape of the measurement rather than a defect - an
+   * incomplete hand really is incomplete for everyone in it - but it means
+   * this field is context about the matches, not an accusation against the
+   * card. The accusation is `dealRateSuspect`, which IS card-specific. A
+   * renderer that shows this must say which of the two it is showing.
    */
   recognisedShare: number | null
 
