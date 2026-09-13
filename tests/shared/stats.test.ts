@@ -277,7 +277,10 @@ describe('shrink', () => {
     const lopsided = shrink(10, 20, 500)
     const balanced = shrink(10, 260, 260)
     expect(lopsided).toBeLessThan(balanced)
-    expect(lopsided).toBeCloseTo((10 * (2 / (1 / 20 + 1 / 500))) / (2 / (1 / 20 + 1 / 500) + 40), 10)
+    expect(lopsided).toBeCloseTo(
+      (10 * (2 / (1 / 20 + 1 / 500))) / (2 / (1 / 20 + 1 / 500) + 40),
+      10
+    )
   })
 
   it('returns zero when either arm has nothing in it', () => {
