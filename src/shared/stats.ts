@@ -35,6 +35,21 @@ const Z_95 = 1.96
 const clampPct = (x: number): number => Math.min(100, Math.max(0, x))
 
 /**
+ * Clamp, then round to two decimals.
+ *
+ * Rounding happens here rather than in the renderer so that every percentage
+ * crossing the IPC boundary has already been rounded the same way. The first
+ * pass left `rate` raw while the bounds beside it were rounded downstream, and
+ * `67.52136752136752%` duly reached the page next to a tidy `29.03%` - the kind
+ * of inconsistency that gets patched with a `toFixed` at one call site and then
+ * quietly diverges at the next one.
+ *
+ * Two decimals because these are percentages of at most a few hundred matches:
+ * a third would be inventing precision the denominator cannot support.
+ */
+const pct = (x: number): number => +clampPct(x).toFixed(2)
+
+/**
  * Wilson score interval for a proportion, as percentages.
  *
  * Wilson rather than the textbook Wald interval (`p ± z·sqrt(p(1-p)/n)`)
@@ -69,9 +84,9 @@ export function wilson(
   const halfWidth = (Math.sqrt(zz) / denominator) * Math.sqrt((p * (1 - p)) / n + zz / (4 * n * n))
 
   return {
-    rate: clampPct(p * 100),
-    lo: clampPct((centre - halfWidth) * 100),
-    hi: clampPct((centre + halfWidth) * 100)
+    rate: pct(p * 100),
+    lo: pct((centre - halfWidth) * 100),
+    hi: pct((centre + halfWidth) * 100)
   }
 }
 
@@ -104,9 +119,9 @@ export function newcombeDiff(
   const lo = diff - Math.sqrt((wa.rate - wa.lo) ** 2 + (wb.hi - wb.rate) ** 2)
   const hi = diff + Math.sqrt((wa.hi - wa.rate) ** 2 + (wb.rate - wb.lo) ** 2)
   return {
-    diff,
-    lo: Math.max(-100, lo),
-    hi: Math.min(100, hi)
+    diff: +diff.toFixed(2),
+    lo: +Math.max(-100, lo).toFixed(2),
+    hi: +Math.min(100, hi).toFixed(2)
   }
 }
 

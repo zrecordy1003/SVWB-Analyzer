@@ -19,6 +19,7 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import BackHandOutlinedIcon from '@mui/icons-material/BackHandOutlined'
 // import AutoAwesomeMotionOutlinedIcon from '@mui/icons-material/AutoAwesomeMotionOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
 // import Sun from '@mui/icons-material/Brightness4'
@@ -44,6 +45,7 @@ const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerf
  * `PAGE_KEYS`、下面的 render 分支這四處的註解拿掉。
  */
 // const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
+const OpeningPage = lazy(() => import('./components/Opening/OpeningPage'))
 // import Statistics from './components/Statistics'
 
 const DRAWER_COLLAPSED_WIDTH = 92
@@ -77,12 +79,20 @@ const PageLoading = (): React.JSX.Element => (
   </Box>
 )
 
-type PageKey = 'Analyzer' | 'MatchList' | 'DeckPerformance' | 'Cards' | 'Settings' | 'About'
+type PageKey =
+  | 'Analyzer'
+  | 'MatchList'
+  | 'DeckPerformance'
+  | 'Cards'
+  | 'Opening'
+  | 'Settings'
+  | 'About'
 const PAGE_KEYS: readonly PageKey[] = [
   'Analyzer',
   'MatchList',
   'DeckPerformance',
   // 'Cards', // 見上面 CardsPage 的說明
+  'Opening',
   'Settings',
   'About'
 ]
@@ -170,6 +180,8 @@ function App(): React.JSX.Element {
     { key: 'DeckPerformance', text: '牌組戰績', icon: <StyleOutlinedIcon /> },
     // 疊起來的幾張：牌組戰績那顆是「一副牌」，這顆是「一堆卡」。
     // { key: 'Cards', text: '卡片', icon: <AutoAwesomeMotionOutlinedIcon /> },
+    // 一隻手：起手是「手上的牌」，和上面兩顆的牌組、卡片分開。
+    { key: 'Opening', text: '起手', icon: <BackHandOutlinedIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
     { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
@@ -181,6 +193,7 @@ function App(): React.JSX.Element {
     MatchList: '對局列表',
     DeckPerformance: '牌組戰績',
     Cards: '卡片',
+    Opening: '起手',
     Settings: '設定',
     About: '關於與授權'
   }
@@ -320,6 +333,7 @@ function App(): React.JSX.Element {
             {currentPage === 'MatchList' && <MatchList />}
             {currentPage === 'DeckPerformance' && <DeckPerformance />}
             {/* {currentPage === 'Cards' && <CardsPage />} */}
+            {currentPage === 'Opening' && <OpeningPage />}
             {currentPage === 'Analyzer' && <Analyzer />}
             {currentPage === 'Settings' && <Settings />}
             {currentPage === 'About' && <About />}

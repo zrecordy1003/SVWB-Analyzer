@@ -177,8 +177,7 @@ const OpeningHand: React.FC<OpeningHandProps> = ({ matchId }) => {
       {named === 0 && (
         <Typography variant="caption" color="text.secondary">
           位置讀到了、卡片還沒認出來。卡圖索引是開啟 app 之後在背景建的，一個職業約 175
-          張；這一場的畫面已經留著了，索引建完之後會自動補上——重開 app
-          或稍後再回來看這一頁就會有。
+          張；這一場的畫面已經留著了，索引建完之後會自動補上——重開 app 或稍後再回來看這一頁就會有。
         </Typography>
       )}
     </Stack>
