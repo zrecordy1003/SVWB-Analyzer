@@ -56,11 +56,48 @@ pub struct VersusScreen {
 ///
 /// Parallel to [`Mulligan::keep`] and [`Mulligan::change`], and read off the
 /// same frame, so slot `i` here is the card whose occupancy is slot `i` there.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PanelCardIds {
     pub keep: [Option<i64>; 4],
     pub change: [Option<i64>; 4],
+    /// How the naming went, whether or not it committed.
+    ///
+    /// Carried because a slot recorded with no card is otherwise
+    /// unexplainable, and the three reasons call for three different actions:
+    /// no candidates at all (the deck was never indexed), a best score around
+    /// 0.5 (the player brought a deck this is not), or one just under the cut
+    /// (the art is right and the threshold or the frame is not). See
+    /// `fingerprint::Naming`.
+    pub evidence: NamingEvidence,
+}
+
+/// What the naming attempt on one frame had to work with.
+#[derive(Debug, Clone, Copy, Default, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamingEvidence {
+    /// Size of the candidate set. Zero means nothing could have been named.
+    pub candidates: u32,
+    /// The best score any slot reached on this frame, committed or not.
+    pub best_score: Option<f32>,
+}
+
+impl NamingEvidence {
+    /// Fold one frame's evidence into the match's.
+    ///
+    /// Both halves take the best seen: the candidate set does not change within
+    /// a match, and the best score is the strongest claim the art ever made -
+    /// the question being answered later is "could this ever have worked", not
+    /// "how did this one frame do".
+    pub fn absorb(&mut self, frame: NamingEvidence) {
+        self.candidates = self.candidates.max(frame.candidates);
+        if let Some(top) = frame.best_score {
+            self.best_score = Some(match self.best_score {
+                Some(best) => best.max(top),
+                None => top,
+            });
+        }
+    }
 }
 
 /// A weak signal that needs a position, not just a score.
@@ -517,8 +554,11 @@ impl Default for Machine {
 /// is 1.5s, and even the swap recordings leave two located Waiting frames at
 /// 2fps - so the votes are free. The report goes out on the first frame that no
 /// longer shows a settled Waiting panel, i.e. when the last vote is in.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct Opening {
+    /// The best the candidate set ever did for this match, across every frame
+    /// that tried. Kept so a hand with no names can say WHY it has none.
+    evidence: NamingEvidence,
     /// The most recent settled `Choosing` frame: which columns were on their
     /// way out. Geometry only; believed once Waiting follows.
     swapped: Option<[bool; 4]>,

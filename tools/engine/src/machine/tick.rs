@@ -380,6 +380,7 @@ impl Machine {
             Some((Stage::Choosing, panel)) => {
                 self.opening.swapped = Some(panel.change);
                 if let Some(named) = reading.opening_cards {
+                    self.opening.evidence.absorb(named.evidence);
                     // The dealt hand is spread across both rows: whichever row
                     // holds a column's card is where that card's name comes
                     // from, and it is the same card in either.
@@ -392,6 +393,7 @@ impl Machine {
             Some((Stage::Waiting, _)) => {
                 self.opening.waiting_seen = true;
                 if let Some(named) = reading.opening_cards {
+                    self.opening.evidence.absorb(named.evidence);
                     for i in 0..4 {
                         self.opening.kept[i].cast(named.keep[i]);
                     }
@@ -416,8 +418,34 @@ impl Machine {
                     self.flag("mulligan-choice-missed");
                     return;
                 };
-                let dealt = std::array::from_fn(|i| self.opening.dealt[i].winner());
-                let kept = std::array::from_fn(|i| self.opening.kept[i].winner());
+                let dealt: [Option<i64>; 4] =
+                    std::array::from_fn(|i| self.opening.dealt[i].winner());
+                let kept: [Option<i64>; 4] =
+                    std::array::from_fn(|i| self.opening.kept[i].winner());
+
+                // A hand with no names is the common case today and will stay
+                // common - a player with no imported deck can never have one -
+                // so it must say which of its reasons applies rather than
+                // leaving four nulls to be guessed at. The row carries the
+                // flag; the note carries the numbers behind it.
+                if dealt.iter().chain(&kept).all(Option::is_none) {
+                    let evidence = self.opening.evidence;
+                    let kind = if evidence.candidates == 0 {
+                        "opening-no-candidates"
+                    } else {
+                        "opening-unnamed"
+                    };
+                    changes.push(Change::Noted {
+                        kind,
+                        label: format!("{} candidates", evidence.candidates),
+                        detail: Some(serde_json::json!({
+                            "candidates": evidence.candidates,
+                            "bestScore": evidence.best_score,
+                            "minScore": crate::calibration::CARD_ART_MIN_SCORE,
+                        })),
+                    });
+                    self.flag(kind);
+                }
                 let patch = MatchPatch {
                     opening_hand: Some(OpeningHand { swapped, dealt, kept }),
                     ..Default::default()

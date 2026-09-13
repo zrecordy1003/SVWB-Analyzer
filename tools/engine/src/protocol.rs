@@ -364,6 +364,18 @@ pub enum Command {
 pub struct CardImage {
     pub card_id: i64,
     pub path: String,
+    /// The engine's own class vocabulary, or `"neutral"`.
+    ///
+    /// Sent by the host rather than derived here, because translating the
+    /// portal's numeric `class_id` into these names is a table that already
+    /// exists once (`src/shared/deckImport.ts`) and must not exist twice - the
+    /// two orderings differ, and a stale copy would silently compare a match
+    /// against the wrong class's cards.
+    ///
+    /// `None` from a host too old to send it: the fingerprint is stored without
+    /// a class and stays a candidate for every class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
 }
 
 #[cfg(test)]

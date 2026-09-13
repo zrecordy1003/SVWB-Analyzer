@@ -802,7 +802,7 @@ fn the_cards_on_a_settled_panel_are_named() {
             .flatten()
             .map(|found| {
                 let art = fingerprint::of_screen_art(&frame, found.art)?;
-                fingerprint::identify(&art, &candidates).map(|hit| hit.card_id)
+                fingerprint::name(&art, &candidates).card.map(|hit| hit.card_id)
             })
             .collect()
     };
@@ -839,7 +839,7 @@ fn the_winning_card_is_clearly_ahead_of_the_rest() {
 
     let found = cards.keep[3].expect("slot 4 holds a card");
     let art = fingerprint::of_screen_art(&frame, found.art).expect("the art window is on canvas");
-    let hit = fingerprint::identify(&art, &candidates).expect("slot 4 is 智慧耀光");
+    let hit = fingerprint::name(&art, &candidates).card.expect("slot 4 is 智慧耀光");
 
     assert_eq!(hit.card_id, 10031310);
     assert!(

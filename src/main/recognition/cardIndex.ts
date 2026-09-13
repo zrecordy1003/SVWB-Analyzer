@@ -13,10 +13,22 @@
  *
  * # Which cards
  *
- * The cards of the DEFAULT decks, because that is the same guess the engine
- * makes when it opens a match row: `insert_match` pre-fills `my_deckId` from the
- * default deck of the class being played. Indexing anything else would be
- * fetching pictures for cards no match will be matched against.
+ * **The pool of every class the user actually plays**, not the cards of their
+ * decks. Two earlier versions of this picked the default deck's cards, then
+ * every deck's cards, and both failed the same way: recognition only worked if
+ * the player had imported the exact deck they were playing. Forgetting to switch
+ * the default, or never importing at all, produced an opening hand of four nulls
+ * that looks identical to recognition being broken.
+ *
+ * Widening to the pool does not cost accuracy - measured, a 63-card set and a
+ * 175-card class pool give identical scores for the right card and at most 0.05
+ * less margin - and it turns the common case from "nothing named" into
+ * "everything named". See `docs/opening-hand-plan.md`.
+ *
+ * Which classes: the ones the user has actually played or built a deck for. A
+ * pool is ~92MB of pictures, so indexing all seven would be most of a gigabyte
+ * for classes they have never touched. Deck cards are fetched first within each
+ * class, because those are the cards most likely to be in the next hand.
  *
  * # Why it is capped
  *
@@ -29,6 +41,8 @@ import fs from 'node:fs/promises'
 
 import { sql } from 'kysely'
 
+import { CLASS_NAME_TO_ID } from '../../shared/deckImport.js'
+import type { ClassName } from '../../shared/domain.js'
 import { getDb } from '../data/db/client.js'
 import { DEFAULT_CACHE_LIMIT_BYTES, cacheFilePath, resolveCardImage } from '../data/cardImages.js'
 import type { PortalLang } from '../data/svwbApi.js'
@@ -44,10 +58,21 @@ import { getCardImageCacheRoot } from '../paths.js'
  */
 export const MAX_DOWNLOADS_PER_RUN = 60
 
-export type CardToIndex = { cardId: number; path: string }
+export type CardToIndex = { cardId: number; path: string; class: string }
+
+/** A card whose picture is known but whose fingerprint is not. */
+export type CardNeedingFingerprint = {
+  cardId: number
+  imageHash: string
+  /** The engine's class vocabulary, or `'neutral'`. */
+  className: string
+}
+
+/** The portal's id for cards every class can play. */
+const NEUTRAL_CLASS_ID = 0
 
 /**
- * Every default-deck card that has no fingerprint at `algoVersion` yet.
+ * Every card of every deck that has no fingerprint at `algoVersion` yet.
  *
  * `imageHash` is required rather than optional: a `Card` row without one has
  * never been fetched from the portal and there is no picture to point at. That
@@ -55,22 +80,62 @@ export type CardToIndex = { cardId: number; path: string }
  */
 export async function cardsNeedingFingerprints(
   algoVersion: number
-): Promise<{ cardId: number; imageHash: string }[]> {
-  const rows = await sql<{ cardId: number; imageHash: string }>`
-    SELECT DISTINCT c.cardId AS cardId, c.imageHash AS imageHash
-      FROM DeckCard dc
-      JOIN Deck d ON d.id = dc.deckId
-      JOIN Card c ON c.cardId = dc.cardId
-     WHERE d.isDefault = 1
-       AND c.imageHash IS NOT NULL
+): Promise<CardNeedingFingerprint[]> {
+  const classes = await playedClasses()
+  if (classes.length === 0) return []
+
+  // `Card.class` is the PORTAL's numeric id, whose order differs from this app's
+  // class names - `CLASS_ID_TO_NAME` is the one place that knows the difference.
+  // Translating here rather than in SQL keeps it that way.
+  const wanted = new Map<number, string>([[NEUTRAL_CLASS_ID, 'neutral']])
+  for (const name of classes) {
+    const id = CLASS_NAME_TO_ID[name as ClassName]
+    if (id != null) wanted.set(id, name)
+  }
+
+  const rows = await sql<{
+    cardId: number
+    imageHash: string
+    classId: number
+    inDeck: number
+  }>`
+    SELECT c.cardId AS cardId,
+           c.imageHash AS imageHash,
+           c.class AS classId,
+           EXISTS (SELECT 1 FROM DeckCard dc WHERE dc.cardId = c.cardId) AS inDeck
+      FROM Card c
+     WHERE c.imageHash IS NOT NULL
+       AND c.class IN (${sql.join([...wanted.keys()])})
        AND NOT EXISTS (
              SELECT 1 FROM CardArtSample s
               WHERE s.cardId = c.cardId
                 AND s.source = 'portal'
                 AND s.algoVersion = ${algoVersion}
            )
+     ORDER BY inDeck DESC, c.cardId
   `.execute(getDb())
-  return rows.rows
+
+  return rows.rows.map((r) => ({
+    cardId: Number(r.cardId),
+    imageHash: r.imageHash,
+    className: wanted.get(Number(r.classId)) ?? 'neutral'
+  }))
+}
+
+/**
+ * The classes worth spending downloads on: played, or built a deck for.
+ *
+ * Both halves matter. A class only ever played is one the user plays without
+ * importing anything - the case this whole widening exists for - and a class
+ * with only a deck is one they have prepared but not yet taken to a match.
+ */
+async function playedClasses(): Promise<string[]> {
+  const rows = await sql<{ name: string }>`
+    SELECT DISTINCT my_class AS name FROM Match WHERE my_class IS NOT NULL
+    UNION
+    SELECT DISTINCT class AS name FROM Deck WHERE class IS NOT NULL
+  `.execute(getDb())
+  return rows.rows.map((r) => r.name).filter(Boolean)
 }
 
 /**
@@ -81,7 +146,7 @@ export async function cardsNeedingFingerprints(
  * rather than an unrecognised hand.
  */
 export async function resolveCardsToIndex(
-  cards: { cardId: number; imageHash: string }[],
+  cards: CardNeedingFingerprint[],
   lang: PortalLang,
   options: { root?: string; maxDownloads?: number } = {}
 ): Promise<CardToIndex[]> {
@@ -105,7 +170,7 @@ export async function resolveCardsToIndex(
     })
     if (!file) continue
     if (!cached) downloads++
-    out.push({ cardId: card.cardId, path: file })
+    out.push({ cardId: card.cardId, path: file, class: card.className })
   }
   return out
 }

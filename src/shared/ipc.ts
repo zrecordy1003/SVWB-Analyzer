@@ -97,6 +97,27 @@ export const wrapRes = async <T>(fn: () => Promise<T>): Promise<Res<T>> => {
 
 // ------------------------------------------------------------------- contract
 
+/** One position of an opening hand, with whatever is known about its card. */
+export type OpeningHandSlot = {
+  slot: number
+  cardId: number | null
+  /** `'pre'` rows only: was this card thrown away? */
+  swapped: boolean | null
+  /** Which layer named the card; null when none did. */
+  decidedBy: string | null
+  /** From the card cache, null when the card was never fetched or is unnamed. */
+  name: string | null
+  cost: number | null
+  bannerHash: string | null
+}
+
+export type OpeningHandView = {
+  /** The hand as dealt. */
+  pre: OpeningHandSlot[]
+  /** The hand it was played with. */
+  post: OpeningHandSlot[]
+}
+
 /**
  * Every `invoke`-able channel.
  *
@@ -140,6 +161,14 @@ export type IpcContract = {
   'matches:queryList': (payload?: QueryPayload) => MatchListPage
   'matches:getPage': (payload?: QueryPayload) => MatchDetail[]
   'matches:getById': (id: number) => MatchDetail | null
+  /**
+   * The opening hand, or `null` when the mulligan panel was never read.
+   *
+   * `null` and "rows whose card ids are all null" are different answers and the
+   * UI shows them differently: the first is a match from before the panel was
+   * read at all, the second is a hand that was seen but could not be named.
+   */
+  'matches:openingHand': (matchId: number) => OpeningHandView | null
   'matches:getExtras': (id: number) => MatchExtras
   'matches:fetchRecent': (n?: number, mode?: GameMode | 'all' | null) => Match[]
   'matches:latestMode': () => GameMode | null

@@ -357,6 +357,7 @@ impl MatchStore {
         &self,
         card_id: i64,
         version: u32,
+        class: Option<&str>,
         vector: &[u8],
     ) -> Result<(), StoreError> {
         let tx = self.conn.unchecked_transaction()?;
@@ -366,37 +367,49 @@ impl MatchStore {
             rusqlite::params![card_id, version],
         )?;
         self.conn.execute(
-            "INSERT INTO CardArtSample (cardId, source, algoVersion, seenAt, vector)
-             VALUES (?1, 'portal', ?2, ?3, ?4)",
-            rusqlite::params![card_id, version, epoch_ms(), vector],
+            "INSERT INTO CardArtSample (cardId, source, algoVersion, seenAt, vector, class)
+             VALUES (?1, 'portal', ?2, ?3, ?4, ?5)",
+            rusqlite::params![card_id, version, epoch_ms(), vector, class],
         )?;
         tx.commit()?;
         Ok(())
     }
 
-    /// The fingerprints of the cards in the player's default deck for `class`.
+    /// Every fingerprint that could be in a hand of `class`.
     ///
-    /// This is the candidate set the mulligan panel is matched against, and it
-    /// is a GUESS: the row a match opens with is pre-filled from the default
-    /// deck (see [`Self::insert_match`]), and a player who brought a different
-    /// deck will hand the panel cards that are not in here. That is why the
-    /// matcher refuses a weak winner rather than taking the closest of these -
-    /// see `fingerprint::identify`.
+    /// **Not the deck's cards, the class's.** This started as "the default
+    /// deck", then "every deck of the class", and both were wrong for the same
+    /// reason: they made recognition depend on the player having imported the
+    /// deck they happen to be playing. A player who forgot to switch the default
+    /// - or who never imported anything - got four nulls, which looks exactly
+    /// like recognition being broken.
     ///
-    /// Empty is a normal answer, not a failure: no imported deck, a 2Pick run,
-    /// or a deck whose card images have never been fetched. The caller then
-    /// identifies nothing and the hand is recorded without card ids.
-    pub fn default_deck_fingerprints(
+    /// Widening does not cost accuracy, which is the part worth knowing.
+    /// Measured over five recordings, going from a 63-card set to a full class
+    /// pool of 175 left every correct score identical to three decimals and cost
+    /// at most 0.05 of margin (smallest 0.505 -> 0.456, against a 0.30
+    /// threshold), while taking the named slots from 8 of 12 to 12 of 12 - the
+    /// four misses were simply cards the smaller set did not contain. What it
+    /// costs is candidates to compare against, and those are cheap: 175 of them
+    /// is ~1.5ms against a 500ms tick.
+    ///
+    /// Neutral cards are in every class's hands, so they are always included. A
+    /// row with no class predates the column and is offered to every class
+    /// rather than dropped - it is still a usable fingerprint.
+    ///
+    /// Empty is a normal answer, not a failure: nothing indexed yet for a class
+    /// the player has just started on. The caller then identifies nothing, and
+    /// the machine flags which reason applied.
+    pub fn class_fingerprints(
         &self,
         class: &str,
         version: u32,
     ) -> Result<Vec<(i64, Vec<u8>)>, StoreError> {
         let mut q = self.conn.prepare(
-            "SELECT s.cardId, s.vector
-               FROM CardArtSample s
-               JOIN DeckCard dc ON dc.cardId = s.cardId
-               JOIN Deck d      ON d.id = dc.deckId
-              WHERE d.class = ?1 AND d.isDefault = 1 AND s.algoVersion = ?2",
+            "SELECT DISTINCT cardId, vector
+               FROM CardArtSample
+              WHERE algoVersion = ?2
+                AND (class IS NULL OR class = ?1 OR class = 'neutral')",
         )?;
         let rows = q.query_map(rusqlite::params![class, version], |r| {
             Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?))
@@ -761,7 +774,55 @@ mod tests {
         assert_eq!(left, 0);
     }
 
-    /// The engine never writes the columns the UI owns. `edited_fields` is the
+    /// The candidate set is the class's, and it does not care about decks.
+    ///
+    /// This is the fix for the failure that had no symptom: a player whose
+    /// default deck is stale, or who never imported one, got four nulls that
+    /// look exactly like recognition being broken. A card indexed for the class
+    /// counts whether or not any deck holds it.
+    #[test]
+    fn the_candidate_set_is_the_class_plus_neutrals() {
+        let store = store_with_schema();
+        store.put_portal_fingerprint(11, 1, Some("witch"), &vec![1u8; 8]).unwrap();
+        store.put_portal_fingerprint(22, 1, Some("neutral"), &vec![2u8; 8]).unwrap();
+        store.put_portal_fingerprint(33, 1, Some("dragon"), &vec![3u8; 8]).unwrap();
+        // Indexed before the class column existed: usable, just not narrowable.
+        store.put_portal_fingerprint(44, 1, None, &vec![4u8; 8]).unwrap();
+
+        let ids = |class: &str| {
+            let mut out: Vec<i64> = store
+                .class_fingerprints(class, 1)
+                .unwrap()
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect();
+            out.sort();
+            out
+        };
+
+        assert_eq!(ids("witch"), vec![11, 22, 44], "the class, the neutrals, and the unlabelled");
+        assert_eq!(ids("dragon"), vec![22, 33, 44]);
+        assert_eq!(ids("elf"), vec![22, 44], "a class with nothing of its own still has neutrals");
+        assert!(
+            store.class_fingerprints("witch", 2).unwrap().is_empty(),
+            "another algorithm version shares nothing"
+        );
+    }
+
+    /// Re-indexing a card replaces its fingerprint rather than adding a second,
+    /// which would double that card's weight in every comparison.
+    #[test]
+    fn a_card_indexed_twice_is_offered_once() {
+        let store = store_with_schema();
+        store.put_portal_fingerprint(99, 1, Some("witch"), &vec![1u8; 8]).unwrap();
+        store.put_portal_fingerprint(99, 1, Some("witch"), &vec![2u8; 8]).unwrap();
+
+        let rows = store.class_fingerprints("witch", 1).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].1, vec![2u8; 8], "the newer vector wins");
+    }
+
+    /// The engine never writes the columns the UI owns.    /// The engine never writes the columns the UI owns. `edited_fields` is the
     /// UI's record of what a person changed; an engine write to it would make
     /// every statistic that reads it meaningless.
     #[test]

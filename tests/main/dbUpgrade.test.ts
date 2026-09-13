@@ -224,8 +224,8 @@ describe(`upgrading from ${FROM_TAG}`, () => {
       encoding: 'utf8',
       windowsHide: true
     })
-    // Only the new ones ran: 015 - 007 = 8.
-    expect(JSON.parse(out.trim())).toEqual({ applied: 8 })
+    // Only the new ones ran: 016 - 007 = 9.
+    expect(JSON.parse(out.trim())).toEqual({ applied: 9 })
 
     // ---- and nothing was lost
     const after = new SQLite(dbPath, { readonly: true })
@@ -305,7 +305,7 @@ describe(`upgrading from ${FROM_TAG}`, () => {
 
     const args = ['migrate', '--db', dbPath, '--migrations', MIGRATIONS]
     expect(JSON.parse(execFileSync(ENGINE, args, { encoding: 'utf8' }).trim())).toEqual({
-      applied: 8
+      applied: 9
     })
     // Which is what a second launch does, and what a crash mid-upgrade leaves
     // behind for the next one.

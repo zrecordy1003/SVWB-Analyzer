@@ -288,19 +288,30 @@ fn identify_panel(
     cards: &dyn crate::fingerprint::CardReader,
 ) -> Option<crate::machine::PanelCardIds> {
     let located = crate::card::locate(frame, panel)?;
-    let name_row = |boxes: [Option<crate::card::CardBox>; 4]| {
+    let mut evidence = crate::machine::NamingEvidence::default();
+    let mut name_row = |boxes: [Option<crate::card::CardBox>; 4]| {
         let mut ids: [Option<i64>; 4] = [None; 4];
         for (i, found) in boxes.iter().enumerate() {
             let Some(found) = found else { continue };
             let Some(art) = crate::fingerprint::of_screen_art(frame, found.art) else { continue };
-            ids[i] = cards.identify(&art).map(|hit| hit.card_id);
+            let naming = cards.name(&art);
+            ids[i] = naming.card.map(|hit| hit.card_id);
+            // The frame's evidence is the best any of its slots managed: the
+            // question it answers is "could this deck have named anything",
+            // which is about the candidate set rather than one card.
+            evidence.candidates = evidence.candidates.max(naming.candidates as u32);
+            if let Some(top) = naming.top_score {
+                evidence.best_score = Some(match evidence.best_score {
+                    Some(best) => best.max(top as f32),
+                    None => top as f32,
+                });
+            }
         }
         ids
     };
-    Some(crate::machine::PanelCardIds {
-        keep: name_row(located.keep),
-        change: name_row(located.change),
-    })
+    let keep = name_row(located.keep);
+    let change = name_row(located.change);
+    Some(crate::machine::PanelCardIds { keep, change, evidence })
 }
 
 #[cfg(test)]

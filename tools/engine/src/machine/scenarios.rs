@@ -13,8 +13,8 @@
 use std::time::{Duration, Instant};
 
 use super::{
-    Change, Located, Machine, ModeProbeScore, ModeProbeScores, NumberReads, PanelCardIds, Reading,
-    VersusScreen,
+    Change, Located, Machine, ModeProbeScore, ModeProbeScores, NamingEvidence, NumberReads,
+    PanelCardIds, Reading, VersusScreen,
 };
 use crate::calibration::{ScoreSystem, ScoreSystemHit, timing};
 use crate::mulligan::{Mulligan, Stage};
@@ -892,6 +892,17 @@ fn hand_in(changes: &[Change]) -> Option<OpeningHand> {
     })
 }
 
+/// A frame where a candidate set existed and did well - the ordinary case for
+/// a player whose deck is indexed. The ids in each test say what was named; this
+/// only supplies the evidence behind them.
+fn named_evidence() -> PanelCardIds {
+    PanelCardIds {
+        keep: [None; 4],
+        change: [None; 4],
+        evidence: NamingEvidence { candidates: 30, best_score: Some(0.95) },
+    }
+}
+
 fn swapped_in(changes: &[Change]) -> Option<[bool; 4]> {
     hand_in(changes).map(|h| h.swapped)
 }
@@ -1080,6 +1091,7 @@ fn the_dealt_hand_is_read_from_both_rows() {
         opening_cards: Some(PanelCardIds {
             keep: [None, Some(202), Some(203), Some(204)],
             change: [Some(101), None, None, None],
+            ..named_evidence()
         }),
         ..choosing([true, false, false, false])
     };
@@ -1090,6 +1102,7 @@ fn the_dealt_hand_is_read_from_both_rows() {
         opening_cards: Some(PanelCardIds {
             keep: [Some(301), Some(202), Some(203), Some(204)],
             change: [None; 4],
+            ..named_evidence()
         }),
         ..waiting()
     };
@@ -1130,7 +1143,10 @@ fn an_unrecognised_hand_still_reports_its_swap() {
 
 /// A Waiting frame with named cards, wrapped in `Reading`.
 fn waiting_with(keep: [Option<i64>; 4]) -> Reading {
-    Reading { opening_cards: Some(PanelCardIds { keep, change: [None; 4] }), ..waiting() }
+    Reading {
+        opening_cards: Some(PanelCardIds { keep, change: [None; 4], ..named_evidence() }),
+        ..waiting()
+    }
 }
 
 /// The kept hand is read from the frames that can be read, not the first one.
@@ -1150,6 +1166,7 @@ fn the_kept_hand_survives_the_replacements_flying_in() {
         opening_cards: Some(PanelCardIds {
             keep: [None, Some(202), Some(203), Some(204)],
             change: [Some(101), None, None, None],
+            ..named_evidence()
         }),
         ..choosing([true, false, false, false])
     };

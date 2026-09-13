@@ -181,9 +181,8 @@ fn reduce(patch: &GrayImage) -> Fingerprint {
 /// the live engine looks the candidates up per match from the deck it thinks is
 /// being played.
 pub trait CardReader {
-    /// `None` when nothing in the candidate set is clearly the best answer -
-    /// which is also what an empty candidate set means.
-    fn identify(&self, art: &Fingerprint) -> Option<Identified>;
+    /// The best the candidate set can do, and whether that was good enough.
+    fn name(&self, art: &Fingerprint) -> Naming;
 }
 
 /// Recognises nothing, always.
@@ -193,8 +192,8 @@ pub trait CardReader {
 pub struct NoCards;
 
 impl CardReader for NoCards {
-    fn identify(&self, _art: &Fingerprint) -> Option<Identified> {
-        None
+    fn name(&self, _art: &Fingerprint) -> Naming {
+        Naming { card: None, top_score: None, candidates: 0 }
     }
 }
 
@@ -218,9 +217,27 @@ impl CardIndex {
 }
 
 impl CardReader for CardIndex {
-    fn identify(&self, art: &Fingerprint) -> Option<Identified> {
-        identify(art, &self.candidates)
+    fn name(&self, art: &Fingerprint) -> Naming {
+        name(art, &self.candidates)
     }
+}
+
+/// What the matcher made of one illustration, whether or not it committed.
+///
+/// The refused case carries its numbers on purpose. A slot recorded with no
+/// card is otherwise unexplainable - the deck was never indexed, the player
+/// brought a different deck, or the art was almost but not quite good enough all
+/// look identical in the row, and they call for three different actions. See
+/// `docs/opening-hand-plan.md`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Naming {
+    /// Some only when the winner was clear enough to record.
+    pub card: Option<Identified>,
+    /// The best score anything reached, committed or not. `None` with no
+    /// candidates at all, which is a different failure from a weak best.
+    pub top_score: Option<f64>,
+    /// How many cards were in the candidate set.
+    pub candidates: usize,
 }
 
 /// Which card an illustration is, and how safely.
@@ -250,7 +267,7 @@ pub struct Identified {
 ///
 /// A single candidate has no runner-up, so its margin is measured from the floor
 /// instead - the alternative is to accept whatever is in the list.
-pub fn identify(art: &Fingerprint, candidates: &[(i64, Fingerprint)]) -> Option<Identified> {
+pub fn name(art: &Fingerprint, candidates: &[(i64, Fingerprint)]) -> Naming {
     let mut best: Option<(f64, i64)> = None;
     let mut second = f64::NEG_INFINITY;
     for (card_id, candidate) in candidates {
@@ -270,12 +287,26 @@ pub fn identify(art: &Fingerprint, candidates: &[(i64, Fingerprint)]) -> Option<
         }
     }
 
-    let (score, card_id) = best?;
+    let Some((score, card_id)) = best else {
+        return Naming { card: None, top_score: None, candidates: candidates.len() };
+    };
+    let refused = |top: f64| Naming {
+        card: None,
+        top_score: Some(top),
+        candidates: candidates.len(),
+    };
     if score < cal::CARD_ART_MIN_SCORE {
-        return None;
+        return refused(score);
     }
     let margin = if second.is_finite() { score - second } else { score };
-    (margin >= cal::CARD_ART_MIN_MARGIN).then_some(Identified { card_id, score, margin })
+    if margin < cal::CARD_ART_MIN_MARGIN {
+        return refused(score);
+    }
+    Naming {
+        card: Some(Identified { card_id, score, margin }),
+        top_score: Some(score),
+        candidates: candidates.len(),
+    }
 }
 
 #[cfg(test)]
@@ -325,7 +356,7 @@ mod tests {
     fn a_clear_winner_is_identified() {
         let art = fp(|x, y| ((x * 7 + y * 3) % 256) as u8);
         let other = fp(|x, y| ((x * 3 + y * 11) % 256) as u8);
-        let found = identify(&art, &[(1, other), (2, art.clone())]).expect("a winner");
+        let found = name(&art, &[(1, other), (2, art.clone())]).card.expect("a winner");
         assert_eq!(found.card_id, 2);
         assert!(found.margin > cal::CARD_ART_MIN_MARGIN);
     }
@@ -336,7 +367,7 @@ mod tests {
     #[test]
     fn a_tie_is_refused() {
         let art = fp(|x, y| ((x * 7 + y * 3) % 256) as u8);
-        assert!(identify(&art, &[(1, art.clone()), (2, art.clone())]).is_none());
+        assert!(name(&art, &[(1, art.clone()), (2, art.clone())]).card.is_none());
     }
 
     /// One card stored twice is one card. Its second sample must not be taken
@@ -346,7 +377,7 @@ mod tests {
         let art = fp(|x, y| ((x * 7 + y * 3) % 256) as u8);
         let near = fp(|x, y| ((x * 7 + y * 3) % 256).saturating_sub(3) as u8);
         let other = fp(|x, y| ((x * 3 + y * 11) % 256) as u8);
-        let found = identify(&art, &[(1, other), (2, near), (2, art.clone())]).expect("a winner");
+        let found = name(&art, &[(1, other), (2, near), (2, art.clone())]).card.expect("a winner");
         assert_eq!(found.card_id, 2);
         assert!((found.score - 1.0).abs() < 1e-9, "the better of its samples counts");
         assert!(found.margin > cal::CARD_ART_MIN_MARGIN, "measured against card 1, not itself");
@@ -356,11 +387,16 @@ mod tests {
     fn a_card_that_is_in_no_candidate_list_is_refused() {
         let art = fp(|x, y| ((x * 7 + y * 3) % 256) as u8);
         let unrelated = fp(|x, y| ((x % 3) * 90 + (y % 2) * 40) as u8);
-        assert!(identify(&art, &[(1, unrelated)]).is_none());
+        let refused = name(&art, &[(1, unrelated)]);
+        assert!(refused.card.is_none());
+        assert!(refused.top_score.is_some(), "a refusal still says how close it got");
+        assert_eq!(refused.candidates, 1);
     }
 
     #[test]
     fn no_candidates_is_no_answer() {
-        assert!(identify(&fp(|_, _| 100), &[]).is_none());
+        let nothing = name(&fp(|_, _| 100), &[]);
+        assert!(nothing.card.is_none());
+        assert_eq!(nothing.top_score, None, "no candidates is not a weak best");
     }
 }

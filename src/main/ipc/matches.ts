@@ -504,6 +504,55 @@ export function registerMatchesIpc(): void {
     return toPivotShape(reloaded)
   })
 
+  /**
+   * The opening hand of one match, as the panel showed it.
+   *
+   * Joined to `Card` here rather than in the renderer because the row holds a
+   * card id and nothing else - the engine has no business knowing a card's name
+   * or the hash of its picture. A card the cache has since forgotten comes back
+   * with nulls for those and its id intact, which is the degradation
+   * `009_add_deck_import.sql` asks for: "card 10573310, details unknown".
+   *
+   * `null` means the panel was never read for this match - every match recorded
+   * before 2026-09-11, and any match whose mulligan the engine missed. That is a
+   * different answer from "read, and nothing recognised", which comes back as
+   * rows with null card ids, and the UI says so.
+   */
+  handleIpc('matches:openingHand', async (_e, matchId: number) => {
+    const rows = await db
+      .selectFrom('MatchOpeningCard as o')
+      .leftJoin('Card as c', 'c.cardId', 'o.cardId')
+      .select([
+        'o.stage',
+        'o.slot',
+        'o.cardId',
+        'o.swapped',
+        'o.confidence',
+        'o.decidedBy',
+        'c.name',
+        'c.cost',
+        'c.bannerHash'
+      ])
+      .where('o.matchId', '=', matchId)
+      .orderBy('o.slot')
+      .execute()
+
+    if (rows.length === 0) return null
+    const stageOf = (stage: string) =>
+      rows
+        .filter((r) => r.stage === stage)
+        .map((r) => ({
+          slot: Number(r.slot),
+          cardId: r.cardId == null ? null : Number(r.cardId),
+          swapped: r.swapped == null ? null : r.swapped === 1,
+          decidedBy: r.decidedBy ?? null,
+          name: r.name ?? null,
+          cost: r.cost == null ? null : Number(r.cost),
+          bannerHash: r.bannerHash ?? null
+        }))
+    return { pre: stageOf('pre'), post: stageOf('post') }
+  })
+
   handleIpc('matches:getById', async (_e, id) => {
     const [match] = await loadWithRelations([id])
     return match ? toPivotShape(match) : null

@@ -87,6 +87,8 @@ import {
 } from '@renderer/components/Common/filters/dropdownSurface'
 import { classes, classesMap, isDecklessMode, modes } from '@renderer/map/classMap'
 import { invokeIpc } from '@renderer/ipc'
+
+import OpeningHand from './OpeningHand'
 import type { ClassName, Deck, GameMode, Match, PlayOrder, Tag } from '@shared/domain'
 
 import DeckPicker from './DeckPicker'
@@ -1222,6 +1224,16 @@ const MatchFormDrawer: React.FC<Props> = ({
                   <ScoreField name="BP" value={data.bp ?? null} onChange={(bp) => patch({ bp })} />
                 </FieldRow>
               </Stack>
+
+              {/* 起手手牌：只有引擎記下來的紀錄才有，手動新增的沒有。放在標籤
+                  上面，因為它是「這一場發生了什麼」而不是「我怎麼標記這一場」。 */}
+              {!create && data.id !== null && (
+                <Stack spacing={1.5}>
+                  <FieldRow label="起手手牌" columns="1fr" align="start">
+                    <OpeningHand matchId={data.id} />
+                  </FieldRow>
+                </Stack>
+              )}
 
               <Stack spacing={1.5}>
                 <FieldRow label="標籤" columns="1fr">

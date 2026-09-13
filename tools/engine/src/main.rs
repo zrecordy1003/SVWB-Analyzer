@@ -645,12 +645,18 @@ fn identify_cmd(args: &[String]) -> Result<(), String> {
                 println!("  {label} {}: art window is off-canvas", i + 1);
                 continue;
             };
-            match svwb_engine::fingerprint::identify(&art, &candidates) {
+            let naming = svwb_engine::fingerprint::name(&art, &candidates);
+            match naming.card {
                 Some(hit) => println!(
                     "  {label} {}: card {} score {:.3} margin {:.3}",
                     i + 1, hit.card_id, hit.score, hit.margin
                 ),
-                None => println!("  {label} {}: not recognised", i + 1),
+                None => println!(
+                    "  {label} {}: not recognised (best {:.3} of {} candidates)",
+                    i + 1,
+                    naming.top_score.unwrap_or(-1.0),
+                    naming.candidates
+                ),
             }
         }
     }

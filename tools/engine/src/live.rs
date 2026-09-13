@@ -265,7 +265,16 @@ fn index_cards(store: &Option<MatchStore>, cards: &[crate::protocol::CardImage])
             .ok()
             .and_then(|decoded| crate::fingerprint::of_reference_card(&decoded));
         match computed {
-            Some(fp) if store.put_portal_fingerprint(card.card_id, version, fp.as_bytes()).is_ok() => {
+            Some(fp)
+                if store
+                    .put_portal_fingerprint(
+                        card.card_id,
+                        version,
+                        card.class.as_deref(),
+                        fp.as_bytes(),
+                    )
+                    .is_ok() =>
+            {
                 indexed += 1
             }
             _ => failed += 1,
@@ -274,19 +283,20 @@ fn index_cards(store: &Option<MatchStore>, cards: &[crate::protocol::CardImage])
     (indexed, failed)
 }
 
-/// The candidate cards for a match of this class, from the player's default deck.
+/// The candidate cards for a match of this class: every fingerprint indexed for
+/// it, plus the neutrals.
 ///
 /// A miss is silent and normal: no store, no imported deck, no fingerprints yet,
-/// or a deck whose cards have never had their images fetched. All of them mean
-/// the same thing downstream - the hand is recorded without card ids, which is
-/// what every match recorded before this existed also looks like.
+/// or decks whose cards have never had their images fetched. All of them mean
+/// the same thing downstream - the hand is recorded without card ids, and the
+/// machine flags which reason applied.
 fn candidates_for(store: &Option<MatchStore>, class: ClassName) -> Box<dyn CardReader> {
     let Some(store) = store else {
         return Box::new(NoCards);
     };
     let class = format!("{class:?}").to_lowercase();
     let version = crate::fingerprint::ALGO_VERSION;
-    let Ok(rows) = store.default_deck_fingerprints(&class, version) else {
+    let Ok(rows) = store.class_fingerprints(&class, version) else {
         return Box::new(NoCards);
     };
     let candidates: Vec<_> = rows
