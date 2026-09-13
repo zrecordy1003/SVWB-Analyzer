@@ -63,7 +63,14 @@ export type Rate = {
   wins: number
   /** `wins / total`, as a percentage. Zero when `total` is zero - read `total` first. */
   rate: number
-  /** Wilson score interval at 95%. Wide is honest; see `stats.ts`. */
+  /**
+   * Wilson score interval at 95%. Wide is honest; see `stats.ts`.
+   *
+   * At `total === 0` this is `{rate: 0, lo: 0, hi: 100}`: an unknown
+   * proportion is the whole interval, not a point at zero. A renderer that
+   * draws the interval must handle that case, or it will paint a full-width
+   * bar where it means to paint nothing - check `total` first.
+   */
   lo: number
   hi: number
 }
