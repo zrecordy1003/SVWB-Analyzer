@@ -16,9 +16,13 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CLASS_POOL_PROFILE,
+  DECK_SIZE,
+  DEMO_DECK_PROFILE,
   DEMO_SEED,
   HAND_SIZE,
   choosePlants,
+  generateAll,
   expandDeck,
   generateHand,
   generateMatches,
@@ -263,19 +267,111 @@ describe('the seed', () => {
     }
   })
 
-  it('gives a deckless class no opening rows at all, rather than inventing a hand for it', () => {
-    // `'no-deck'` is about a denominator that cannot exist. A seeded hand would
-    // have handed the page a keep rate it has no right to compute.
+  it('gives the no-deck cohort real four-card hands while leaving my_deckId null', () => {
+    // The point of the no-deck set, and the thing an earlier version got exactly
+    // backwards. A match with no `MatchOpeningCard` rows does not reach the
+    // `'no-deck'` branch - it is invisible to the page, counted nowhere. The
+    // state worth showing is a hand that WAS read beside a deck that was never
+    // attached: `keepRate` computable from recognition alone, `copies` and the
+    // deal rates unknowable. So the draw list must be present and the deck id
+    // must not.
     const matches = generateMatches({
       rng: makeRng(DEMO_SEED),
-      count: 20,
+      count: 60,
       myClass: 'elf',
       deckId: null,
+      deckList: WITCH_DECK, // stands in for the in-memory class pool
+      now: 1_789_000_000_000
+    })
+
+    for (const m of matches) {
+      // Never attached - this is what sends the page down the 'no-deck' branch.
+      expect(m.my_deckId).toBeNull()
+
+      // ...and yet the panel was read, completely.
+      const pre = m.openingCards.filter((c) => c.stage === 'pre')
+      const post = m.openingCards.filter((c) => c.stage === 'post')
+      expect(pre).toHaveLength(HAND_SIZE)
+      expect(post).toHaveLength(HAND_SIZE)
+      for (const row of pre) {
+        expect(row.cardId).not.toBeNull()
+        expect(row.decidedBy).toBe('art-portal')
+        // `keepRate` is kept/dealt, so every pre row needs a swap decision.
+        expect([0, 1]).toContain(row.swapped)
+      }
+    }
+
+    // At least one card must be kept and one thrown away across the cohort, or
+    // the keep-rate column would be a constant rather than a rate.
+    const swaps = matches.flatMap((m) =>
+      m.openingCards.filter((c) => c.stage === 'pre').map((c) => c.swapped)
+    )
+    expect(swaps).toContain(0)
+    expect(swaps).toContain(1)
+  })
+
+  it('draws no-deck hands from the pool rather than scattering across every class', () => {
+    // The in-memory pool exists only so the hands are coherent. If a card can
+    // turn up that was never in the draw list, the page would show elf matches
+    // holding witch cards and the demo would read as corruption.
+    const inPool = new Set(WITCH_DECK.map((e) => e.cardId))
+    const matches = generateMatches({
+      rng: makeRng(DEMO_SEED),
+      count: 60,
+      myClass: 'elf',
+      deckId: null,
+      deckList: WITCH_DECK,
       now: 1_789_000_000_000
     })
     for (const m of matches) {
-      expect(m.my_deckId).toBeNull()
-      expect(m.openingCards).toHaveLength(0)
+      for (const row of m.openingCards) {
+        if (row.cardId != null) expect(inPool.has(row.cardId)).toBe(true)
+      }
     }
+  })
+
+  it('gives every seeded class opening rows, so no set is invisible to the page', () => {
+    // The regression guard for the bug the two tests above describe. Checked at
+    // the whole-plan level rather than per set, because the failure was not that
+    // one generator was wrong - it was that one set was wired up without a draw
+    // source and nothing downstream noticed.
+    const entry = (drawOnly: boolean) => ({
+      deckId: drawOnly ? null : 1,
+      deckName: 'x',
+      deckList: WITCH_DECK,
+      created: false,
+      drawOnly
+    })
+    const sets = generateAll({
+      decks: {
+        witch: entry(false),
+        royal: entry(false),
+        nightmare: entry(false),
+        dragon: entry(false),
+        elf: entry(true)
+      },
+      now: 1_789_000_000_000
+    })
+
+    expect(sets.length).toBeGreaterThan(0)
+    for (const set of sets) {
+      expect(set.matches.length).toBeGreaterThan(0)
+      const withHands = set.matches.filter(
+        (m: { openingCards: unknown[] }) => m.openingCards.length === HAND_SIZE * 2
+      )
+      expect(withHands).toHaveLength(set.matches.length)
+    }
+
+    // ...and the one that carries hands without a deck is still deckless.
+    const elf = sets.find((s: { label: string }) => s.label === 'elf')
+    for (const m of elf.matches) expect(m.my_deckId).toBeNull()
+  })
+
+  it('builds draw pools and demo decks that both come to exactly 40 cards', () => {
+    const sum = (p: number[]): number => p.reduce((a, b) => a + b, 0)
+    expect(sum(CLASS_POOL_PROFILE)).toBe(DECK_SIZE)
+    expect(sum(DEMO_DECK_PROFILE)).toBe(DECK_SIZE)
+    // The pool is the broader one: more distinct cards, so hands look like hands.
+    expect(CLASS_POOL_PROFILE.length).toBeGreaterThan(DEMO_DECK_PROFILE.length)
   })
 })

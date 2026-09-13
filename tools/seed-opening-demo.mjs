@@ -326,7 +326,10 @@ export function recordHand(rng, hand, plan) {
   const post = hand.post.map((cardId, slot) => {
     const keptSameCard = !hand.swapped[slot]
     if (keptSameCard) return { cardId: pre[slot].cardId, artVector: pre[slot].artVector }
-    if (rng() < (plan.slotNullRate ?? 0) || (cardId === plan.lowRecog && rng() < (plan.lowRecogNullRate ?? 0))) {
+    if (
+      rng() < (plan.slotNullRate ?? 0) ||
+      (cardId === plan.lowRecog && rng() < (plan.lowRecogNullRate ?? 0))
+    ) {
       return { cardId: null, artVector: plan.keepArtVector === true }
     }
     return { cardId, artVector: false }
@@ -451,9 +454,7 @@ export function generateMatches(opts) {
       month: d.getMonth() + 1,
       day: d.getDate(),
       source: DEMO_SOURCE,
-      openingCards: recorded
-        ? buildOpeningRows(rng, recorded)
-        : []
+      openingCards: recorded ? buildOpeningRows(rng, recorded) : []
     })
   }
 
@@ -595,16 +596,40 @@ export function generateAll(opts) {
     })
   }
 
-  // ---- elf: hands, but no deck to compare them against ----
-  // Deliberately `deckId: null` AND `deckList: []`. With no deck there is no
-  // pool to draw from, so these matches get no opening rows at all, which is
-  // the honest version of "we do not know what was in the hand": `'no-deck'`
-  // is about the denominator being unknowable, and inventing hands for it would
-  // have given the page a keep rate it has no right to.
+  // ---- elf: real hands, but no deck to compare them against ----
+  //
+  // `deckId: null` with a REAL `deckList`, and the split between those two is
+  // the entire point of this set. The first version of this passed no deck list
+  // either, on the theory that "we do not know what was in the deck" should
+  // mean no hand. That was wrong, and wrong in a way that made the set useless:
+  // a match with no `MatchOpeningCard` rows is invisible to the page — it does
+  // not reach the `'no-deck'` branch, it is simply not counted. The state worth
+  // demonstrating is the opposite and much more interesting one: the panel WAS
+  // read, all four cards WERE named, and the page still cannot say a word about
+  // deal rates because nothing records what the other 36 cards were.
+  //
+  // So these hands are drawn hypergeometrically from a 40-card elf pseudo-deck
+  // assembled in memory from the user's real `Card` rows (see
+  // `buildClassDrawPool`). That list is a DRAW SOURCE AND NOTHING ELSE. It is
+  // never inserted, no elf `Deck` row is created, and `my_deckId` stays NULL —
+  // it exists only so the cards in the hands are coherent elf cards rather than
+  // a random scatter across seven classes.
+  //
+  // The result in the table should be a readable `keepRate` (which needs only
+  // recognition) sitting beside a null `copies`, `expectedDealRate`,
+  // `observedDealRate` and `dealtWr`, with `missing === 'no-deck'`. That
+  // contrast is what the set is for.
   out.push({
     label: 'elf',
-    shows: "the 'no-deck' missing state",
-    matches: generateMatches({ rng, count: 40, myClass: 'elf', deckId: null, now })
+    shows: "'no-deck': hands are readable, deal rates are not",
+    matches: generateMatches({
+      rng,
+      count: 40,
+      myClass: 'elf',
+      deckId: null,
+      deckList: decks.elf?.deckList ?? [],
+      now
+    })
   })
 
   // ---- dragon: tiny sample, and a third of the slots still waiting for a name ----
@@ -751,6 +776,20 @@ export function planDecks(db) {
     }
   }
 
+  // The elf set is the odd one out and must stay that way. It gets a card list
+  // so its hands can be drawn, and NO deck — `deckId: null`, `created: false`,
+  // so `insertDemoDecks` skips it and `my_deckId` is written NULL. `drawOnly`
+  // is what every other part of this file keys on to remember the difference;
+  // without it the summary would cheerfully report a deck the database does not
+  // have, which is exactly how the first version of this hid its own bug.
+  out.elf = {
+    deckId: null,
+    deckName: '— none (draw source only) —',
+    deckList: buildClassDrawPool(db, 'elf'),
+    created: false,
+    drawOnly: true
+  }
+
   return { decks: out, reused, toCreate }
 }
 
@@ -768,9 +807,10 @@ export const CLASS_NAME_TO_ID = {
 /**
  * Forty cards of a class, from the user's real `Card` rows.
  *
- * Twelve 3-ofs and four 1-ofs, spread across the cost curve by taking evenly
- * spaced entries from the cost-sorted class list. It is not a deck anyone would
- * play. It does not need to be: its only job is to be a 40-card multiset with a
+ * `profile` says how many copies of each distinct card, spread across the cost
+ * curve by taking evenly spaced entries from the cost-sorted class list. It is
+ * not a deck anyone would play. It does not need to be: its only job is to be
+ * a 40-card multiset with a
  * believable curve and a couple of singletons, so the hypergeometric maths and
  * the cost-keyed keep rate both have something real to chew on.
  *
@@ -778,23 +818,31 @@ export const CLASS_NAME_TO_ID = {
  * no `Card` row renders as `#10573310` and would make the demo page look broken
  * rather than empty.
  */
-export function buildDemoDeckList(db, className) {
-  const classId = CLASS_NAME_TO_ID[className]
-  const cards = db
-    .prepare(
-      `SELECT cardId, cost, deckEnabledNum
-       FROM Card
-       WHERE class = ? AND isToken = 0 AND cost IS NOT NULL
-       ORDER BY cost, cardId`
-    )
-    .all(classId)
+export function buildDemoDeckList(db, className, profile = DEMO_DECK_PROFILE, neutralRows = 0) {
+  const cards = classCards(db, className, NEUTRAL_CLASS_ID, false)
+  const neutrals = classCards(db, className, NEUTRAL_CLASS_ID, true)
 
-  if (cards.length < 16) throw new Error(`only ${cards.length} usable cards for class ${className}`)
+  if (cards.length < profile.length) {
+    throw new Error(`only ${cards.length} usable cards for class ${className}`)
+  }
 
-  const profile = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1] // sums to 40
+  // Neutrals go in the LAST `neutralRows` entries, which the profiles order as
+  // singletons. That is where they sit in a real list: the user's own deck 43
+  // carries three neutral cards out of forty, two of one and one of another.
+  // Spreading them evenly instead would have made ~39% of every hand neutral,
+  // because the class pool (106 cards) and the neutral pool (69) are close
+  // enough in size that even sampling all but ignores the distinction — which
+  // is what the first version did, and it made elf hands look like nobody's
+  // deck.
   const step = cards.length / profile.length
+  const neutralStep = neutrals.length / Math.max(1, neutralRows)
+  const firstNeutral = profile.length - neutralRows
+
   return profile.map((count, i) => {
-    const card = cards[Math.floor(i * step)]
+    const card =
+      i >= firstNeutral
+        ? neutrals[Math.floor((i - firstNeutral) * neutralStep)]
+        : cards[Math.floor(i * step)]
     return {
       cardId: card.cardId,
       count: Math.min(count, card.deckEnabledNum ?? 3),
@@ -803,9 +851,63 @@ export function buildDemoDeckList(db, className) {
   })
 }
 
+/** Twelve 3-ofs and four 1-ofs. Sums to 40. Used for decks that get INSERTED. */
+export const DEMO_DECK_PROFILE = [3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1]
+
+/**
+ * Seven 3-ofs, four 2-ofs, eleven 1-ofs. Also sums to 40, but across 22 rows
+ * rather than 16, so a hand drawn from it holds a believable spread of
+ * singletons and playsets instead of looking like four copies of the same four
+ * cards. Used for pools that are NEVER inserted.
+ */
+export const CLASS_POOL_PROFILE = [3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+/**
+ * A 40-card list for a class that exists ONLY to be drawn from.
+ *
+ * Same construction as `buildDemoDeckList` and a deliberately different name,
+ * because the difference between the two is not their contents — it is that
+ * this one must never reach the database. It is what lets the elf set have real
+ * hands while `my_deckId` stays NULL. If you find yourself passing the result
+ * of this to `insertDemoDecks`, the elf set has stopped demonstrating anything.
+ *
+ * Neutral cards are included here where `buildDemoDeckList` leaves them out:
+ * a pool is meant to look like what a player actually opens, and the user's own
+ * deck 43 carries two neutral cards out of seventeen rows.
+ */
+export function buildClassDrawPool(db, className) {
+  return buildDemoDeckList(db, className, CLASS_POOL_PROFILE, POOL_NEUTRAL_ROWS)
+}
+
+/** Three of the pool's 22 rows are neutral, all singletons — deck 43's ratio. */
+export const POOL_NEUTRAL_ROWS = 3
+
+/** Real `Card` rows, cost-sorted: `neutral` picks class 0 instead of the class. */
+function classCards(db, className, neutralClassId, neutral) {
+  const classId = neutral ? neutralClassId : CLASS_NAME_TO_ID[className]
+  return db
+    .prepare(
+      `SELECT cardId, cost, deckEnabledNum
+       FROM Card
+       WHERE class = ? AND isToken = 0 AND cost IS NOT NULL
+       ORDER BY cost, cardId`
+    )
+    .all(classId)
+}
+
+/** The portal's id for cards every class can play. Matches `cardIndex.ts`. */
+export const NEUTRAL_CLASS_ID = 0
+
 /** Insert the demo decks, returning their new ids. */
 function insertDemoDecks(db, plan, now) {
   for (const [className, entry] of Object.entries(plan.decks)) {
+    // Two separate reasons to skip, and they are not the same reason. `created`
+    // false means "the user already owns a deck for this class". `drawOnly`
+    // means "this list must never become a row" — inserting it would attach a
+    // deck to the elf set and silently delete the `'no-deck'` state from the
+    // demo. Checked explicitly so that a future edit to `created` cannot
+    // resurrect the bug.
+    if (entry.drawOnly) continue
     if (!entry.created) continue
     const info = db
       .prepare(
@@ -860,37 +962,70 @@ function summarise(sets, plan, cardNames) {
   const lines = []
   const nameOf = (id) => (id == null ? '(none)' : `${cardNames.get(id) ?? '?'} (#${id})`)
 
+  // The `slots` column is not decoration. An earlier version of this script
+  // printed only the grand total, and the elf set — 40 matches with zero
+  // opening rows, invisible to the page it was supposed to demonstrate — sat in
+  // that total undetected. A per-class count makes "matches but no hands" a
+  // zero you cannot miss instead of 320 rows missing from a four-figure sum.
   lines.push('')
-  lines.push('  class      matches  deck                          shows')
-  lines.push('  ---------  -------  ----------------------------  ' + '-'.repeat(56))
+  lines.push('  class      matches    slots  deck                          shows')
+  lines.push('  ---------  -------  -------  ----------------------------  ' + '-'.repeat(48))
   let total = 0
   let slots = 0
   for (const set of sets) {
     const entry = plan.decks[set.label]
-    const deckLabel = entry
-      ? `${entry.deckName}${entry.created ? ' (demo, created)' : ' (yours)'}`
-      : '— none —'
+    const deckLabel =
+      !entry || entry.drawOnly
+        ? '— none —'
+        : `${entry.deckName}${entry.created ? ' (demo, created)' : ' (yours)'}`
     const deck = deckLabel.length > 28 ? `${deckLabel.slice(0, 27)}…` : deckLabel
+    const setSlots = set.matches.reduce((s, m) => s + m.openingCards.length, 0)
     total += set.matches.length
-    slots += set.matches.reduce((s, m) => s + m.openingCards.length, 0)
+    slots += setSlots
     lines.push(
-      `  ${set.label.padEnd(9)}  ${String(set.matches.length).padStart(7)}  ${deck.padEnd(28)}  ${set.shows}`
+      `  ${set.label.padEnd(9)}  ${String(set.matches.length).padStart(7)}` +
+        `  ${String(setSlots).padStart(7)}  ${deck.padEnd(28)}  ${set.shows}`
     )
   }
-  lines.push(`  ${'bishop'.padEnd(9)}  ${'0'.padStart(7)}  ${'—'.padEnd(28)}  the completely-empty per-class state`)
-  lines.push(`  ${'nemesis'.padEnd(9)}  ${'0'.padStart(7)}  ${'—'.padEnd(28)}  the completely-empty per-class state`)
+  for (const empty of ['bishop', 'nemesis']) {
+    lines.push(
+      `  ${empty.padEnd(9)}  ${'0'.padStart(7)}  ${'0'.padStart(7)}  ${'—'.padEnd(28)}` +
+        `  the completely-empty per-class state`
+    )
+  }
   lines.push('  ' + '-'.repeat(100))
   lines.push(`  TOTAL      ${String(total).padStart(7)} matches, ${slots} MatchOpeningCard rows`)
+
+  // A set with matches but no hands contributes nothing to the page at all, so
+  // it is called out rather than left for the reader to spot in the column.
+  const mute = sets.filter(
+    (s) => s.matches.length > 0 && s.matches.every((m) => m.openingCards.length === 0)
+  )
+  if (mute.length > 0) {
+    lines.push('')
+    lines.push(
+      `  WARNING: ${mute.map((s) => s.label).join(', ')} have matches but NO opening rows.`
+    )
+    lines.push('  Those matches are invisible to the 起手 page. That is almost certainly a bug.')
+  }
 
   const witch = sets.find((s) => s.label === 'witch')
   if (witch?.plants) {
     const p = witch.plants
     lines.push('')
     lines.push('  Planted inside the witch set:')
-    lines.push(`    suppressed deal rate   ${nameOf(p.suppressed)}  — 3-of, expected ~27.7%, will read ~12%`)
-    lines.push(`    low recognisedShare    ${nameOf(p.lowRecog)}  — slots left NULL ~45% of the time it is dealt`)
-    lines.push(`    real win-rate signal   ${nameOf(p.signal)}  — dealt WR ~57.5% vs ~49.5% not dealt`)
-    lines.push(`    never dealt            ${nameOf(p.neverDealt)}  — in the deck, removed from the draw`)
+    lines.push(
+      `    suppressed deal rate   ${nameOf(p.suppressed)}  — 3-of, expected ~27.7%, will read ~12%`
+    )
+    lines.push(
+      `    low recognisedShare    ${nameOf(p.lowRecog)}  — slots left NULL ~45% of the time it is dealt`
+    )
+    lines.push(
+      `    real win-rate signal   ${nameOf(p.signal)}  — dealt WR ~57.5% vs ~49.5% not dealt`
+    )
+    lines.push(
+      `    never dealt            ${nameOf(p.neverDealt)}  — in the deck, removed from the draw`
+    )
 
     // Observed deal rates, straight off the generated rows. Cheaper than
     // trusting the arithmetic in the comments above.
@@ -927,7 +1062,8 @@ function summarise(sets, plan, cardNames) {
     const notDealt = witch.matches.filter(
       (m) => !m.openingCards.some((c) => c.stage === 'pre' && c.cardId === p.signal)
     )
-    const wr = (ms) => (ms.length === 0 ? 0 : (100 * ms.reduce((s, m) => s + m.result, 0)) / ms.length)
+    const wr = (ms) =>
+      ms.length === 0 ? 0 : (100 * ms.reduce((s, m) => s + m.result, 0)) / ms.length
     lines.push(
       `    check: signal card WR  dealt ${wr(dealt).toFixed(1)}% (n=${dealt.length})` +
         ` vs not dealt ${wr(notDealt).toFixed(1)}% (n=${notDealt.length})` +
@@ -984,7 +1120,9 @@ async function main(argv) {
       } else if (running.found.length > 0) {
         console.error('')
         console.error(`  關掉 app 再跑。偵測到還在執行：${running.found.join(', ')}`)
-        console.error('  The app holds this database open; writing underneath it risks a half-written')
+        console.error(
+          '  The app holds this database open; writing underneath it risks a half-written'
+        )
         console.error('  seed and a confused renderer. Close SVWB Analyzer and run this again.')
         console.error('  (If you are certain it is not this database: --ignore-running)')
         return 1
@@ -999,29 +1137,40 @@ async function main(argv) {
       const plan = planDecks(db)
       const sets = generateAll({ decks: plan.decks, now: Date.now() })
       const cardNames = new Map(
-        db.prepare(`SELECT cardId, name FROM Card`).all().map((r) => [r.cardId, r.name])
+        db
+          .prepare(`SELECT cardId, name FROM Card`)
+          .all()
+          .map((r) => [r.cardId, r.name])
       )
 
       console.log('mode:     DRY RUN — nothing will be written. Add --apply to write.')
       console.log('')
       console.log('Existing data (read-only, untouched):')
-      console.log(`  Match ${db.prepare('SELECT COUNT(*) c FROM Match').get().c}` +
-        `  (already tagged demo-seed: ${db.prepare(`SELECT COUNT(*) c FROM Match WHERE source = ?`).get(DEMO_SOURCE).c})`)
-      console.log(`  Deck ${db.prepare('SELECT COUNT(*) c FROM Deck').get().c},` +
-        ` DeckCard ${db.prepare('SELECT COUNT(*) c FROM DeckCard').get().c},` +
-        ` Card ${db.prepare('SELECT COUNT(*) c FROM Card').get().c},` +
-        ` MatchOpeningCard ${db.prepare('SELECT COUNT(*) c FROM MatchOpeningCard').get().c}`)
+      console.log(
+        `  Match ${db.prepare('SELECT COUNT(*) c FROM Match').get().c}` +
+          `  (already tagged demo-seed: ${db.prepare(`SELECT COUNT(*) c FROM Match WHERE source = ?`).get(DEMO_SOURCE).c})`
+      )
+      console.log(
+        `  Deck ${db.prepare('SELECT COUNT(*) c FROM Deck').get().c},` +
+          ` DeckCard ${db.prepare('SELECT COUNT(*) c FROM DeckCard').get().c},` +
+          ` Card ${db.prepare('SELECT COUNT(*) c FROM Card').get().c},` +
+          ` MatchOpeningCard ${db.prepare('SELECT COUNT(*) c FROM MatchOpeningCard').get().c}`
+      )
       console.log('')
       console.log('Decks reused (yours, read-only):')
-      for (const r of plan.reused) console.log(`  ${r.className.padEnd(10)} #${r.deckId} ${r.name} (${r.cards} cards)`)
+      for (const r of plan.reused)
+        console.log(`  ${r.className.padEnd(10)} #${r.deckId} ${r.name} (${r.cards} cards)`)
       if (plan.reused.length === 0) console.log('  (none)')
       console.log('Decks this would CREATE (tagged sourceRef=demo-seed, removed by --remove):')
-      for (const c of plan.toCreate) console.log(`  ${c.className.padEnd(10)} [demo] ${c.className} 示範牌組 (${c.cards} cards)`)
+      for (const c of plan.toCreate)
+        console.log(`  ${c.className.padEnd(10)} [demo] ${c.className} 示範牌組 (${c.cards} cards)`)
       if (plan.toCreate.length === 0) console.log('  (none)')
 
       console.log(summarise(sets, plan, cardNames))
       console.log('')
-      console.log(`To write it:  node tools/seed-opening-demo.mjs --apply${dbOverride ? ` --db "${dbOverride}"` : ''}`)
+      console.log(
+        `To write it:  node tools/seed-opening-demo.mjs --apply${dbOverride ? ` --db "${dbOverride}"` : ''}`
+      )
       console.log(`To undo it:   ${UNDO}`)
       return 0
     } finally {
@@ -1048,8 +1197,12 @@ async function main(argv) {
         .get(DEMO_SOURCE).c
       const decks = db.prepare(`SELECT id, name FROM Deck WHERE sourceRef = ?`).all(DEMO_DECK_REF)
       console.log('')
-      console.log(`About to delete ${before} Match rows, ${slots} MatchOpeningCard rows (by cascade),`)
-      console.log(`and ${decks.length} demo Deck rows: ${decks.map((d) => `#${d.id} ${d.name}`).join(', ') || '(none)'}`)
+      console.log(
+        `About to delete ${before} Match rows, ${slots} MatchOpeningCard rows (by cascade),`
+      )
+      console.log(
+        `and ${decks.length} demo Deck rows: ${decks.map((d) => `#${d.id} ${d.name}`).join(', ') || '(none)'}`
+      )
 
       db.transaction(() => {
         db.prepare(`DELETE FROM Match WHERE source = ?`).run(DEMO_SOURCE)
@@ -1061,7 +1214,9 @@ async function main(argv) {
             .prepare(`SELECT COUNT(*) c FROM Match WHERE my_deckId = ? OR oppo_deckId = ?`)
             .get(d.id, d.id).c
           if (stillUsed > 0) {
-            console.warn(`  keeping Deck #${d.id} ${d.name}: ${stillUsed} of your own matches still reference it`)
+            console.warn(
+              `  keeping Deck #${d.id} ${d.name}: ${stillUsed} of your own matches still reference it`
+            )
             continue
           }
           db.prepare(`DELETE FROM DeckCard WHERE deckId = ?`).run(d.id)
@@ -1069,19 +1224,29 @@ async function main(argv) {
         }
       })()
 
-      const leftMatches = db.prepare(`SELECT COUNT(*) c FROM Match WHERE source = ?`).get(DEMO_SOURCE).c
+      const leftMatches = db
+        .prepare(`SELECT COUNT(*) c FROM Match WHERE source = ?`)
+        .get(DEMO_SOURCE).c
       const orphans = db
         .prepare(
           `SELECT COUNT(*) c FROM MatchOpeningCard oc
            LEFT JOIN Match m ON m.id = oc.matchId WHERE m.id IS NULL`
         )
         .get().c
-      const leftDecks = db.prepare(`SELECT COUNT(*) c FROM Deck WHERE sourceRef = ?`).get(DEMO_DECK_REF).c
+      const leftDecks = db
+        .prepare(`SELECT COUNT(*) c FROM Deck WHERE sourceRef = ?`)
+        .get(DEMO_DECK_REF).c
 
       console.log('')
-      console.log(`leftover demo matches:            ${leftMatches}  ${leftMatches === 0 ? 'OK' : 'NOT CLEAN'}`)
-      console.log(`orphaned MatchOpeningCard rows:   ${orphans}  ${orphans === 0 ? 'OK — the cascade held' : 'NOT CLEAN'}`)
-      console.log(`leftover demo decks:              ${leftDecks}  ${leftDecks === 0 ? 'OK' : '(kept: still referenced)'}`)
+      console.log(
+        `leftover demo matches:            ${leftMatches}  ${leftMatches === 0 ? 'OK' : 'NOT CLEAN'}`
+      )
+      console.log(
+        `orphaned MatchOpeningCard rows:   ${orphans}  ${orphans === 0 ? 'OK — the cascade held' : 'NOT CLEAN'}`
+      )
+      console.log(
+        `leftover demo decks:              ${leftDecks}  ${leftDecks === 0 ? 'OK' : '(kept: still referenced)'}`
+      )
       if (leftMatches !== 0 || orphans !== 0) {
         console.error('')
         console.error(`Removal did not come out clean. Your pre-run backup is at ${backup.dest}`)
@@ -1109,7 +1274,12 @@ async function main(argv) {
 
     const now = Date.now()
     const plan = planDecks(db)
-    const cardNames = new Map(db.prepare(`SELECT cardId, name FROM Card`).all().map((r) => [r.cardId, r.name]))
+    const cardNames = new Map(
+      db
+        .prepare(`SELECT cardId, name FROM Card`)
+        .all()
+        .map((r) => [r.cardId, r.name])
+    )
 
     let written
     db.transaction(() => {
@@ -1120,7 +1290,9 @@ async function main(argv) {
 
     console.log(summarise(written.sets, plan, cardNames))
     console.log('')
-    console.log(`Wrote ${written.counts.matches} Match rows and ${written.counts.slots} MatchOpeningCard rows.`)
+    console.log(
+      `Wrote ${written.counts.matches} Match rows and ${written.counts.slots} MatchOpeningCard rows.`
+    )
     console.log('')
     console.log(`TO UNDO THIS RUN:  ${UNDO}`)
     console.log(`Pre-run backup:    ${backup.dest}`)
@@ -1128,7 +1300,9 @@ async function main(argv) {
   } catch (err) {
     if (String(err?.code).startsWith('SQLITE_BUSY')) {
       console.error('')
-      console.error('  關掉 app 再跑。The database is locked by another process; nothing was written.')
+      console.error(
+        '  關掉 app 再跑。The database is locked by another process; nothing was written.'
+      )
       console.error(`  Your pre-run backup is at ${backup.dest}`)
       return 1
     }
