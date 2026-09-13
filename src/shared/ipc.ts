@@ -49,6 +49,7 @@ import type {
 import type { DeckImportPreview, ParsedDeckInput, StoredDeckCard } from './deckImport.js'
 import type { CardStatsResult } from './cardStats.js'
 import type { CardPoolResult, CardPoolStatusRow, CardStatsPayload } from './cards.js'
+import type { OpeningStatsPayload, OpeningStatsResult } from './openingStats.js'
 import type { BattleStatus, GameStatus, HudState } from './types.js'
 import type { UpdateSource } from './updates.js'
 import type { SupportPromptPayload } from './support.js'
@@ -251,6 +252,16 @@ export type IpcContract = {
   }) => Res<{ cardCount: number; syncedAt: number }>
   'cards:poolStatus': () => Res<CardPoolStatusRow[]>
   'cards:stats': (input?: CardStatsPayload) => Res<CardStatsResult>
+
+  /**
+   * 起手 - the opening-hand aggregate.
+   *
+   * Its own channel rather than a widening of `cards:stats`: different
+   * denominator, different completeness rule, and its numbers move on their
+   * own as background retries name cards that were unreadable at the time.
+   * See `shared/openingStats.ts`.
+   */
+  'cards:openingStats': (input?: OpeningStatsPayload) => Res<OpeningStatsResult>
 
   // -------------------------------------------------------------------- hud
   //
