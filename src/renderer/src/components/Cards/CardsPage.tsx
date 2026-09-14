@@ -12,20 +12,11 @@
  * that looked a few percent different would read as a different app.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Alert,
-  Box,
-  FormControlLabel,
-  Paper,
-  Skeleton,
-  Switch,
-  Tooltip,
-  Typography
-} from '@mui/material'
+import { Alert, Box, FormControlLabel, Paper, Skeleton, Switch, Typography } from '@mui/material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
+import InfoHint from '@renderer/components/Common/InfoHint'
 
 import { CARD_STATS_LOW_SAMPLE } from '@shared/cardStats'
 import { classes, modes } from '@renderer/map/classMap'
@@ -391,18 +382,14 @@ export default function CardsPage(): React.JSX.Element {
                     副牌組
                   </Box>
                 </Box>
-                <Tooltip title={coverageTip} placement="top">
-                  <Box
-                    component="span"
-                    data-testid="cards-coverage"
-                    data-covered={summary.covered}
-                    data-total={summary.total}
-                    aria-label="卡片統計的涵蓋範圍"
-                    sx={{ display: 'inline-flex', color: 'text.disabled', cursor: 'help' }}
-                  >
-                    <InfoOutlinedIcon sx={{ fontSize: 15 }} />
-                  </Box>
-                </Tooltip>
+                <Box
+                  component="span"
+                  data-testid="cards-coverage"
+                  data-covered={summary.covered}
+                  data-total={summary.total}
+                >
+                  <InfoHint title={coverageTip} label="卡片統計的涵蓋範圍" />
+                </Box>
               </Typography>
             </>
           )}

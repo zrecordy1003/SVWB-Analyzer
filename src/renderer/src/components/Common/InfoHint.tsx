@@ -35,8 +35,19 @@ export type InfoHintProps = {
    */
   size?: 15 | 18 | 'inherit'
   placement?: TooltipProps['placement']
+  /**
+   * 說明框的寬度上限。
+   *
+   * 預設 360px，而不是共用底 `TOOLTIP_SURFACE_SX` 的 `none`。那個 `none` 是為了
+   * 讓帶表格的 tooltip 不要被硬折行而設的，但這個元件放的幾乎都是散文——一段
+   * 不折行的中文會拉成一條橫跨整個視窗的細線，比折行難讀得多。
+   *
+   * 放表格或一列數字時傳 `'none'` 讓它自己撐開。
+   */
+  maxWidth?: number | 'none'
   /** 罕見情況：要讓圖示比周圍的字更暗或更亮時。 */
   color?: string
+  /** 作用在圖示外框上，不是說明框——說明框的寬度用 `maxWidth`。 */
   sx?: React.ComponentProps<typeof Box>['sx']
 }
 
@@ -52,10 +63,15 @@ const InfoHint: React.FC<InfoHintProps> = ({
   label,
   size = 15,
   placement = 'top',
+  maxWidth = 360,
   color = 'text.disabled',
   sx
 }) => (
-  <Tooltip title={title} placement={placement} slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}>
+  <Tooltip
+    title={title}
+    placement={placement}
+    slotProps={{ tooltip: { sx: { ...TOOLTIP_SURFACE_SX, maxWidth } } }}
+  >
     <Box
       component="span"
       role="img"

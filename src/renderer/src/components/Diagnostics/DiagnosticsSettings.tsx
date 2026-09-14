@@ -1,18 +1,9 @@
-import {
-  Alert,
-  Box,
-  Button,
-  CircularProgress,
-  FormControlLabel,
-  Snackbar,
-  Tooltip
-} from '@mui/material'
+import { Alert, Box, Button, CircularProgress, FormControlLabel, Snackbar } from '@mui/material'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import IosShareIcon from '@mui/icons-material/IosShare'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
 import React, { useCallback, useEffect, useState } from 'react'
-import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
+import InfoHint from '@renderer/components/Common/InfoHint'
 import IOSSwitch from '../Common/IOSSwitch'
 
 type Summary = {
@@ -114,7 +105,7 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
         label={
           <Box display="flex" alignItems="center" gap={0.5}>
             <span>記錄辨識異常（僅存本機）</span>
-            <Tooltip
+            <InfoHint
               title={
                 <Box display="flex" flexDirection="column" gap={0.5}>
                   <span>
@@ -124,14 +115,10 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
                   <span>{statusLine}</span>
                 </Box>
               }
-              placement="top"
-              slotProps={{ tooltip: { sx: { ...TOOLTIP_SURFACE_SX, maxWidth: 360 } } }}
-            >
-              <HelpOutlineIcon
-                fontSize="small"
-                sx={{ display: 'block', color: 'text.secondary', cursor: 'default' }}
-              />
-            </Tooltip>
+              label="說明：記錄辨識異常會記錄什麼"
+              size={18}
+              color="text.secondary"
+            />
           </Box>
         }
       />

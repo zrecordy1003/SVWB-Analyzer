@@ -1,8 +1,7 @@
-import { Box, FormControlLabel, Tooltip, Typography } from '@mui/material'
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline'
+import { Box, FormControlLabel, Typography } from '@mui/material'
 import React, { useCallback, useEffect, useState } from 'react'
 import type { TelemetryStatus } from '@shared/telemetry'
-import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
+import InfoHint from '@renderer/components/Common/InfoHint'
 import IOSSwitch from '../Common/IOSSwitch'
 
 /**
@@ -84,21 +83,17 @@ const TelemetrySettings: React.FC = () => {
         label={
           <Box display="flex" alignItems="center" gap={0.5}>
             <span>分享對局數據</span>
-            <Tooltip
+            <InfoHint
               title={
                 <Box display="flex" flexDirection="column" gap={0.5}>
                   <span>開啟後，定期上傳對戰資料，不會收集任何隱私資料，且不佔用頻寬。</span>
                   {enabled && <span>{lastUploadLine}</span>}
                 </Box>
               }
-              placement="top"
-              slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
-            >
-              <HelpOutlineIcon
-                fontSize="small"
-                sx={{ display: 'block', color: 'text.secondary', cursor: 'default' }}
-              />
-            </Tooltip>
+              label="說明：分享對局數據會上傳什麼"
+              size={18}
+              color="text.secondary"
+            />
           </Box>
         }
       />

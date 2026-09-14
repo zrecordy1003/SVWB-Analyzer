@@ -13,11 +13,11 @@
  */
 import { Box, Chip, Drawer, IconButton, Stack, Tooltip, Typography } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import React from 'react'
 
 import { CARD_STATS_LOW_SAMPLE, type CardDeckStat } from '@shared/cardStats'
 import { cardImageUrl } from '@shared/deckImport'
+import InfoHint from '@renderer/components/Common/InfoHint'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap } from '@renderer/map/classMap'
 import { CardTextBlocks } from '@renderer/components/DeckCards/CardTooltip'
@@ -243,18 +243,10 @@ export default function CardDrilldownDrawer({
               <Typography variant="subtitle2" fontWeight={800}>
                 帶這張卡的牌組
               </Typography>
-              <Tooltip
+              <InfoHint
                 title="這些是牌組的成績，不是卡片本身的：沒有抽牌／出牌資料，看不出這張卡在手上時打得怎樣。"
-                placement="top"
-              >
-                <Box
-                  component="span"
-                  aria-label="這些數字的意思"
-                  sx={{ display: 'inline-flex', color: 'text.disabled', cursor: 'help' }}
-                >
-                  <InfoOutlinedIcon sx={{ fontSize: 15 }} />
-                </Box>
-              </Tooltip>
+                label="這些數字的意思"
+              />
               <Typography variant="caption" color="text.secondary" sx={NUMERIC}>
                 {classLabel} ・ {families.length} 副 ・ {card.decks.length} 版 ・ {card.total} 場
               </Typography>

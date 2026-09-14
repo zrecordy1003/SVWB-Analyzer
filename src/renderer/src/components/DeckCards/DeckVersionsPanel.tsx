@@ -44,12 +44,12 @@ import CompareArrowsRoundedIcon from '@mui/icons-material/CompareArrowsRounded'
 import DeleteIcon from '@mui/icons-material/Delete'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import MoreHorizRoundedIcon from '@mui/icons-material/MoreHorizRounded'
 import StarIcon from '@mui/icons-material/Star'
 import { cardImageUrl, type StoredDeckCard } from '@shared/deckImport'
 import { formatWithInterval, LOW_SAMPLE_THRESHOLD } from '@renderer/components/Analyzer/confidence'
 import AppDialog, { DANGER_ACCENT } from '@renderer/components/Common/AppDialog'
+import InfoHint from '@renderer/components/Common/InfoHint'
 import {
   DROPDOWN_ITEM_SX,
   DROPDOWN_PAPER_SX
@@ -604,16 +604,9 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
 
       {/* 說明收成右上角一個 ⓘ：數字才是這一區的主角。 */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, mb: -0.5 }}>
-        <Tooltip title={VERSION_STATS_CAVEAT} placement="left">
-          <Box
-            component="span"
-            data-testid="deck-versions-caveat"
-            aria-label="版本數字怎麼讀"
-            sx={{ display: 'inline-flex', color: 'text.disabled', cursor: 'help' }}
-          >
-            <InfoOutlinedIcon sx={{ fontSize: 15 }} />
-          </Box>
-        </Tooltip>
+        <Box component="span" data-testid="deck-versions-caveat">
+          <InfoHint title={VERSION_STATS_CAVEAT} label="版本數字怎麼讀" placement="left" />
+        </Box>
       </Box>
 
       {/* 一條時間線把所有版本串起來。豎線由每一列自己畫上下兩段（第一列不畫
