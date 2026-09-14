@@ -1,12 +1,22 @@
 /**
  * 起手 - opening-hand statistics over the user's own matches.
  *
- * Three regions, top to bottom: the hand-level summary (coverage, curve, swap
- * counts), a one-paragraph explanation of the comparison this page makes, and
- * the card table with its drill-down. The order is the order of trust: the
- * summary needs only that hands were read, the table additionally needs decks
- * and sample sizes, and the paragraph between them is what makes the table's
- * central number mean what it says.
+ * Two regions, top to bottom: the hand-level summary (coverage, swap counts,
+ * curve) and the card table with its drill-down. The order is the order of
+ * trust: the summary needs only that hands were read, the table additionally
+ * needs decks and sample sizes.
+ *
+ * # Where the explanation went
+ *
+ * The first pass printed a fixed paragraph between the two regions - why
+ * "dealt vs not dealt" is a fair comparison and why the page refuses to print
+ * a kept-hand win rate. The user's direction was unambiguous: a good page is
+ * understood at a glance, and anything that needs a sentence goes behind a
+ * hover. So the paragraph is now the ⓘ beside the table's title, on the app's
+ * shared `InfoHint`. The cost is real and worth naming: a reader who never
+ * hovers may read the comparison column as the "opening-hand win rate" every
+ * other tool prints. Two things soften it - the column is labelled 發到 vs
+ * 沒發到, not 勝率, and its own header ⓘ repeats the one-line version.
  *
  * Layout and chrome follow 卡片 / 牌組戰績 - same toolbar, same heights, same
  * chip mechanics, the filter components imported verbatim - because a third
@@ -34,11 +44,9 @@ import {
   Skeleton,
   Stack,
   Switch,
-  Tooltip,
   Typography
 } from '@mui/material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
@@ -46,6 +54,7 @@ import type { SvgIconComponent } from '@mui/icons-material'
 import { classes, modes } from '@renderer/map/classMap'
 import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
 import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
+import InfoHint from '@renderer/components/Common/InfoHint'
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
 import { DeckEditor, RangeEditor } from '@renderer/components/Common/filters/FilterEditors'
 import {
@@ -106,38 +115,43 @@ const ADVANCED_ICONS: Record<CardsAdvancedKey, SvgIconComponent> = {
 }
 
 /**
- * The sentence that makes the table trustworthy.
+ * The sentences that make the table trustworthy, as the table title's ⓘ.
  *
- * Fixed, prominent, in the page body - not a tooltip, not an ⓘ. It is the one
- * thing a reader needs to know that no other product in this genre tells them,
- * and a reader who does not see it will read the comparison column as the
- * "opening-hand win rate" every other tool prints, which it deliberately is not.
+ * Formatted rather than one run-on caption: the two bold lead-ins are the two
+ * halves of the argument, and the last line is the coverage fact the table's
+ * n's depend on. It takes the counts so the denominators are the live ones.
  */
-function Explainer(): React.JSX.Element {
+function TableHint({
+  withDeck,
+  preComplete
+}: {
+  withDeck: number
+  preComplete: number
+}): React.JSX.Element {
   return (
-    <Box
-      data-testid="opening-explainer"
-      sx={{
-        px: 2.25,
-        py: 1.75,
-        borderRadius: 2,
-        borderLeft: '3px solid',
-        borderColor: 'primary.main',
-        bgcolor: 'action.hover'
-      }}
-    >
-      <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
+    <Box data-testid="opening-explainer" sx={{ maxWidth: 360, '& > * + *': { mt: 0.75 } }}>
+      <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
           起手四張是隨機發到的。
         </Box>
-        有沒有發到某張卡，和對手是誰、先後手、你那天的狀態都無關，所以「發到 vs
-        沒發到」的勝率差是一個公平的比較 - 它量的是這張卡在起手時對這副牌的價值。
+        有沒有發到某張卡，和對手、先後手、你那天的狀態都無關，所以「發到 vs
+        沒發到」的勝率差是公平的比較 - 它量的是這張卡在起手時對這副牌的價值。
+      </Typography>
+      <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
-          換牌後的手牌是你選的。
+          換牌後留下的是你選的。
         </Box>
-        一張卡被留下來，是因為另外三張、對手的職業、先後手 -
-        留下來的勝率量的是你的判斷，不是這張卡，所以這頁沒有「留下時的勝率」。這正是別家工具印成
-        「起手勝率」的那個數字；我們在換牌前就讀到手牌，不必做那個妥協。
+        留下來的勝率量的是你的判斷，不是這張卡，所以這頁沒有「留下時的勝率」-
+        別家工具印成「起手勝率」的就是那個數字。
+      </Typography>
+      <Typography
+        variant="caption"
+        component="div"
+        color="text.secondary"
+        sx={{ ...NUMERIC, lineHeight: 1.6 }}
+      >
+        發到率和對照需要牌組，只算 {withDeck} 場有掛牌組的對局；保留率不需要，{preComplete}{' '}
+        場四張全辨識的都算。
       </Typography>
     </Box>
   )
@@ -324,10 +338,10 @@ export default function OpeningPage(): React.JSX.Element {
   const emptyText = (() => {
     if (!data) return ''
     if (data.summary.matches === 0) {
-      return '這個範圍內沒有讀到任何起手。只有 1.3.5 之後、換牌畫面有被看到的對局才會進來。放寬時間區間，或清掉牌組條件再看看。'
+      return '這個範圍內沒有讀到任何起手。只有 1.3.5 之後、看得到換牌畫面的對局才會進來。'
     }
     if (allRows.length === 0) {
-      return `有 ${data.summary.matches} 場讀到換牌畫面，但還沒有一張卡被認出來。卡圖索引是開啟 app 之後在背景建的，建完會自動補上 - 上面「換牌張數分佈」已經有東西了，那部分不需要認出卡片。`
+      return `${data.summary.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`
     }
     return ''
   })()
@@ -424,9 +438,9 @@ export default function OpeningPage(): React.JSX.Element {
           sx={{ borderRadius: 2, py: 0.5 }}
         >
           <Box component="span" sx={{ fontWeight: 800 }}>
-            這一頁現在顯示的是示範資料，不是你的紀錄。
+            這一頁顯示的是示範資料，不是你的紀錄。
           </Box>{' '}
-          它是手寫的，用來檢視這頁的每一種狀態；篩選條件對它沒有作用。關掉右上角的開關就回到真的。
+          篩選對它無效；關掉右上角的開關就回到真的。
         </Alert>
       )}
 
@@ -438,27 +452,11 @@ export default function OpeningPage(): React.JSX.Element {
 
       {/* ---------- A. 手牌總覽 ---------- */}
       <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
-        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
-          <Typography variant="subtitle1" fontWeight={800}>
-            手牌總覽
-          </Typography>
-          <Tooltip
-            title="這一段只看手牌本身，不看牌組：讀到幾場、認出幾場、換了幾張、曲線長什麼樣。每個數字的分母都寫在它自己的提示裡。"
-            placement="top"
-          >
-            <Box
-              component="span"
-              sx={{ display: 'inline-flex', color: 'text.disabled', cursor: 'help' }}
-            >
-              <InfoOutlinedIcon sx={{ fontSize: 15 }} />
-            </Box>
-          </Tooltip>
-        </Stack>
+        <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>
+          手牌總覽
+        </Typography>
         <OpeningSummaryPanel summary={summary} loading={loading} />
       </Paper>
-
-      {/* ---------- C. 一句話的說明，放在表格前面 ---------- */}
-      <Explainer />
 
       {/* ---------- B. 卡片表 ---------- */}
       <Paper elevation={0} sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}>
@@ -473,41 +471,29 @@ export default function OpeningPage(): React.JSX.Element {
             bgcolor: 'action.hover'
           }}
         >
+          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle1" fontWeight={800}>
+              卡片
+            </Typography>
+            {summary !== null && (
+              <InfoHint
+                label="這張表在比什麼"
+                title={<TableHint withDeck={summary.withDeck} preComplete={summary.preComplete} />}
+              />
+            )}
+          </Stack>
           {summary === null ? (
-            <>
-              <Skeleton variant="text" width={90} />
-              <Skeleton variant="text" width={120} />
-            </>
+            <Skeleton variant="text" width={60} sx={{ ml: 'auto' }} />
           ) : (
-            <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Box component="span">
-                <Box component="span" sx={{ ...NUMERIC, fontWeight: 700 }}>
-                  {allRows.length}
-                </Box>
-                <Box component="span" color="text.secondary">
-                  {' '}
-                  種卡 ·{' '}
-                </Box>
-                <Box component="span" sx={{ ...NUMERIC, fontWeight: 700 }}>
-                  {summary.withDeck}
-                </Box>
-                <Box component="span" color="text.secondary">
-                  {' '}
-                  場有掛牌組
-                </Box>
-              </Box>
-              <Tooltip
-                title={`發到率和「發到 vs 沒發到」需要知道牌組裡有沒有這張卡，所以只算 ${summary.withDeck} 場有掛牌組的對局；保留率不需要牌組，${summary.preComplete} 場四張全辨識的都算。`}
-                placement="top"
-              >
-                <Box
-                  component="span"
-                  aria-label="卡片表的涵蓋範圍"
-                  sx={{ display: 'inline-flex', color: 'text.disabled', cursor: 'help' }}
-                >
-                  <InfoOutlinedIcon sx={{ fontSize: 15 }} />
-                </Box>
-              </Tooltip>
+            <Typography
+              variant="caption"
+              data-testid="opening-table-count"
+              sx={{ ...NUMERIC, ml: 'auto', color: 'text.secondary' }}
+            >
+              <Box component="span" sx={{ fontWeight: 800, color: 'text.primary' }}>
+                {allRows.length}
+              </Box>{' '}
+              種卡
             </Typography>
           )}
         </Box>

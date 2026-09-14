@@ -1,13 +1,20 @@
 /**
- * 換牌張數分佈 - how often the user swaps 0, 1, 2, 3 or 4 cards, and how those
+ * 換牌張數 - how often the user swaps 0, 1, 2, 3 or 4 cards, and how those
  * hands went.
  *
+ * Five horizontal bars, one per band, longest first by construction of the
+ * axis (0 at the top). Horizontal rather than the first pass's five columns
+ * because the count and the win rate then sit on the same line as the bar,
+ * and the chart is short enough to share a row with the coverage funnel. A
+ * column chart wanted a row of its own and spent it on five labels.
+ *
  * The distribution is the honest half: it is a count of decisions, and it
- * needs no caveat. The win rate under each column is the half that has to be
- * labelled, and the label is printed in the panel, not folded into a tooltip:
- * a player swaps more when the hand is bad, so "4 swaps → 29%" mostly says the
- * hand was bad, not that swapping four is a mistake. Every product that shows
- * this number shows it without that sentence. This one does not.
+ * needs no caveat. The win rate at the end of each bar is the half that has
+ * to be labelled - a player swaps more when the hand is bad, so "4 swaps →
+ * 29%" mostly says the hand was bad, not that swapping four is a mistake.
+ * That sentence used to be a paragraph under the chart; it is now the ⓘ
+ * beside the card's title (`OpeningSummaryPanel`), and the rate itself is
+ * drawn one step quieter than the count so the eye lands on the bar first.
  *
  * Win rates follow the page's rule: a band under `wrShow` prints its n only.
  * The contract has no per-band confidence, so the threshold is applied here,
@@ -26,9 +33,9 @@ type Split = 'all' | 'first' | 'second'
 
 const SPLIT_LABEL: Record<Split, string> = { all: '全部', first: '先手', second: '後手' }
 
-const TRACK_H = 96
+const BAR_H = 16
 
-/** Always five columns, 0 through 4, so an unused band keeps its place. */
+/** Always five bands, 0 through 4, so an unused band keeps its place. */
 function fillBands(bands: SwapBand[]): SwapBand[] {
   const by = new Map(bands.map((b) => [b.swapped, b]))
   return [0, 1, 2, 3, 4].map((n) => by.get(n) ?? { swapped: n, total: 0, wins: 0, rate: 0 })
@@ -57,19 +64,29 @@ export default function SwapBandsChart({
         justifyContent="space-between"
         flexWrap="wrap"
         rowGap={0.75}
-        sx={{ mb: 1 }}
+        sx={{ mb: 1.25 }}
       >
-        <Stack direction="row" alignItems="baseline" spacing={0.75} sx={NUMERIC}>
-          <Typography variant="caption" color="text.secondary">
-            平均換
-          </Typography>
-          <Typography variant="body2" fontWeight={800}>
-            {avgSwapped === null ? '—' : `${avgSwapped.toFixed(2)} 張`}
-          </Typography>
-          <Typography variant="caption" color="text.disabled">
-            · {hands} 手
-          </Typography>
-        </Stack>
+        {/* 平均換幾張：the one summary number this chart has. The unit is in
+            the tooltip - "1.51 張 · 171 手" on screen was three words for one
+            figure. */}
+        <Tooltip title="每手平均換掉幾張，全部讀到換牌畫面的手都算" placement="top">
+          <Stack
+            direction="row"
+            alignItems="baseline"
+            spacing={0.75}
+            sx={{ ...NUMERIC, cursor: 'help' }}
+          >
+            <Typography variant="caption" color="text.secondary">
+              平均
+            </Typography>
+            <Typography component="span" sx={{ fontSize: 18, fontWeight: 900, lineHeight: 1 }}>
+              {avgSwapped === null ? '—' : avgSwapped.toFixed(2)}
+            </Typography>
+            <Typography variant="caption" color="text.disabled">
+              {fmtN(hands)}
+            </Typography>
+          </Stack>
+        </Tooltip>
         <ToggleButtonGroup
           exclusive
           size="small"
@@ -89,22 +106,20 @@ export default function SwapBandsChart({
       {hands === 0 ? (
         <Box
           sx={{
-            height: TRACK_H + 56,
+            height: 5 * (BAR_H + 8),
             display: 'grid',
             placeItems: 'center',
-            color: 'text.secondary',
+            color: 'text.disabled',
             textAlign: 'center',
             px: 2
           }}
         >
           <Typography variant="caption">
-            {split === 'all'
-              ? '還沒有讀到任何一場的換牌畫面。讀到之後這裡就有分佈 - 換了幾張不需要認出卡片。'
-              : `這個範圍內沒有讀到${SPLIT_LABEL[split]}的換牌畫面。`}
+            {split === 'all' ? '還沒有讀到換牌畫面' : `沒有${SPLIT_LABEL[split]}的紀錄`}
           </Typography>
         </Box>
       ) : (
-        <Stack direction="row" spacing={1} alignItems="flex-end">
+        <Stack spacing={1}>
           {bands.map((b) => {
             const share = hands > 0 ? (b.total / hands) * 100 : 0
             const showRate = b.total >= OPENING_THRESHOLDS.wrShow
@@ -133,14 +148,14 @@ export default function SwapBandsChart({
                 placement="top"
                 slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
               >
-                <Stack
-                  spacing={0.5}
-                  alignItems="stretch"
+                <Box
                   tabIndex={0}
                   aria-label={`換 ${b.swapped} 張，${b.total} 手`}
                   sx={{
-                    flex: 1,
-                    minWidth: 0,
+                    display: 'grid',
+                    gridTemplateColumns: '36px minmax(0, 1fr) 84px',
+                    alignItems: 'center',
+                    columnGap: 1,
                     cursor: 'help',
                     borderRadius: 1,
                     '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main' }
@@ -148,82 +163,80 @@ export default function SwapBandsChart({
                 >
                   <Typography
                     variant="caption"
-                    align="center"
-                    sx={{ ...NUMERIC, fontWeight: 700, opacity: b.total === 0 ? 0.35 : 1 }}
-                  >
-                    {b.total}
-                    <Box component="span" sx={{ color: 'text.secondary', fontWeight: 400 }}>
-                      {' '}
-                      ({share.toFixed(0)}%)
-                    </Box>
-                  </Typography>
-                  <Box
                     sx={{
-                      height: TRACK_H,
-                      bgcolor: 'action.hover',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                      borderRadius: 0.75,
-                      display: 'flex',
-                      alignItems: 'flex-end',
-                      overflow: 'hidden'
+                      ...NUMERIC,
+                      fontWeight: 800,
+                      color: 'text.secondary',
+                      whiteSpace: 'nowrap'
                     }}
-                  >
-                    <Box
-                      sx={{
-                        width: '100%',
-                        height: `${(b.total / peak) * 100}%`,
-                        bgcolor: 'primary.main',
-                        opacity: 0.7,
-                        transition: 'height .3s'
-                      }}
-                    />
-                  </Box>
-                  <Typography
-                    variant="caption"
-                    align="center"
-                    sx={{ fontWeight: 800, lineHeight: 1.2 }}
                   >
                     換 {b.swapped}
                   </Typography>
-                  {/* 勝率：夠場數才印數字，不夠就印 n。 */}
+                  {/* bar + count riding its end */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                    <Box
+                      sx={{
+                        height: BAR_H,
+                        width: `${(b.total / peak) * 100}%`,
+                        minWidth: b.total > 0 ? 3 : 0,
+                        borderRadius: 0.75,
+                        bgcolor: 'primary.main',
+                        opacity: 0.7,
+                        transition: 'width .3s',
+                        flexShrink: 1
+                      }}
+                    />
+                    <Typography
+                      variant="caption"
+                      sx={{
+                        ...NUMERIC,
+                        fontWeight: 800,
+                        lineHeight: 1,
+                        whiteSpace: 'nowrap',
+                        color: b.total === 0 ? 'text.disabled' : 'text.primary'
+                      }}
+                    >
+                      {b.total}
+                      <Box
+                        component="span"
+                        sx={{ color: 'text.disabled', fontWeight: 500, fontSize: 10.5, ml: 0.4 }}
+                      >
+                        {share.toFixed(0)}%
+                      </Box>
+                    </Typography>
+                  </Box>
+                  {/* 勝率：夠場數才印數字，不夠就印 n。一步比計數安靜。 */}
                   <Typography
                     variant="caption"
-                    align="center"
                     noWrap
                     sx={{
                       ...NUMERIC,
+                      textAlign: 'right',
                       lineHeight: 1.2,
                       fontWeight: showRate ? 800 : 600,
-                      color: showRate
-                        ? rateTone(b.rate, 'light')
-                        : b.total === 0
-                          ? 'text.disabled'
-                          : 'text.disabled'
+                      color: showRate ? rateTone(b.rate, 'light') : 'text.disabled'
                     }}
                   >
-                    {showRate ? `${b.rate.toFixed(0)}% (n=${b.total})` : fmtN(b.total)}
+                    {showRate ? (
+                      <>
+                        {b.rate.toFixed(0)}%
+                        <Box
+                          component="span"
+                          sx={{ color: 'text.disabled', fontWeight: 500, fontSize: 10.5, ml: 0.4 }}
+                        >
+                          {fmtN(b.total)}
+                        </Box>
+                      </>
+                    ) : (
+                      fmtN(b.total)
+                    )}
                   </Typography>
-                </Stack>
+                </Box>
               </Tooltip>
             )
           })}
         </Stack>
       )}
-
-      {/* 選擇偏差的那句話，一定印在面板上，不收進 tooltip。這和辨識無關 - 換了幾張是
-          從畫面的位置讀的，卡片認不認得出來都算得到，所以這一格不缺資料；它缺的是
-          「換牌張數」和「勝率」之間的因果。兩件事分開講。 */}
-      <Typography
-        variant="caption"
-        color="text.secondary"
-        component="p"
-        sx={{ mt: 1.25, lineHeight: 1.5 }}
-      >
-        分佔本身是準的：換了幾張是從畫面位置讀的，不用認出卡片，每一場讀到換牌畫面的都算。
-        底下那排勝率則會偏 - 手牌差才會多換，所以「換得多、勝率低」大半是在講手牌本來就差，
-        不是在講換牌這個決定。看分佈就好，勝率當參考。
-      </Typography>
     </Box>
   )
 }

@@ -28,9 +28,8 @@
  * `keepRate` threshold the table uses. The split is shown so the user can see
  * their data accumulate; it is not shown so they can read seven noisy numbers.
  */
-import { Box, Drawer, IconButton, Skeleton, Stack, Tooltip, Typography } from '@mui/material'
+import { Box, Drawer, IconButton, Skeleton, Stack, Typography } from '@mui/material'
 import CloseIcon from '@mui/icons-material/Close'
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import React from 'react'
 
 import type { ClassName } from '@shared/domain'
@@ -41,6 +40,7 @@ import {
 } from '@shared/openingStats'
 import { cardImageUrl } from '@shared/deckImport'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
+import InfoHint from '@renderer/components/Common/InfoHint'
 import { classes } from '@renderer/map/classMap'
 import { CostBadge } from '@renderer/components/Cards/CardsTable'
 import { wilsonInterval } from '@renderer/components/Analyzer/confidence'
@@ -57,7 +57,6 @@ import type { OpeningRow } from './openingFilterState'
 import {
   fmtN,
   fmtPct,
-  MISSING_SPEC,
   missingFor,
   NUMERIC,
   RARITY_LABEL,
@@ -89,7 +88,7 @@ function CardArt({ hash, name }: { hash: string | null; name: string }): React.J
   )
 }
 
-/** A labelled block with a heading and an optional ⓘ. */
+/** A labelled block with a heading and an optional ⓘ (`InfoHint`, the app's one). */
 function Section({
   title,
   info,
@@ -106,14 +105,14 @@ function Section({
           {title}
         </Typography>
         {info && (
-          <Tooltip title={info} placement="top">
-            <Box
-              component="span"
-              sx={{ display: 'inline-flex', color: 'text.disabled', cursor: 'help' }}
-            >
-              <InfoOutlinedIcon sx={{ fontSize: 15 }} />
-            </Box>
-          </Tooltip>
+          <InfoHint
+            label={`${title}的說明`}
+            title={
+              <Typography variant="caption" component="div" sx={{ maxWidth: 300, lineHeight: 1.6 }}>
+                {info}
+              </Typography>
+            }
+          />
         )}
       </Stack>
       {children}
@@ -303,6 +302,9 @@ export default function OpeningDrilldownDrawer({
                       .join(' ・ ')}
                   </Typography>
                 </Stack>
+                {/* The pill carries its own explanation on hover; the first
+                    pass also printed that sentence under it, twice the words
+                    for the same fact. */}
                 {stat.missing && (
                   <Box sx={{ mt: 1.25 }}>
                     <MissingPill
@@ -310,14 +312,6 @@ export default function OpeningDrilldownDrawer({
                       sample={sampleFor(stat, 'compare')}
                       remaining={remainingFor(stat, 'compare')}
                     />
-                    <Typography
-                      variant="caption"
-                      color="text.secondary"
-                      component="p"
-                      sx={{ mt: 0.75, lineHeight: 1.5 }}
-                    >
-                      {MISSING_SPEC[stat.missing].explain}
-                    </Typography>
                   </Box>
                 )}
               </Box>
@@ -375,7 +369,7 @@ export default function OpeningDrilldownDrawer({
                     component="div"
                     sx={{ mt: 0.5, ...NUMERIC }}
                   >
-                    被發到 {stat.dealt} 次 · 留 {stat.kept}
+                    發到 {stat.dealt} · 留 {stat.kept}
                   </Typography>
                 </Box>
                 <Box>
@@ -432,7 +426,7 @@ export default function OpeningDrilldownDrawer({
             {/* ---------- 依先後手 ---------- */}
             <Section
               title="保留率 · 依先後手"
-              info="先手和後手的換牌邏輯不一樣，這個切法是有意義的。但目前的查詢條件還沒有先後手，所以這裡先空著。"
+              info="先手和後手的換牌邏輯不一樣，這個切法是有意義的。但這一版的查詢條件還沒有先後手，所以卡片層算不出來；整體的先後手差異先看「換牌張數」的切換。"
             >
               <Box
                 sx={{
@@ -440,12 +434,12 @@ export default function OpeningDrilldownDrawer({
                   borderColor: 'divider',
                   borderRadius: 2,
                   px: 1.5,
-                  py: 1.25
+                  py: 1.25,
+                  textAlign: 'center'
                 }}
               >
-                <Typography variant="caption" color="text.secondary" component="p">
-                  這一版還沒把先後手帶到卡片層 - 查詢條件裡沒有這個欄位，所以這裡還算不出來。
-                  整體的先後手差異先看上面「換牌張數分佈」的切換。
+                <Typography variant="caption" color="text.disabled">
+                  尚未提供
                 </Typography>
               </Box>
             </Section>

@@ -4,8 +4,8 @@
  * Three of them carry the page's rules, and they are components rather than
  * conventions so that the rules cannot be skipped at a call site:
  *
- * - `RateCell` prints a `Rate` as point estimate + interval whisker + n. There
- *   is no prop to drop the n.
+ * - `RateCell` prints a `Rate` as bar + point estimate + n. There is no prop
+ *   to drop the n.
  * - `SampleOnly` is what stands in for a number the confidence rules forbid:
  *   the sample size, greyed. "n=7" tells the user how far away the number is;
  *   "—" tells them nothing, and a blank cell tells them the software broke.
@@ -17,6 +17,19 @@
  * and compared digit by digit; a whisker whose width is the uncertainty is
  * read at a glance, and two whiskers that overlap say "no difference" without
  * a single number being parsed.
+ *
+ * # Bar first, digits second
+ *
+ * In every cell here the bar is the primary mark and the digits sit after it,
+ * smaller and in a fixed-width column. The first pass had it the other way
+ * round - a 15px number with a 5px bar under it - and a column of those reads
+ * as a column of numbers with decoration. Swapping the weights lets a reader
+ * scan a column and see the shape of their deck (which cards they keep, which
+ * comparisons lean which way) without reading a digit; the digits are still
+ * there, at the same x on every line, for the reader who wants them. The
+ * alternative - hiding the digits until row hover - was rejected: a table
+ * whose numbers appear and disappear under the mouse is a table nobody
+ * trusts, and it is unreadable on a screenshot.
  */
 import { Box, Stack, Tooltip, Typography } from '@mui/material'
 import LinkOffRoundedIcon from '@mui/icons-material/LinkOffRounded'
@@ -89,22 +102,35 @@ export function BannerArt({
 /**
  * A point estimate with its interval, on a 0–100 track.
  *
- * The whisker is `lo..hi`, the dot is the estimate, the dashed mark is 50%.
- * Colour follows the estimate's side of 50 only when the whole interval is on
- * that side; an interval that straddles 50 is neutral, because "probably above
- * half" is not what a green bar says.
+ * The whisker is `lo..hi`, the dot is the estimate, the dashed mark is the
+ * anchor. Colour follows the estimate's side of the anchor only when the
+ * whole interval is on that side; an interval that straddles it is neutral,
+ * because "probably above half" is not what a green bar says.
  */
 export function IntervalBar({
   rate,
   muted = false,
   anchor = 50,
-  height = 6
+  height = 6,
+  fill = false
 }: {
   rate: Rate
   muted?: boolean
-  /** Where the dashed reference line sits; 50 for win rates, the expectation for deal rates. */
+  /** Where the dashed reference line sits; 50 for win rates, null for a rate with no natural anchor. */
   anchor?: number | null
   height?: number
+  /**
+   * Also paint the track from 0 to the estimate.
+   *
+   * A whisker alone is a marker: it says WHERE, and a column of markers has
+   * to be read one by one. A fill from zero is a magnitude, and a column of
+   * fills is a shape. The keep-rate column wants the shape - "which of my
+   * cards do I keep" is a question about the whole column - so it fills. A
+   * win rate against a 50% anchor does not: there the question is which side
+   * of the line, and a fill from zero makes 48% and 52% look nearly identical
+   * when they are the two answers.
+   */
+  fill?: boolean
 }): React.JSX.Element {
   const straddles = anchor !== null && rate.lo < anchor && rate.hi > anchor
   const tone = muted || straddles ? 'text.disabled' : rateTone(rate.rate, 'main')
@@ -120,6 +146,20 @@ export function IntervalBar({
         position: 'relative'
       }}
     >
+      {fill && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: 0,
+            width: `${rate.rate}%`,
+            borderRadius: height / 2,
+            bgcolor: muted ? 'text.disabled' : 'primary.main',
+            opacity: muted ? 0.22 : 0.5
+          }}
+        />
+      )}
       {anchor !== null && (
         <Box
           sx={{
@@ -167,6 +207,11 @@ export function IntervalBar({
  * shows, so the dot can sit off-centre in its own whisker - that is the
  * shrinkage, made visible, and it is why a huge whisker with a dot near zero
  * reads correctly as "we do not know yet".
+ *
+ * The segment from the centre to the dot is painted, not just the dot: a
+ * diverging bar that grows out of its axis reads as a magnitude and a
+ * direction at once, which is the whole reason to draw a difference this way
+ * instead of two rates side by side.
  */
 export function DivergingBar({
   value,
@@ -174,7 +219,8 @@ export function DivergingBar({
   hi,
   muted = false,
   span = 30,
-  height = 6
+  height = 6,
+  tone: toneOverride
 }: {
   value: number
   lo: number | null
@@ -182,10 +228,24 @@ export function DivergingBar({
   muted?: boolean
   span?: number
   height?: number
+  /**
+   * Replace the good/bad colouring with one palette path.
+   *
+   * For the deal-rate check, where the sign carries no value judgement: being
+   * dealt a card more often than the deck predicts is luck, not merit, and a
+   * green bar would say otherwise. The deviation there is grey until it is
+   * large enough to accuse the recogniser, and then it is warning-coloured
+   * whichever way it points.
+   */
+  tone?: string
 }): React.JSX.Element {
   const pos = (v: number): number => 50 + Math.max(-50, Math.min(50, (v / span) * 50))
   const straddles = lo !== null && hi !== null && lo < 0 && hi > 0
-  const tone = muted || straddles ? 'text.disabled' : value >= 0 ? 'success.main' : 'error.main'
+  const tone =
+    toneOverride ??
+    (muted || straddles ? 'text.disabled' : value >= 0 ? 'success.main' : 'error.main')
+  const from = Math.min(50, pos(value))
+  const to = Math.max(50, pos(value))
   return (
     <Box
       aria-hidden
@@ -201,11 +261,12 @@ export function DivergingBar({
       <Box
         sx={{
           position: 'absolute',
-          top: -2,
-          bottom: -2,
-          left: '50%',
-          borderLeft: '1px dashed',
-          borderColor: 'text.disabled'
+          top: 0,
+          bottom: 0,
+          left: `${from}%`,
+          width: `${to - from}%`,
+          bgcolor: tone,
+          opacity: muted ? 0.3 : 0.6
         }}
       />
       {lo !== null && hi !== null && (
@@ -218,10 +279,20 @@ export function DivergingBar({
             width: `${Math.max(0, pos(hi) - pos(lo))}%`,
             borderRadius: height / 2,
             bgcolor: tone,
-            opacity: 0.35
+            opacity: 0.22
           }}
         />
       )}
+      <Box
+        sx={{
+          position: 'absolute',
+          top: -2,
+          bottom: -2,
+          left: '50%',
+          borderLeft: '1px solid',
+          borderColor: 'text.secondary'
+        }}
+      />
       <Box
         sx={{
           position: 'absolute',
@@ -240,10 +311,63 @@ export function DivergingBar({
 /* ---------------------------------------------------------------- cells */
 
 /**
- * `52.3% (n=40)` with its whisker. The n is not optional.
+ * The digits column every bar cell ends with: the estimate over its n.
  *
- * `emphasis` is for the column the page leads with; everything else is one
- * step quieter so the eye lands on the keep rate first.
+ * Fixed width and right-aligned, so a column of these lines up whether the
+ * value is `8.4` or `−12.1`. Two lines rather than one so the cell stays
+ * narrow enough for the bar to keep most of the width.
+ */
+export function Digits({
+  primary,
+  secondary,
+  colour = 'text.primary',
+  emphasis = false,
+  width = 60
+}: {
+  primary: string
+  secondary: string
+  colour?: string
+  emphasis?: boolean
+  width?: number
+}): React.JSX.Element {
+  return (
+    <Box sx={{ width, flexShrink: 0, textAlign: 'right' }}>
+      <Typography
+        component="div"
+        sx={{
+          ...NUMERIC,
+          fontSize: emphasis ? 13 : 12,
+          fontWeight: 800,
+          color: colour,
+          lineHeight: 1.15,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {primary}
+      </Typography>
+      <Typography
+        component="div"
+        sx={{
+          ...NUMERIC,
+          fontSize: 10.5,
+          color: 'text.disabled',
+          lineHeight: 1.15,
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {secondary}
+      </Typography>
+    </Box>
+  )
+}
+
+/**
+ * A `Rate` as bar + digits. The n is not optional.
+ *
+ * Layout is `[bar ........][52.3% / n=40]`: the bar takes the width, the
+ * digits sit in a fixed column on the right so they align down the table.
+ * `emphasis` is for the column the page leads with - a taller bar with the
+ * zero-to-rate fill - and everything else is a whisker on a thinner track.
  */
 export function RateCell({
   rate,
@@ -281,30 +405,21 @@ export function RateCell({
   )
   return (
     <Tooltip title={tip} placement="top" slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}>
-      <Stack spacing={0.35} sx={{ minWidth: 0, cursor: 'help' }}>
-        <Stack direction="row" alignItems="baseline" spacing={0.5} sx={{ minWidth: 0 }}>
-          <Typography
-            component="span"
-            sx={{
-              ...NUMERIC,
-              fontSize: emphasis ? 15 : 13,
-              fontWeight: emphasis ? 900 : 700,
-              color: colour,
-              lineHeight: 1.2
-            }}
-          >
-            {rate.rate.toFixed(1)}%
-          </Typography>
-          <Typography
-            component="span"
-            variant="caption"
-            sx={{ ...NUMERIC, color: 'text.secondary', lineHeight: 1.2 }}
-          >
-            {fmtN(rate.total)}
-          </Typography>
-          {caution && <CautionMark title={caution} />}
-        </Stack>
-        <IntervalBar rate={rate} anchor={anchor} muted={muted} height={5} />
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, cursor: 'help' }}>
+        <IntervalBar
+          rate={rate}
+          anchor={anchor}
+          muted={muted}
+          height={emphasis ? 9 : 6}
+          fill={emphasis}
+        />
+        <Digits
+          primary={`${rate.rate.toFixed(1)}%`}
+          secondary={fmtN(rate.total)}
+          colour={colour}
+          emphasis={emphasis}
+        />
+        {caution && <CautionMark title={caution} />}
       </Stack>
     </Tooltip>
   )
@@ -440,11 +555,12 @@ export function CautionMark({ title }: { title: string }): React.JSX.Element {
 }
 
 /**
- * `+8.4` with the diverging whisker and both arms' n.
+ * The diverging bar with `+8.4` and both arms' n after it.
  *
- * The two arms are printed under the difference rather than in two more
- * columns: the reader wants "is it better when dealt, and by how much", and
- * the arms are the working shown under the answer.
+ * The arms' rates live in the tooltip, not the cell: the reader wants "is it
+ * better when dealt, and by how much", and the two n's are what say how far
+ * to trust the answer. Two more percentages in a 230px cell were the noise
+ * the first pass got wrong.
  */
 export function DiffCell({
   diff,
@@ -491,27 +607,30 @@ export function DiffCell({
   )
   return (
     <Tooltip title={tip} placement="top" slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}>
-      <Stack spacing={0.35} sx={{ minWidth: 0, cursor: 'help' }}>
-        <Stack direction="row" alignItems="baseline" spacing={0.75} sx={{ minWidth: 0 }}>
-          <Typography
-            component="span"
-            sx={{ ...NUMERIC, fontSize: 15, fontWeight: 900, color: colour, lineHeight: 1.2 }}
-          >
-            {fmtDelta(diff)}
-          </Typography>
-          <Typography
-            component="span"
-            variant="caption"
-            noWrap
-            sx={{ ...NUMERIC, color: 'text.secondary', lineHeight: 1.2, minWidth: 0 }}
-          >
-            {dealt.rate.toFixed(0)}% (n={dealt.total}) vs {notDealt.rate.toFixed(0)}% (n=
-            {notDealt.total})
-          </Typography>
-          {caution && <CautionMark title={caution} />}
-        </Stack>
-        <DivergingBar value={diff} lo={lo} hi={hi} muted={!sortable} height={5} />
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, cursor: 'help' }}>
+        <DivergingBar value={diff} lo={lo} hi={hi} muted={!sortable} height={9} />
+        <Digits
+          primary={fmtDelta(diff)}
+          secondary={`n=${dealt.total}/${notDealt.total}`}
+          colour={colour}
+          emphasis
+          width={66}
+        />
+        {caution && <CautionMark title={caution} />}
       </Stack>
     </Tooltip>
+  )
+}
+
+/**
+ * A tooltip body for an ⓘ: caption text at a width that wraps into a
+ * paragraph instead of one long line. Every `InfoHint` on the page uses it,
+ * so the hover surfaces read as one family.
+ */
+export function Hint({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return (
+    <Typography variant="caption" component="div" sx={{ maxWidth: 320, lineHeight: 1.6 }}>
+      {children}
+    </Typography>
   )
 }
