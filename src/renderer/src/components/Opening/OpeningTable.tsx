@@ -1,8 +1,12 @@
 /**
  * The 起手 card table: one line per card, in the order the contract declares
- * its fields - identity, keep rate, deal-rate check, dealt comparison. Each
- * section can be absent while the next is not, and each absent section is
- * drawn as the KIND of absence it is (`MissingPill`), never as a dash.
+ * its fields - identity, keep rate, dealt comparison. Each section can be
+ * absent while the next is not, and each absent section is drawn as the KIND
+ * of absence it is (`MissingPill`), never as a dash.
+ *
+ * The contract has a fourth section, the deal-rate check (`observedDealRate`
+ * against `expectedDealRate`), and this table used to give it a column. It no
+ * longer does - see `SuspectMark` for where it went and why.
  *
  * Fixed column widths for the same reason `CardsTable` has them: a number must
  * sit at the same x on every line. The card cell is the only elastic one.
@@ -24,7 +28,7 @@
 import { Box, Skeleton, Stack, Tooltip, Typography } from '@mui/material'
 import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
-import WarningAmberRoundedIcon from '@mui/icons-material/WarningAmberRounded'
+import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
 import React from 'react'
 
 import { OPENING_THRESHOLDS, type OpeningCardStat } from '@shared/openingStats'
@@ -33,20 +37,9 @@ import InfoHint from '@renderer/components/Common/InfoHint'
 import { CostBadge } from '@renderer/components/Cards/CardsTable'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 
-import {
-  BannerArt,
-  CautionMark,
-  DiffCell,
-  Digits,
-  DivergingBar,
-  Hint,
-  MissingPill,
-  RateCell,
-  SampleOnly
-} from './cells'
+import { BannerArt, CautionMark, DiffCell, Hint, MissingPill, RateCell, SampleOnly } from './cells'
 import type { OpeningRow, OpeningSort, OpeningSortKey } from './openingFilterState'
 import {
-  fmtDelta,
   fmtPct,
   lowRecognised,
   missingFor,
@@ -56,23 +49,21 @@ import {
   sampleFor
 } from './openingFormat'
 
-/** Column widths, in px. The card column takes what is left. */
-const COST_W = 44
-const DEALT_W = 56
-const KEEP_W = 190
-const DEAL_W = 176
-const CMP_W = 230
-
-const COLUMNS = `${COST_W}px minmax(0, 1fr) ${DEALT_W}px ${KEEP_W}px ${DEAL_W}px ${CMP_W}px`
-
 /**
- * ±this many percentage points fill the deal-rate track.
+ * Column widths, in px. The card column takes what is left.
  *
- * Deal rates for 1–3 copies sit between 10% and 30%, so a deviation of 15
- * points is already "the card is nearly never seen" and pinning there keeps
- * an ordinary ±3 visible as a small nub rather than a hairline.
+ * When the deal-rate column (176px) was removed, its width went to the two
+ * remaining bar columns rather than to the card column: the comparison is the
+ * column that was tightest - a whisker, a dot and `+8.4` with two n's in 230px
+ * - and a wider keep-rate track makes the whiskers on small samples legible.
+ * The card column already had room for the longest name in the pool.
  */
-const DEAL_SPAN = 15
+const COST_W = 44
+const DEALT_W = 60
+const KEEP_W = 230
+const CMP_W = 320
+
+const COLUMNS = `${COST_W}px minmax(0, 1fr) ${DEALT_W}px ${KEEP_W}px ${CMP_W}px`
 
 /* ---------------------------------------------------------------- cells */
 
@@ -98,105 +89,79 @@ function KeepCell({ stat }: { stat: OpeningCardStat }): React.JSX.Element {
 }
 
 /**
- * Observed against expected, as a deviation from an anchor.
+ * The recognition alarm, as a mark beside the card's name.
  *
- * The first pass printed `14% / 期望 30%` and asked the reader to subtract.
- * Now the expected rate is the axis and the observed rate is a bar growing
- * away from it: a deck where the recogniser is fine is a column of stubs, and
- * a card it keeps missing is one long bar to the left. The sort on this column
- * is the same quantity (observed minus expected), so the bar and the order
- * agree.
+ * `dealRateSuspect` is the one signal in the app that the recogniser is
+ * systematically missing a specific card - an alternate illustration or a
+ * foil that never matches, so the card goes missing from hands it was really
+ * in. Its raw material, observed deal rate against the hypergeometric
+ * expectation, used to have its own column here: a diverging bar per row,
+ * sortable, with the expected rate as the axis. That column is gone, and the
+ * reasons are worth recording so nobody adds it back:
  *
- * The sign is not good/bad - being dealt a card more often than the deck
- * predicts is luck - so the bar is grey until `dealRateSuspect`, and then the
- * whole cell turns warning-tinted with a full-size mark. It is the only signal
- * in the app that the recogniser is missing a specific card, so it must be
- * impossible to scroll past.
+ * - For every card the recogniser reads fine, the column said "this card
+ *   turned up about as often as a 40-card deck predicts" - a statement about
+ *   the recogniser, not the player, and one with no bearing on how to
+ *   mulligan. A player reading the table got a column of grey stubs and had
+ *   to be told, in the header's ⓘ, that it was really an alarm.
+ * - An alarm that is a column is an alarm that fires on 3% of rows and is
+ *   silent noise on the other 97%. A mark that appears only on the suspect
+ *   row is the same signal with the noise removed.
+ *
+ * So: the check is still computed for every card (the contract is unchanged,
+ * and the drill-down drawer prints the observed and expected figures as one
+ * line for whoever wants them), but the TABLE shows only the verdict, only
+ * when it is guilty, and beside the name - because the accusation is against
+ * this card's illustration, not against any one of its numbers.
+ *
+ * The mark is `ErrorOutlineRounded` in `warning.main`, deliberately not the
+ * amber triangle `CautionMark` uses beside numbers. The two are different
+ * claims and a row can carry both: the triangle says "the hands in these
+ * matches were often unreadable, so these numbers are computed on a biased
+ * subset" (context about the matches); this mark says "THIS card is the one
+ * that is not being read" (an accusation against the card). Drawing them with
+ * the same glyph would make the row look like it was saying one thing twice.
+ * A neutral `InfoHint` was considered and rejected: this is not an
+ * explanation the reader may want, it is a warning that the row's other
+ * numbers are understated, and it should look like one.
  */
-function DealRateCell({ stat }: { stat: OpeningCardStat }): React.JSX.Element {
-  if (stat.observedDealRate === null || stat.expectedDealRate === null) {
-    const kind = missingFor(stat, 'deal')
-    return (
-      <MissingPill
-        kind={kind}
-        sample={sampleFor(stat, 'deal')}
-        remaining={remainingFor(stat, 'deal')}
-      />
-    )
+function SuspectMark({ stat }: { stat: OpeningCardStat }): React.JSX.Element | null {
+  if (!stat.dealRateSuspect || stat.observedDealRate === null || stat.expectedDealRate === null) {
+    return null
   }
-  const belowCheck = stat.eligible < OPENING_THRESHOLDS.dealCheck
-  const deviation = stat.observedDealRate - stat.expectedDealRate
-  const suspect = stat.dealRateSuspect
   const tip = (
-    <Box sx={{ ...NUMERIC, minWidth: 220 }}>
-      <Typography variant="caption" component="div">
-        實際發到 {fmtPct(stat.observedDealRate)}（{stat.eligible} 場有牌組且四張全辨識）
+    <Box sx={{ maxWidth: 320 }}>
+      <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
+        這張卡出現在起手的頻率，遠低於牌組張數能給的 -
+        差得比運氣能解釋的多。通常是辨識漏掉了它：異畫、閃卡最常見。它在手上的場次會被算成「沒發到」，所以這一列的其他數字很可能被低估。
       </Typography>
-      <Typography variant="caption" component="div" color="text.secondary">
-        牌組帶 {stat.copies?.toFixed(1) ?? '?'} 張時，理論上 {fmtPct(stat.expectedDealRate)}{' '}
-        的起手會有它
+      <Typography
+        variant="caption"
+        component="div"
+        color="text.secondary"
+        sx={{ ...NUMERIC, mt: 0.75, lineHeight: 1.6 }}
+      >
+        實際發到 {fmtPct(stat.observedDealRate)}（n={stat.eligible}）· 牌組帶{' '}
+        {stat.copies?.toFixed(1) ?? '?'} 張時理論上 {fmtPct(stat.expectedDealRate)}
       </Typography>
-      {suspect && (
-        <Typography variant="caption" component="div" sx={{ mt: 0.5, color: 'warning.light' }}>
-          差得比運氣能解釋的多。這通常是辨識漏掉了這張卡 -
-          異畫、閃卡最常見。它在手上的場次會被算成「沒發到」，所以這一列的其他數字也別太信。
-        </Typography>
-      )}
-      {belowCheck && !suspect && (
-        <Typography variant="caption" component="div" color="text.secondary" sx={{ mt: 0.5 }}>
-          不到 {OPENING_THRESHOLDS.dealCheck} 場，還不能拿來懷疑辨識。
-        </Typography>
-      )}
     </Box>
   )
   return (
     <Tooltip title={tip} placement="top" slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}>
-      <Stack
-        direction="row"
-        alignItems="center"
-        spacing={1}
-        data-testid={suspect ? 'opening-deal-suspect' : undefined}
+      <ErrorOutlineRoundedIcon
+        data-testid="opening-deal-suspect"
+        role="img"
+        aria-label="發到率遠低於牌組能給的，很可能是這張卡認不出來"
+        tabIndex={0}
         sx={{
-          minWidth: 0,
+          fontSize: 16,
+          color: 'warning.main',
           cursor: 'help',
-          // The alarm state gets its own surface: a tinted, bordered cell that
-          // breaks the row's rhythm. Colour on the bar alone was tried and
-          // was not enough - a grey column with one amber bar in it reads as
-          // a data point, not an alarm.
-          ...(suspect && {
-            mx: -0.75,
-            px: 0.75,
-            py: 0.5,
-            borderRadius: 1,
-            bgcolor: (t) => `${t.palette.warning.main}1f`,
-            border: '1px solid',
-            borderColor: (t) => `${t.palette.warning.main}66`
-          })
+          flexShrink: 0,
+          borderRadius: '50%',
+          outlineOffset: 2
         }}
-      >
-        {suspect && (
-          <WarningAmberRoundedIcon
-            aria-label="發到率遠低於牌組能給的，很可能是這張卡認不出來"
-            sx={{ fontSize: 18, color: 'warning.main', flexShrink: 0 }}
-          />
-        )}
-        <DivergingBar
-          value={deviation}
-          lo={null}
-          hi={null}
-          span={DEAL_SPAN}
-          muted={belowCheck && !suspect}
-          height={suspect ? 9 : 6}
-          tone={suspect ? 'warning.main' : belowCheck ? 'text.disabled' : 'text.secondary'}
-        />
-        <Digits
-          primary={fmtDelta(deviation, 0)}
-          secondary={`n=${stat.eligible}`}
-          colour={suspect ? 'warning.light' : belowCheck ? 'text.disabled' : 'text.secondary'}
-          emphasis={suspect}
-          width={44}
-        />
-      </Stack>
+      />
     </Tooltip>
   )
 }
@@ -295,6 +260,7 @@ function CardLine({
         <Typography variant="body2" fontWeight={700} noWrap title={stat.name} sx={{ minWidth: 0 }}>
           {stat.name}
         </Typography>
+        <SuspectMark stat={stat} />
       </Stack>
 
       {/* 被發到：the count alone. Kept-count is in the tooltip; the keep-rate
@@ -325,7 +291,6 @@ function CardLine({
       </Tooltip>
 
       <KeepCell stat={stat} />
-      <DealRateCell stat={stat} />
       <CompareCell stat={stat} sortable={row.sortable} />
     </Box>
   )
@@ -476,17 +441,6 @@ export default function OpeningTable({
               <Hint>
                 被發到的時候，留下來的比例。這是這頁最單純的數字：它描述你的決定，不預測結果，所以幾十次就能看。不到{' '}
                 {OPENING_THRESHOLDS.keepRate} 次只印 n。
-              </Hint>
-            }
-          />
-          <HeaderCell
-            label="發到率 − 期望"
-            sortKey="dealRate"
-            sort={sort}
-            onSort={onSort}
-            hint={
-              <Hint>
-                實際被發到的比例，減掉依牌組張數算出來的理論值；直線是理論值，長條往左是比理論少、往右是比理論多。這一欄其實是辨識的警報器：一張老是認不出來的卡，發到率會掉到牌組不可能給的水準，那時整格會變成橘色。
               </Hint>
             }
           />

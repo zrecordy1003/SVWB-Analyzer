@@ -150,7 +150,7 @@ function TableHint({
         color="text.secondary"
         sx={{ ...NUMERIC, lineHeight: 1.6 }}
       >
-        發到率和對照需要牌組，只算 {withDeck} 場有掛牌組的對局；保留率不需要，{preComplete}{' '}
+        「發到 vs 沒發到」需要牌組，只算 {withDeck} 場有掛牌組的對局；保留率不需要，{preComplete}{' '}
         場四張全辨識的都算。
       </Typography>
     </Box>

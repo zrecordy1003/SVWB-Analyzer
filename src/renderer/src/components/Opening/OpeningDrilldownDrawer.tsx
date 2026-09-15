@@ -57,6 +57,7 @@ import type { OpeningRow } from './openingFilterState'
 import {
   fmtN,
   fmtPct,
+  MISSING_SPEC,
   missingFor,
   NUMERIC,
   RARITY_LABEL,
@@ -188,6 +189,48 @@ function KeepLine({
         )}
       </Box>
     </Stack>
+  )
+}
+
+/**
+ * The deal-rate check, as one line of text.
+ *
+ * Observed deal rate against the hypergeometric expectation is a diagnostic
+ * of the recogniser, not a statistic about the player, so it has no column in
+ * the table any more (the table shows only the verdict, `SuspectMark`, and
+ * only on the row it convicts). The figures still belong somewhere, and this
+ * drawer is that somewhere: whoever opened it has already asked about one
+ * specific card, which is exactly the audience for "and here is how often it
+ * was actually dealt". A line, not a bar - at this level of interest the two
+ * numbers side by side are enough, and rebuilding the deviation bar here
+ * would be a second chart for a quantity the page has decided not to chart.
+ */
+function DealRateLine({ stat }: { stat: OpeningCardStat }): React.JSX.Element {
+  const sx = { ...NUMERIC, mt: 1, lineHeight: 1.6 }
+  if (stat.observedDealRate === null || stat.expectedDealRate === null) {
+    return (
+      <Typography variant="caption" color="text.disabled" component="div" sx={sx}>
+        發到率：{MISSING_SPEC[missingFor(stat, 'deal')].label}
+      </Typography>
+    )
+  }
+  const belowCheck = stat.eligible < OPENING_THRESHOLDS.dealCheck
+  return (
+    <Typography
+      variant="caption"
+      color={stat.dealRateSuspect ? 'warning.light' : 'text.disabled'}
+      component="div"
+      data-testid="opening-drilldown-deal-rate"
+      sx={sx}
+    >
+      發到率 {fmtPct(stat.observedDealRate)}（{fmtN(stat.eligible)}）· 牌組帶{' '}
+      {stat.copies?.toFixed(1) ?? '?'} 張時期望 {fmtPct(stat.expectedDealRate)}
+      {stat.dealRateSuspect
+        ? ' · 差得比運氣能解釋的多，很可能是辨識漏掉了這張卡'
+        : belowCheck
+          ? ` · 不到 ${OPENING_THRESHOLDS.dealCheck} 場，還不拿來懷疑辨識`
+          : ''}
+    </Typography>
   )
 }
 
@@ -394,6 +437,7 @@ export default function OpeningDrilldownDrawer({
                   </Box>
                 </Box>
               </Box>
+              <DealRateLine stat={stat} />
             </Section>
 
             {/* ---------- 依對手職業 ---------- */}

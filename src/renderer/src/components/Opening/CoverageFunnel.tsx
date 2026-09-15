@@ -55,7 +55,7 @@ function steps(summary: OpeningSummary): Step[] {
       label: '四張認出',
       value: summary.preComplete,
       tone: 'primary.main',
-      explain: '換前四張都認出是哪張卡的場次。保留率和發到率用這個當分母。'
+      explain: '換前四張都認出是哪張卡的場次。保留率用這個當分母。'
     },
     {
       key: 'complete',
@@ -70,7 +70,7 @@ function steps(summary: OpeningSummary): Step[] {
       value: summary.withDeck,
       tone: 'info.main',
       explain:
-        '有掛上牌組的對局。發到率和「發到 vs 沒發到」需要知道牌組裡有沒有這張卡，只算這些場。它是另一種切法，不是上面三層的下一層。'
+        '有掛上牌組的對局。「發到 vs 沒發到」需要知道牌組裡有沒有這張卡，只算這些場。它是另一種切法，不是上面三層的下一層。'
     }
   ]
 }

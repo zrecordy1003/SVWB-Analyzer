@@ -231,11 +231,12 @@ export function DivergingBar({
   /**
    * Replace the good/bad colouring with one palette path.
    *
-   * For the deal-rate check, where the sign carries no value judgement: being
-   * dealt a card more often than the deck predicts is luck, not merit, and a
-   * green bar would say otherwise. The deviation there is grey until it is
-   * large enough to accuse the recogniser, and then it is warning-coloured
-   * whichever way it points.
+   * For a quantity whose sign carries no value judgement. The deal-rate check
+   * was the case that needed it - being dealt a card more often than the deck
+   * predicts is luck, not merit, and a green bar would have said otherwise.
+   * That column is gone from the table (`SuspectMark` in `OpeningTable.tsx`
+   * says why), so nothing passes this today; it stays because the option is
+   * cheap and the next signed-but-not-good-or-bad quantity will want it.
    */
   tone?: string
 }): React.JSX.Element {

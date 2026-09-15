@@ -117,7 +117,15 @@ export type OpeningRow = {
   sortable: boolean
 }
 
-export type OpeningSortKey = 'dealt' | 'keepRate' | 'dealRate' | 'diff' | 'cost' | 'name'
+/**
+ * One key per column. There is no `'dealRate'`: the deal-rate check lost its
+ * column (see `SuspectMark` in `OpeningTable.tsx`) and with it its sort. The
+ * sort lives in component state, never in a stored setting, so a stale key
+ * from an earlier build cannot be read back here; if that ever changes, the
+ * reader must fall back to `DEFAULT_OPENING_SORT` on an unknown key rather
+ * than hand the table a sort it does not have a branch for.
+ */
+export type OpeningSortKey = 'dealt' | 'keepRate' | 'diff' | 'cost' | 'name'
 export type OpeningSort = { key: OpeningSortKey; descending: boolean }
 
 /** Dealt first: the card you see most is the one your habits are built around. */
@@ -172,16 +180,6 @@ export function sortOpeningRows(rows: OpeningRow[], sort: OpeningSort): OpeningR
       )
     case 'keepRate':
       return [...rows].sort(numeric((r) => r.stat.keepRate?.rate ?? null))
-    case 'dealRate':
-      // Observed minus expected: the interesting order is "furthest below what
-      // the deck makes possible", which is the recognition alarm.
-      return [...rows].sort(
-        numeric((r) =>
-          r.stat.observedDealRate !== null && r.stat.expectedDealRate !== null
-            ? r.stat.observedDealRate - r.stat.expectedDealRate
-            : null
-        )
-      )
     case 'diff': {
       const ranked = rows.filter((r) => r.sortable).sort(numeric((r) => r.stat.diff))
       const rest = rows.filter((r) => !r.sortable).sort(byDealtDesc)
