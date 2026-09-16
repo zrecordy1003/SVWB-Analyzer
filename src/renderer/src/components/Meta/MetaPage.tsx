@@ -268,10 +268,54 @@ export default function MetaPage(): React.JSX.Element {
         sx={{ borderRadius: 2, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}
       >
         <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
-          <PublicOutlinedIcon sx={{ opacity: 0.6 }} />
-          <Typography variant="body2" sx={{ opacity: 0.75 }}>
-            所有使用者的對局彙總
-          </Typography>
+          {/*
+            這格原本是一顆地球圖示加「所有使用者的對局彙總」——一句每次進頁都
+            一樣、讀第二次就沒有用的話，佔的還是整條工具列最左邊、視線第一個
+            落點的位置。換成這份文件實際有多大：同樣一行的高度，但它每次都不
+            一樣，而且它決定了底下每個百分比能不能信。
+
+            點它會攤開完整的五個數字（先手優勢、模式，以及每個數字的 ⓘ 說明）。
+            整塊都是點擊目標，不是只有 chevron。
+          */}
+          <Box
+            role="button"
+            tabIndex={0}
+            aria-expanded={scaleOpen}
+            aria-label={scaleOpen ? '收起資料規模' : '展開資料規模'}
+            onClick={() => setScaleOpen((open) => !open)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                setScaleOpen((open) => !open)
+              }
+            }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              cursor: 'pointer',
+              userSelect: 'none',
+              borderRadius: 1,
+              mx: -0.75,
+              px: 0.75,
+              '&:hover': { bgcolor: 'action.hover' },
+              outlineOffset: 2,
+              '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main' }
+            }}
+          >
+            <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85 }} noWrap>
+              {(doc?.installs ?? 0).toLocaleString()} 位使用者 ・{' '}
+              {(doc?.matches ?? 0).toLocaleString()} 場 ・ {doc?.window.days ?? days} 天
+            </Typography>
+            <ExpandMoreRoundedIcon
+              fontSize="small"
+              sx={{
+                color: 'text.secondary',
+                transition: 'transform .18s',
+                transform: scaleOpen ? 'rotate(180deg)' : 'none'
+              }}
+            />
+          </Box>
 
           <Divider orientation="vertical" flexItem sx={{ my: 0.5 }} />
 
@@ -350,6 +394,60 @@ export default function MetaPage(): React.JSX.Element {
             </span>
           </Tooltip>
         </Box>
+
+        {/* 攤開的完整規模：五個數字與它們的 ⓘ。和上面那行摘要同一塊卡，
+            不再自成一張 Paper——被抱怨的就是它多佔了一整張卡的邊框與內距。 */}
+        <Collapse in={scaleOpen} unmountOnExit>
+          <Box
+            display="flex"
+            alignItems="flex-start"
+            gap={{ xs: 2.5, md: 4 }}
+            flexWrap="wrap"
+            sx={{ pt: 1.5, pb: 1 }}
+          >
+            <Metric
+              label="貢獻的使用者"
+              value={(doc?.installs ?? 0).toLocaleString()}
+              unit="位"
+              hint="這個區間內至少上傳過一次的安裝數。一個人有兩台機器就算兩個。"
+            />
+            <Metric
+              label="觀測場次"
+              value={(doc?.matches ?? 0).toLocaleString()}
+              unit="場"
+              hint="是「被記錄到的次數」而不是「不重複的對局數」：兩個使用者對打時，同一場會被雙方各記一次。"
+            />
+            <Metric
+              label="統計區間"
+              value={`${doc?.window.days ?? days}`}
+              unit={`天（自 ${doc?.window.since ?? '—'}）`}
+            />
+            <Metric
+              label="先手優勢"
+              value={
+                advantage === null
+                  ? '—'
+                  : `${advantage >= 0 ? '+' : '−'}${Math.abs(advantage).toFixed(1)}`
+              }
+              unit={advantage === null ? undefined : '%'}
+              hint="整個環境合起來，先攻勝率減後攻勝率。"
+            />
+            <Metric
+              label="模式"
+              value={doc?.mode === 'ranked' ? '天梯' : (doc?.mode ?? '—')}
+              hint="公開統計只算天梯，而且只算引擎自己辨識、沒有被手動改過的對局。"
+            />
+          </Box>
+
+          {(doc?.sampling.suppressedCells ?? 0) > 0 && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 1.5, opacity: 0.55 }}>
+              另有 {doc?.sampling.suppressedCells} 個對位因為貢獻的使用者不足{' '}
+              {doc?.sampling.minInstallsPerCell} 位而未發布（共{' '}
+              {(doc?.sampling.suppressedMatches ?? 0).toLocaleString()}{' '}
+              場）。單一使用者的對位紀錄等同於那個人的戰績，所以人數不夠時寧可不發布。
+            </Typography>
+          )}
+        </Collapse>
       </Paper>
 
       {error && (
@@ -377,10 +475,11 @@ export default function MetaPage(): React.JSX.Element {
       >
         {loading && !snapshot ? (
           <>
-            {/* 跟著「這份資料有多大」收起來後的高度走；骨架比它替代的東西高一倍，載入完會跳。 */}
-            <Skeleton variant="rounded" height={scaleOpen ? 96 : 44} />
+            {/* 規模那一塊現在住在工具列裡，工具列不在這個載入分支底下，所以這裡
+                不再需要替它留一塊骨架——留了反而會在資料回來時多塌一格。剩下兩塊
+                對應的是環＋職業表與對位圖。 */}
             <Skeleton variant="rounded" height={260} />
-            <Skeleton variant="rounded" height={320} />
+            <Skeleton variant="rounded" height={380} />
           </>
         ) : !hasData ? (
           <EmptyState
@@ -390,117 +489,6 @@ export default function MetaPage(): React.JSX.Element {
           />
         ) : (
           <>
-            {/* ---------- 這份資料有多大 ----------
-
-                預設收著。這一塊的價值在檔頭那段說了：底下每個百分比的意義由它決定。
-                但「決定意義」需要的是**看得到**，不是佔一整張卡的高度——五個 20px
-                的數字加標籤攤開來，比職業表還高，而人真正要掃的是職業表。
-
-                收著的時候不是藏起來，是縮成一行：使用者數、場次、區間三個數直接寫
-                在標題列上，不用按就讀得到；先手優勢、模式和每個數字的 ⓘ 說明在攤開
-                的原版裡。純粹一顆 chevron、收著時什麼都不給的版本不要——那等於把
-                「先給結論再讓人自己去找樣本數」這個統計頁最常犯的錯自己犯一次。
-
-                整列都可以點，不只 chevron：一行字加一顆 24px 的按鈕，要人準確點到
-                按鈕上才肯開太苛刻。 */}
-            <Paper variant="outlined" sx={{ borderRadius: 2, px: 2, py: 1 }}>
-              <Box
-                role="button"
-                tabIndex={0}
-                aria-expanded={scaleOpen}
-                aria-label={scaleOpen ? '收起資料規模' : '展開資料規模'}
-                onClick={() => setScaleOpen((open) => !open)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    setScaleOpen((open) => !open)
-                  }
-                }}
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 1,
-                  cursor: 'pointer',
-                  userSelect: 'none',
-                  borderRadius: 1,
-                  mx: -1,
-                  px: 1,
-                  '&:hover': { bgcolor: 'action.hover' },
-                  outlineOffset: 2,
-                  '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main' }
-                }}
-              >
-                <Typography variant="caption" sx={{ opacity: 0.55, whiteSpace: 'nowrap' }}>
-                  這份資料有多大
-                </Typography>
-                <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85, minWidth: 0 }} noWrap>
-                  {(doc?.installs ?? 0).toLocaleString()} 位使用者 ・{' '}
-                  {(doc?.matches ?? 0).toLocaleString()} 場 ・ {doc?.window.days ?? days} 天
-                </Typography>
-                <Box flex={1} />
-                <ExpandMoreRoundedIcon
-                  fontSize="small"
-                  sx={{
-                    color: 'text.secondary',
-                    transition: 'transform .18s',
-                    transform: scaleOpen ? 'rotate(180deg)' : 'none'
-                  }}
-                />
-              </Box>
-
-              <Collapse in={scaleOpen} unmountOnExit>
-                <Box
-                  display="flex"
-                  alignItems="flex-start"
-                  gap={{ xs: 2.5, md: 4 }}
-                  flexWrap="wrap"
-                  sx={{ pt: 1.5, pb: 1 }}
-                >
-                  <Metric
-                    label="貢獻的使用者"
-                    value={(doc?.installs ?? 0).toLocaleString()}
-                    unit="位"
-                    hint="這個區間內至少上傳過一次的安裝數。一個人有兩台機器就算兩個。"
-                  />
-                  <Metric
-                    label="觀測場次"
-                    value={(doc?.matches ?? 0).toLocaleString()}
-                    unit="場"
-                    hint="是「被記錄到的次數」而不是「不重複的對局數」：兩個使用者對打時，同一場會被雙方各記一次。"
-                  />
-                  <Metric
-                    label="統計區間"
-                    value={`${doc?.window.days ?? days}`}
-                    unit={`天（自 ${doc?.window.since ?? '—'}）`}
-                  />
-                  <Metric
-                    label="先手優勢"
-                    value={
-                      advantage === null
-                        ? '—'
-                        : `${advantage >= 0 ? '+' : '−'}${Math.abs(advantage).toFixed(1)}`
-                    }
-                    unit={advantage === null ? undefined : '%'}
-                    hint="整個環境合起來，先攻勝率減後攻勝率。"
-                  />
-                  <Metric
-                    label="模式"
-                    value={doc?.mode === 'ranked' ? '天梯' : (doc?.mode ?? '—')}
-                    hint="公開統計只算天梯，而且只算引擎自己辨識、沒有被手動改過的對局。"
-                  />
-                </Box>
-
-                {(doc?.sampling.suppressedCells ?? 0) > 0 && (
-                  <Typography variant="caption" sx={{ display: 'block', mt: 1.5, opacity: 0.55 }}>
-                    另有 {doc?.sampling.suppressedCells} 個對位因為貢獻的使用者不足{' '}
-                    {doc?.sampling.minInstallsPerCell} 位而未發布（共{' '}
-                    {(doc?.sampling.suppressedMatches ?? 0).toLocaleString()}{' '}
-                    場）。單一使用者的對位紀錄等同於那個人的戰績，所以人數不夠時寧可不發布。
-                  </Typography>
-                )}
-              </Collapse>
-            </Paper>
-
             {/* ---------- 職業層級 ---------- */}
             <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
               <Box display="flex" alignItems="baseline" gap={1} mb={1.5} flexWrap="wrap">
@@ -565,7 +553,18 @@ export default function MetaPage(): React.JSX.Element {
             {/* ---------- 對位層級 ---------- */}
             <Paper
               variant="outlined"
-              sx={{ borderRadius: 2, p: 2, display: 'flex', flexDirection: 'column', gap: 1.5 }}
+              // `flex: 1` + `minHeight: 0`：這是最後一塊，剩下的高度都歸它，裡面
+              // 那張圖才拿得到空間。少了這兩個，圖的 `flex: 1` 會對著一個
+              // 「跟內容一樣高」的父層算，等於沒有作用。
+              sx={{
+                borderRadius: 2,
+                p: 2,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1.5,
+                flex: 1,
+                minHeight: 420
+              }}
             >
               <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
                 <ClassSelect
@@ -587,9 +586,16 @@ export default function MetaPage(): React.JSX.Element {
                 )}
               </Box>
 
-              {/* 和分析器同一張圖、同一組門檻。差別只有資料來源，而上面那排
-                  數字已經說了資料來自哪裡。 */}
-              <Box sx={{ minHeight: 360, display: 'flex', flexDirection: 'column' }}>
+              {/*
+                和分析器同一張圖、同一組門檻。差別只有資料來源，而上面那排
+                數字已經說了資料來自哪裡。
+
+                連容器也要跟分析器一樣。這裡原本寫死 `minHeight: 360`，於是不管
+                七列長條要多高，都被壓進同一個 360px——分析器那邊給的是
+                `flex: 1` + `minHeight: 0` + 自己捲動，圖要多高就多高。同一張圖
+                在兩頁擠成不同的樣子，讀起來會像資料不一樣。
+              */}
+              <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                 {chartKind === 'heatmap' ? (
                   <MatchupHeatmap data={matchup} />
                 ) : (
