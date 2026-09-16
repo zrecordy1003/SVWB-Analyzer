@@ -99,6 +99,7 @@ const MatchList = (): React.JSX.Element => {
 
   const {
     rows,
+    hands,
     totalCount,
     isInitialLoading,
     isLoadingMore,
@@ -217,6 +218,7 @@ const MatchList = (): React.JSX.Element => {
       <Box flex={1} minHeight={0}>
         <VirtualMatchList
           rows={rows}
+          hands={hands}
           deckOptions={allDecks}
           onEdit={openEdit}
           onDelete={requestDelete}

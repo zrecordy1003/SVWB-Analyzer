@@ -5,6 +5,7 @@ import EmptyState from '@renderer/components/Common/EmptyState'
 import MatchCard, { MATCH_CARD_CONTENT_HEIGHT } from './MatchCard'
 import type { InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
+import type { OpeningHandMap } from '../hooks/useInfiniteMatches'
 
 const LOAD_MORE_THRESHOLD = 5
 /** 卡片內容 + 上下框線 + 列間距，每張卡片都一樣高 */
@@ -12,6 +13,8 @@ const ROW_HEIGHT = MATCH_CARD_CONTENT_HEIGHT + 2 + 12
 
 type Props = {
   rows: MatchRow[]
+  /** Opening hands by match id; a row with no entry has none to show. */
+  hands: OpeningHandMap
   deckOptions: InlineDeckOption[]
   onEdit: (id: number) => void
   onDelete: (id: number) => void
@@ -26,6 +29,7 @@ type Props = {
 
 const VirtualMatchList: React.FC<Props> = ({
   rows,
+  hands,
   deckOptions,
   onEdit,
   onDelete,
@@ -174,6 +178,7 @@ const VirtualMatchList: React.FC<Props> = ({
               >
                 <MatchCard
                   match={match}
+                  hand={hands.get(match.id)}
                   deckOptions={deckOptions}
                   onEdit={onEdit}
                   onDelete={onDelete}

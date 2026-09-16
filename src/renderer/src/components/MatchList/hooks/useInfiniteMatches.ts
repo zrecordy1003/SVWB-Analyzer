@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { QueryPayload } from '@shared/types'
+import type { OpeningHandView } from '@shared/ipc'
 import type { MatchRow } from '../types'
 import { invokeIpc } from '@renderer/ipc'
 
@@ -109,15 +110,35 @@ export function reconcileRecent<T extends { id: number; playedAt: Date | string 
   return [...topChunk, ...older]
 }
 
+/** The opening hands held for the rows on screen, by match id. */
+export type OpeningHandMap = ReadonlyMap<number, OpeningHandView>
+
+/**
+ * Ask for the hands of one page of matches, in one call.
+ *
+ * Returned as a Map rather than the channel's array because the caller merges
+ * by id, and because the channel's "absent means no hand" convention is easier
+ * to apply against the ids that were ASKED for than against a list that only
+ * contains the ones that answered.
+ */
+async function fetchHands(ids: number[]): Promise<Map<number, OpeningHandView>> {
+  if (ids.length === 0) return new Map()
+  const entries = await invokeIpc('matches:openingHands', ids)
+  return new Map(entries.map((e) => [e.matchId, e.hand]))
+}
+
 /**
  * 滾動載入版的對局清單資料 hook。
  * - rows 只會累加（loadMore）或整批重置（filters 變更），不做傳統換頁。
  * - patchRow / removeRow 讓編輯、刪除可以就地更新單筆卡片，不必整批重抓。
  * - syncRecent 讓外部通知（引擎寫入、使用者編輯）就地對齊最新一頁：新增、就地更新
  *   與刪除都會反映，且不打斷捲動位置。
+ * - hands 是每一列的起手手牌，跟著 rows 一頁一頁抓：一頁落地就問那一頁的 id，
+ *   一次 IPC，而不是每張卡片各自去問。
  */
 export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
   const [rows, setRows] = useState<MatchRow[]>([])
+  const [hands, setHands] = useState<OpeningHandMap>(() => new Map())
   const [totalCount, setTotalCount] = useState(0)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -133,6 +154,56 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
 
   const filterKey = JSON.stringify(filters)
   const filterKeyRef = useRef<string | null>(null)
+
+  /**
+   * Fetch hands for `ids` and fold them into the map.
+   *
+   * This is the ONE seam through which hands enter: the initial page, every
+   * `loadMore` page and every `syncRecent` refresh go through it, so the rule
+   * "fetch per page, never per row" is enforced in one place instead of being
+   * something each caller has to remember. It rides on the same `generation`
+   * guard as the rows - a reply that belongs to a filter set the user has
+   * already left is dropped, which is what keeps a reset from serving hands
+   * for rows that are gone.
+   *
+   * Every id asked for is written back, including the ones the channel did not
+   * answer: an id missing from the reply means "this match has no hand", and
+   * the map has to say so by DELETING any entry it held, or a hand that was
+   * removed with its match would outlive the row. Ids that were not asked for
+   * are left alone, so a refresh of the top page racing a `loadMore` further
+   * down cannot wipe the page that just landed. A whole-map replace was the
+   * first draft and lost exactly that race.
+   *
+   * Failures are swallowed after a console line. The hand is context on a row
+   * that is already complete without it; turning a failed enrichment into a
+   * list-level error would make the list look broken over the least important
+   * thing on it.
+   */
+  const loadHands = useCallback((ids: number[], generation: number) => {
+    if (ids.length === 0) return
+    void fetchHands(ids)
+      .then((fetched) => {
+        if (generation !== generationRef.current) return
+        setHands((prev) => {
+          const next = new Map(prev)
+          for (const id of ids) {
+            const hand = fetched.get(id)
+            if (hand) next.set(id, hand)
+            else next.delete(id)
+          }
+          return next
+        })
+      })
+      .catch((error) => {
+        if (generation !== generationRef.current) return
+        console.error('Failed to load opening hands:', error)
+      })
+  }, [])
+
+  // `syncRecent` needs the ids it is holding at the moment it asks for hands,
+  // without making `rows` a dependency of a callback that must stay stable.
+  const rowsRef = useRef(rows)
+  rowsRef.current = rows
 
   useEffect(() => {
     if (!enabled) return
@@ -155,13 +226,20 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
         } = await fetchListPage(CHUNK_SIZE, filters)
         if (generation !== generationRef.current) return
         setRows(firstChunk)
+        // A new filter set is a new list: nothing held for the old one applies.
+        setHands(new Map())
         setTotalCount(total ?? 0)
         setHasMore(more)
         nextCursorRef.current = nextCursor
+        loadHands(
+          firstChunk.map((r) => r.id),
+          generation
+        )
       } catch (error) {
         if (generation !== generationRef.current) return
         console.error('Failed to load match list:', error)
         setRows([])
+        setHands(new Map())
         setTotalCount(0)
         setHasMore(false)
         nextCursorRef.current = null
@@ -172,7 +250,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
     })()
     // filterKey 已經涵蓋 filters 的內容，不需要把 filters 物件本身也列進 deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, filterKey, reloadToken])
+  }, [enabled, filterKey, reloadToken, loadHands])
 
   const loadMore = useCallback(() => {
     if (isLoadingMore || isInitialLoading || !hasMore || !nextCursorRef.current) return
@@ -185,6 +263,10 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
         setRows((prev) => [...prev, ...nextChunk])
         setHasMore(more)
         nextCursorRef.current = nextCursor
+        loadHands(
+          nextChunk.map((r) => r.id),
+          generation
+        )
       })
       .catch((error) => {
         if (generation !== generationRef.current) return
@@ -194,7 +276,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
       .finally(() => {
         if (generation === generationRef.current) setIsLoadingMore(false)
       })
-  }, [hasMore, isInitialLoading, isLoadingMore])
+  }, [hasMore, isInitialLoading, isLoadingMore, loadHands])
 
   const patchRow = useCallback((id: number, updated: MatchRow) => {
     setRows((prev) => prev.map((r) => (r.id === id ? updated : r)))
@@ -202,6 +284,12 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
 
   const removeRow = useCallback((id: number) => {
     setRows((prev) => prev.filter((r) => r.id !== id))
+    setHands((prev) => {
+      if (!prev.has(id)) return prev
+      const next = new Map(prev)
+      next.delete(id)
+      return next
+    })
     setTotalCount((prev) => Math.max(0, prev - 1))
   }, [])
 
@@ -213,12 +301,23 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
         if (generation !== generationRef.current) return
         setRows((prev) => reconcileRecent(prev, topChunk, CHUNK_SIZE))
         if (total != null) setTotalCount(total)
+        // Re-ask for EVERY held row's hand, not just the top page's. The
+        // engine mutates only the newest match, but `needRefetch` is also what
+        // arrives after a delete anywhere in the list, and a hand's content can
+        // change without its match changing at all: the background retry names
+        // cards the pool could not name when the match was played, and those
+        // matches can be pages down. One call with a few hundred ids is one
+        // indexed query (chunked by 256 on the other side), which is cheaper
+        // than being wrong about which rows moved.
+        const held = new Set(rowsRef.current.map((r) => r.id))
+        for (const r of topChunk) held.add(r.id)
+        loadHands([...held], generation)
       })
       .catch((error) => {
         if (generation !== generationRef.current) return
         console.error('Failed to refresh match list:', error)
       })
-  }, [])
+  }, [loadHands])
 
   const reload = useCallback(() => {
     filterKeyRef.current = null
@@ -227,6 +326,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
 
   return {
     rows,
+    hands,
     totalCount,
     isInitialLoading,
     isLoadingMore,

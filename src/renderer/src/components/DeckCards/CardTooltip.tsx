@@ -130,7 +130,18 @@ export type CardTooltipCard = {
   skillText: string | null
 }
 
-function CardTooltipBody({ card }: { card: CardTooltipCard }): React.JSX.Element {
+/**
+ * The tooltip's contents without the tooltip, for a surface that wants to put
+ * the card's text NEXT TO something of its own (the match list's opening-hand
+ * strip sets it beside an enlarged art tile, or beside a before/after pair).
+ *
+ * Exported rather than having those callers wrap themselves in `CardTooltip`:
+ * the wrapper owns the anchor and the delay, and a caller with its own tile to
+ * show has nowhere to put it inside a wrapper it does not control. Exporting
+ * the body keeps one spelling of the text - a second panel built in the strip
+ * would drift from this one the first time a keyword tone changed.
+ */
+export function CardTooltipBody({ card }: { card: CardTooltipCard }): React.JSX.Element {
   const segments = React.useMemo(() => parseCardText(card.skillText), [card.skillText])
   const stats =
     card.kind === 'follower' && card.atk !== null && card.life !== null

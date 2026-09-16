@@ -466,6 +466,16 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
           `unnamedCardsRetried named=${event.named} stillUnnamed=${event.stillUnnamed}`
         )
       }
+      // Naming a card months after the match rewrites rows the list is already
+      // drawing, and this is the only moment anything knows it happened. Without
+      // the broadcast the hands in an open match list keep the blanks they were
+      // rendered with until some unrelated write happens to refresh them - which
+      // reads exactly like the retry not working.
+      //
+      // Only when it named something. This event fires on every launch, and a
+      // refetch of the whole visible list for `named=0` would be a routine cost
+      // paid for nothing.
+      if (Number(event.named) > 0) broadcast('matches:needRefetch')
       break
 
     case 'readNumber': {

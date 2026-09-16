@@ -13,6 +13,8 @@ import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
 import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
 import { toPngDataUrl } from '@renderer/utils/pngDataUrl'
 import InlineDeckSelect, { type InlineDeckOption } from './InlineDeckSelect'
+import OpeningHandStrip from './OpeningHandStrip'
+import type { OpeningHandView } from '@shared/ipc'
 import type { MatchRow } from '../types'
 
 /**
@@ -88,6 +90,13 @@ const MY_SIDE_WIDTH = DECK_COLUMN_WIDTH + CLASS_MARK + CLASS_MARK_GAP
 
 type Props = {
   match: MatchRow
+  /**
+   * The opening hand, when one was read for this match; undefined for the
+   * many that predate the mulligan reader. Fetched a page at a time by
+   * `useInfiniteMatches` rather than by the card, so a scroll is not a burst
+   * of IPC.
+   */
+  hand?: OpeningHandView
   deckOptions: InlineDeckOption[]
   onEdit: (id: number) => void
   onDelete: (id: number) => void
@@ -221,7 +230,14 @@ const Side: React.FC<{
   </Box>
 )
 
-const MatchCard: React.FC<Props> = ({ match: m, deckOptions, onEdit, onDelete, onSetDeck }) => {
+const MatchCard: React.FC<Props> = ({
+  match: m,
+  hand,
+  deckOptions,
+  onEdit,
+  onDelete,
+  onSetDeck
+}) => {
   const deckless = isDecklessMode(m.mode)
   const isWin = m.result === true
   const resultLabel = m.result == null ? '未定' : isWin ? '勝利' : '敗北'
@@ -496,6 +512,13 @@ const MatchCard: React.FC<Props> = ({ match: m, deckOptions, onEdit, onDelete, o
               )}
             </Box>
           </Box>
+
+          {/* 起手手牌放在資訊區與分數之間，而不是最右邊：最右上角是 hover 才出現的
+              編輯／刪除按鈕，手牌第四格右上角的交換徽章會剛好被它們蓋住。分數欄
+              留在最右也讓它繼續當這一列的收尾。寬度永遠預留——沒有手牌的列若把
+              這一欄收掉，資訊區會變寬，靠右的對手名牌就會在有手牌與沒手牌的列之間
+              左右跳，而這份清單多半是後者。 */}
+          <OpeningHandStrip hand={hand} />
 
           {/* 分數自成一欄。靠下對齊讓出右上角給動作按鈕，同時和資訊列同高。 */}
           <Box

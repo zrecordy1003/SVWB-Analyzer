@@ -18,6 +18,7 @@ import { myDeckIdsExpression } from './deckScope.js'
 import type { QueryPayload } from '../../shared/types.js'
 import { broadcast } from '../utils/broadcast.js'
 import { handleIpc } from './typed.js'
+import type { OpeningHandBatchEntry, OpeningHandSlot, OpeningHandView } from '../../shared/ipc.js'
 
 /**
  * Tell every window the match data moved.
@@ -172,6 +173,88 @@ export function filterExpressions(
 
   return exprs
 }
+
+/**
+ * One joined opening-hand row, as both hand channels select it.
+ *
+ * Written structurally rather than pulled off the query builder because the
+ * two selects differ by one column (`matchId`), and a type derived from either
+ * one of them would make the shaping helper refuse the other. Everything is
+ * widened to what SQLite can actually hand back - the driver returns integers
+ * for booleans and will return a string for a numeric column often enough that
+ * the coercions below are not paranoia.
+ */
+type OpeningHandRow = {
+  stage: string
+  slot: number
+  cardId: number | null
+  swapped: number | null
+  decidedBy: string | null
+  name: string | null
+  cost: number | null
+  bannerHash: string | null
+  imageHash: string | null
+  type: number | null
+  rarity: number | null
+  atk: number | null
+  life: number | null
+  skillText: string | null
+}
+
+/**
+ * Rows for ONE match, in the shape the panel draws.
+ *
+ * Factored out of `matches:openingHand` when the batch channel arrived, rather
+ * than copied into it: the two would have drifted the first time a column was
+ * added, and the single-match version is the one every existing screen already
+ * agrees with. The alternative considered was having the single-match handler
+ * call the batch one with a one-element array and unwrap the result, which
+ * reads neatly but buys a Map, an allocation and a chunk loop for a query the
+ * drawer makes once.
+ *
+ * Callers decide what "no rows" means - this returns two empty arrays and says
+ * nothing about it, because the single-match channel answers `null` and the
+ * batch channel answers by omission.
+ */
+function shapeOpeningHand(rows: readonly OpeningHandRow[]): OpeningHandView {
+  const stageOf = (stage: string): OpeningHandSlot[] =>
+    rows
+      .filter((r) => r.stage === stage)
+      .map((r) => ({
+        slot: Number(r.slot),
+        cardId: r.cardId == null ? null : Number(r.cardId),
+        swapped: r.swapped == null ? null : r.swapped === 1,
+        decidedBy: r.decidedBy ?? null,
+        name: r.name ?? null,
+        cost: r.cost == null ? null : Number(r.cost),
+        bannerHash: r.bannerHash ?? null,
+        imageHash: r.imageHash ?? null,
+        type: r.type == null ? null : Number(r.type),
+        rarity: r.rarity == null ? null : Number(r.rarity),
+        atk: r.atk == null ? null : Number(r.atk),
+        life: r.life == null ? null : Number(r.life),
+        skillText: r.skillText ?? null
+      }))
+  return { pre: stageOf('pre'), post: stageOf('post') }
+}
+
+/**
+ * How many match ids go into one `WHERE matchId IN (...)`.
+ *
+ * 256, which is comfortably more than any page the virtualised list renders and
+ * comfortably under SQLite's `SQLITE_MAX_VARIABLE_NUMBER` - 999 on older builds,
+ * 32766 on newer ones. Binding one parameter per id means a caller asking for
+ * a thousand matches would build a statement that runs on a machine with a new
+ * SQLite and fails on one with an old one, which is precisely the kind of bug
+ * that only shows up on someone else's computer.
+ *
+ * Over the cap the ids are CHUNKED, not truncated. Truncating would be silently
+ * answering a different question than the one asked, and the symptom would be
+ * blank rows in the list with nothing anywhere to explain them. Chunking costs
+ * one extra query per 256 ids and still never costs one query per match, which
+ * was the thing this channel exists to avoid.
+ */
+const OPENING_HAND_ID_CHUNK = 256
 
 export function registerMatchesIpc(): void {
   const db = getDb()
@@ -531,26 +614,96 @@ export function registerMatchesIpc(): void {
         'o.decidedBy',
         'c.name',
         'c.cost',
-        'c.bannerHash'
+        'c.bannerHash',
+        'c.imageHash',
+        'c.type',
+        'c.rarity',
+        'c.atk',
+        'c.life',
+        'c.skillText'
       ])
       .where('o.matchId', '=', matchId)
       .orderBy('o.slot')
       .execute()
 
     if (rows.length === 0) return null
-    const stageOf = (stage: string) =>
-      rows
-        .filter((r) => r.stage === stage)
-        .map((r) => ({
-          slot: Number(r.slot),
-          cardId: r.cardId == null ? null : Number(r.cardId),
-          swapped: r.swapped == null ? null : r.swapped === 1,
-          decidedBy: r.decidedBy ?? null,
-          name: r.name ?? null,
-          cost: r.cost == null ? null : Number(r.cost),
-          bannerHash: r.bannerHash ?? null
-        }))
-    return { pre: stageOf('pre'), post: stageOf('post') }
+    return shapeOpeningHand(rows)
+  })
+
+  /**
+   * The same hands, for a page of the match list, in one query.
+   *
+   * The list is virtualised: reaching for `matches:openingHand` per visible row
+   * meant one round trip per row and a fresh burst of them on every scroll,
+   * which is the whole reason this channel exists. The single-match channel
+   * stays - the detail drawer asks about exactly one match and should not have
+   * to wrap it in an array.
+   *
+   * A match with no rows is ABSENT from the result rather than present with
+   * empty arrays. That distinction is load-bearing: absent means "no hand was
+   * ever read", which is every match recorded before the mulligan reader
+   * existed, and the renderer draws nothing for it. Empty arrays would read as
+   * "read, and nothing recognised", which is a different and much rarer thing.
+   */
+  handleIpc('matches:openingHands', async (_e, matchIds: number[]) => {
+    // Coerced and filtered rather than trusted. These ids come straight from
+    // the renderer into a query builder, and Kysely will bind whatever it is
+    // handed - a NaN or a float is not an id and has no business reaching
+    // SQLite. Deduplicated too, because a caller that asks twice should not
+    // get two entries for one match.
+    const ids = [...new Set((matchIds ?? []).map(Number).filter(Number.isInteger))]
+
+    // Empty input short-circuits before touching the database: Kysely happily
+    // builds `WHERE "matchId" IN ()`, which SQLite rejects as a syntax error.
+    // Cheaper to answer here than to catch a thrown statement.
+    if (ids.length === 0) return []
+
+    const grouped = new Map<number, OpeningHandRow[]>()
+    for (let i = 0; i < ids.length; i += OPENING_HAND_ID_CHUNK) {
+      const chunk = ids.slice(i, i + OPENING_HAND_ID_CHUNK)
+      const rows = await db
+        .selectFrom('MatchOpeningCard as o')
+        .leftJoin('Card as c', 'c.cardId', 'o.cardId')
+        .select([
+          'o.matchId',
+          'o.stage',
+          'o.slot',
+          'o.cardId',
+          'o.swapped',
+          'o.confidence',
+          'o.decidedBy',
+          'c.name',
+          'c.cost',
+          'c.bannerHash',
+          'c.imageHash',
+          'c.type',
+          'c.rarity',
+          'c.atk',
+          'c.life',
+          'c.skillText'
+        ])
+        .where('o.matchId', 'in', chunk)
+        .orderBy('o.matchId')
+        .orderBy('o.slot')
+        .execute()
+
+      for (const row of rows) {
+        const key = Number(row.matchId)
+        const bucket = grouped.get(key)
+        if (bucket) bucket.push(row)
+        else grouped.set(key, [row])
+      }
+    }
+
+    // Ordered by the caller's own (deduplicated) id order rather than by
+    // whatever the chunking happened to produce, so a test - and a renderer
+    // diffing against its page - can rely on it without sorting first.
+    const out: OpeningHandBatchEntry[] = []
+    for (const id of ids) {
+      const rows = grouped.get(id)
+      if (rows && rows.length > 0) out.push({ matchId: id, hand: shapeOpeningHand(rows) })
+    }
+    return out
   })
 
   handleIpc('matches:getById', async (_e, id) => {
