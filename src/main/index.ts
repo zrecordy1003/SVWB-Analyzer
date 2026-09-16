@@ -552,6 +552,9 @@ app.whenReady().then(async () => {
   const { registerOpeningStatsIpc } = await import('./ipc/openingStats.js')
   registerOpeningStatsIpc()
 
+  const { registerMetaIpc } = await import('./ipc/meta.js')
+  registerMetaIpc()
+
   // Fill the card pool if we have never done it, so decks and the builder are
   // populated on first run instead of showing a button nobody knew to press.
   //

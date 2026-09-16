@@ -11,5 +11,5 @@
     "isolatedModules": true,
     "allowImportingTsExtensions": false
   },
-  "include": ["src/**/*.ts", "../../src/shared/telemetry.ts", "../../src/shared/domain.ts"]
+  "include": ["src/**/*.ts", "../../src/shared/telemetry.ts", "../../src/shared/meta.ts", "../../src/shared/domain.ts"]
 }

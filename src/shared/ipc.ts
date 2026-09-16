@@ -54,6 +54,7 @@ import type { BattleStatus, GameStatus, HudState } from './types.js'
 import type { UpdateSource } from './updates.js'
 import type { SupportPromptPayload } from './support.js'
 import type { TelemetryPayload, TelemetryStatus } from './telemetry.js'
+import type { MetaSnapshot } from './meta.js'
 import type {
   MatchDetail,
   MatchEditInput,
@@ -109,7 +110,37 @@ export type OpeningHandSlot = {
   /** From the card cache, null when the card was never fetched or is unnamed. */
   name: string | null
   cost: number | null
+  /** The wide banner crop, for places that want a list row's worth of art. */
   bannerHash: string | null
+  /**
+   * The full portrait card, for places with room to show a face.
+   *
+   * Both hashes, because they are different crops of different use: the banner
+   * is a letterboxed middle band that reads as texture below about forty pixels
+   * tall, while the portrait carries the illustration a player actually
+   * recognises a card by. Which one is right depends on the surface, so the
+   * contract carries both rather than deciding for every caller.
+   */
+  imageHash: string | null
+
+  /**
+   * The rest of the printed card, for a hover that shows the whole thing.
+   *
+   * A slot used to carry only what a thumbnail needs. Showing the full card on
+   * hover means showing what a player reads - the text above all - so the
+   * fields `CardTooltip` wants come along too. `type` is the portal's numeric
+   * kind; convert with `cardKindFromType` at the edge rather than storing a
+   * second spelling of it.
+   *
+   * All nullable, and not merely for tidiness: `Card` is a cache of somebody
+   * else's data that can be cleared or refetched in another language, so a slot
+   * has to degrade to "card number 10573310, details unknown" rather than fail.
+   */
+  type: number | null
+  rarity: number | null
+  atk: number | null
+  life: number | null
+  skillText: string | null
 }
 
 export type OpeningHandView = {
@@ -118,6 +149,17 @@ export type OpeningHandView = {
   /** The hand it was played with. */
   post: OpeningHandSlot[]
 }
+
+/**
+ * Hands for a page of the match list, in one call.
+ *
+ * The list is virtualised and paged, so the per-match channel would be one
+ * round trip per visible row and a fresh burst on every scroll. This takes the
+ * page's ids together and answers with only the matches that HAVE a hand -
+ * an absent id means "no rows", which is the common case for anything recorded
+ * before the mulligan reader existed and must not be confused with an error.
+ */
+export type OpeningHandBatchEntry = { matchId: number; hand: OpeningHandView }
 
 /**
  * Every `invoke`-able channel.
@@ -152,6 +194,17 @@ export type IpcContract = {
    */
   'telemetry:noticeDue': () => boolean
 
+  // --------------------------------------------------------------------- 環境
+  /**
+   * The public aggregate, read back from the same Worker uploads go to.
+   *
+   * Outbound only and anonymous - no install id, no body - so it is NOT gated
+   * on the telemetry switch: see `src/main/ipc/meta.ts`. `days` is clamped to
+   * what the endpoint accepts; `refresh` asks past both caches, this process's
+   * and the Worker's edge copy.
+   */
+  'meta:fetch': (params?: { days?: number; refresh?: boolean }) => Res<MetaSnapshot>
+
   // ------------------------------------------------------------ card images
   'cardImages:stats': () => { files: number; bytes: number }
   'cardImages:clear': () => { ok: boolean }
@@ -170,6 +223,7 @@ export type IpcContract = {
    * read at all, the second is a hand that was seen but could not be named.
    */
   'matches:openingHand': (matchId: number) => OpeningHandView | null
+  'matches:openingHands': (matchIds: number[]) => OpeningHandBatchEntry[]
   'matches:getExtras': (id: number) => MatchExtras
   'matches:fetchRecent': (n?: number, mode?: GameMode | 'all' | null) => Match[]
   'matches:latestMode': () => GameMode | null

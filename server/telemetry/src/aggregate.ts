@@ -4,6 +4,7 @@
  * `index.ts` runs the SQL; this shapes what comes back into the two documents
  * the Worker serves. Pure, so the shapes can be tested without a database.
  */
+import type { MetaCell, MetaDocument } from '../../../src/shared/meta'
 
 // ------------------------------------------------------------------ /v1/meta
 
@@ -29,80 +30,39 @@ export type MatrixRow = {
   raw_total: number
 }
 
-export type MetaCell = {
-  myClass: string
-  oppoClass: string
-  playOrder: string
-  /**
-   * The numbers to plot. Capped per install (see `sampling`), so one player who
-   * has ground out a matchup cannot be more than their cap's share of it.
-   */
-  wins: number
-  total: number
-  /** Sample size in PLAYERS, which is the one a matchup table lives or dies by. */
-  installs: number
-  /** The same cell with no cap applied, so the cap is auditable. */
-  rawWins: number
-  rawTotal: number
-}
-
-export type MetaDocument = {
-  generatedAt: string
-  /** What was counted: the filter the SQL applied. Stated so a chart can say it. */
-  window: { since: string; days: number }
-  mode: string
-  tiers: string[]
-  /** Distinct installs that contributed at least one bucket in the window. */
-  installs: number
-  /**
-   * Sum of every published cell's capped total.
-   *
-   * Recorder-side observations, not distinct games: a match between two people
-   * who both run this app is recorded by both and appears once in `(A vs B)`
-   * and once in `(B vs A)`. There is no match id to deduplicate on, by design,
-   * so this is an observation count - and `caveats` says so.
-   */
-  matches: number
-  /**
-   * One cell per (my class, opponent class, play order) that clears
-   * `minInstallsPerCell`. Wins and totals only - the interval is the reader's
-   * job (plan D-8), and a cell with a small `total` must be shown as such,
-   * never as a bare rate.
-   */
-  cells: MetaCell[]
-  /** Per-class totals from the recorder's side, under the same threshold. */
-  byClass: Array<{ myClass: string; wins: number; total: number; installs: number }>
-  /**
-   * How the numbers above were bounded, and what that hid.
-   *
-   * Both constants are server-side and can be retuned without a client
-   * release. That is the reason the client uploads all four tiers and lets the
-   * server decide what to publish.
-   */
-  sampling: {
-    maxPerInstallPerCell: number
-    minInstallsPerCell: number
-    /** Cells that existed but had too few contributing installs to publish. */
-    suppressedCells: number
-    /** Raw observations inside those cells, so their absence is not silent. */
-    suppressedMatches: number
-  }
-  /** What these numbers cannot be read as. Travels with the data on purpose. */
-  caveats: string[]
-}
+/**
+ * The published shapes are declared in `src/shared/meta.ts` and re-exported
+ * here.
+ *
+ * They are the wire format, and the app reads them: keeping a second copy
+ * beside the query that fills it is how a server field and the page that draws
+ * it drift apart while both compile. Same arrangement as `validate.ts`, which
+ * validates against the client's own constants rather than a transcription of
+ * them.
+ */
+export type { MetaCell, MetaDocument } from '../../../src/shared/meta'
 
 /**
  * The caveats no amount of code removes, so they ship with the document.
+ *
+ * Written in Traditional Chinese because the only client is this app and its
+ * interface is Chinese, and because a caveat nobody reads is a caveat that does
+ * not work. Translating on the client was the alternative and it was rejected:
+ * the page's whole claim is that it says what the server says, so that the day
+ * the sampling rules change the wording changes with them - a lookup table in
+ * the renderer would go stale silently the first time a fifth caveat appeared.
+ * A future non-Chinese client is the cost, and the fix then is a `Lang` header
+ * here, not a dictionary over there.
  *
  * A public number gets quoted without its context by default. Putting these in
  * the payload means a chart, a bot or a third party reading `/v1/meta` has them
  * in hand rather than in a README they never opened.
  */
 export const META_CAVEATS: readonly string[] = [
-  'People who run a tracker are not a random sample of players; read this as the meta among users of this app.',
-  'All ranks are pooled. The upload carries no rank or MP, so this cannot be split by skill.',
-  'A game between two users of this app is recorded by both and appears in both directions; matches counts observations, not distinct games.',
-  'Only engine-recorded matches with nothing hand-corrected and no recognition warning are counted.'
+  '會裝分析工具的玩家不是隨機抽樣，所以這是「這個 app 的使用者之間」的環境，不等於天梯全體。',
+  '所有段位混在一起算。上傳的內容不含段位與 MP，所以拆不開。',
+  '兩個都在用這個 app 的人對戰，同一場會被雙方各記一次、在矩陣的兩個方向各出現一次；場次算的是觀測數，不是不重複的對局數。',
+  '只計入引擎自己記錄、沒有手動修改過、也沒有辨識警告的對局。'
 ]
 
 export function buildMeta(

@@ -20,6 +20,7 @@ import ListAltIcon from '@mui/icons-material/ListAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import BackHandOutlinedIcon from '@mui/icons-material/BackHandOutlined'
+import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
 // import AutoAwesomeMotionOutlinedIcon from '@mui/icons-material/AutoAwesomeMotionOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
 // import Sun from '@mui/icons-material/Brightness4'
@@ -46,6 +47,11 @@ const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerf
  */
 // const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
 const OpeningPage = lazy(() => import('./components/Opening/OpeningPage'))
+/**
+ * 環境：唯一一頁畫的不是本機資料的頁面，資料來自公開的統計端點。lazy 在這裡
+ * 比其他頁更划算 - 沒點進去的人連那段程式碼都不會抓，也不會發出任何請求。
+ */
+const MetaPage = lazy(() => import('./components/Meta/MetaPage'))
 // import Statistics from './components/Statistics'
 
 const DRAWER_COLLAPSED_WIDTH = 92
@@ -85,6 +91,7 @@ type PageKey =
   | 'DeckPerformance'
   | 'Cards'
   | 'Opening'
+  | 'Meta'
   | 'Settings'
   | 'About'
 const PAGE_KEYS: readonly PageKey[] = [
@@ -93,6 +100,7 @@ const PAGE_KEYS: readonly PageKey[] = [
   'DeckPerformance',
   // 'Cards', // 見上面 CardsPage 的說明
   'Opening',
+  'Meta',
   'Settings',
   'About'
 ]
@@ -183,6 +191,8 @@ function App(): React.JSX.Element {
     // 一隻手：起手是「手上的牌」，和上面兩顆的牌組、卡片分開。
     { key: 'Opening', text: '起手', icon: <BackHandOutlinedIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
+    // 一顆地球：分析器看的是自己的資料，這一頁看的是所有人的。
+    { key: 'Meta', text: '環境數據', icon: <PublicOutlinedIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
     { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
   ]
@@ -194,6 +204,7 @@ function App(): React.JSX.Element {
     DeckPerformance: '牌組戰績',
     Cards: '卡片',
     Opening: '起手',
+    Meta: '環境數據',
     Settings: '設定',
     About: '關於與授權'
   }
@@ -335,6 +346,7 @@ function App(): React.JSX.Element {
             {/* {currentPage === 'Cards' && <CardsPage />} */}
             {currentPage === 'Opening' && <OpeningPage />}
             {currentPage === 'Analyzer' && <Analyzer />}
+            {currentPage === 'Meta' && <MetaPage />}
             {currentPage === 'Settings' && <Settings />}
             {currentPage === 'About' && <About />}
           </Suspense>
