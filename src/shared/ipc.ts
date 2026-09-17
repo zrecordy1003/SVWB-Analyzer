@@ -49,7 +49,12 @@ import type {
 import type { DeckImportPreview, ParsedDeckInput, StoredDeckCard } from './deckImport.js'
 import type { CardStatsResult } from './cardStats.js'
 import type { CardPoolResult, CardPoolStatusRow, CardStatsPayload } from './cards.js'
-import type { OpeningStatsPayload, OpeningStatsResult } from './openingStats.js'
+import type {
+  MulliganPayload,
+  MulliganResult,
+  OpeningStatsPayload,
+  OpeningStatsResult
+} from './openingStats.js'
 import type { BattleStatus, GameStatus, HudState } from './types.js'
 import type { UpdateSource } from './updates.js'
 import type { SupportPromptPayload } from './support.js'
@@ -316,6 +321,17 @@ export type IpcContract = {
    * See `shared/openingStats.ts`.
    */
   'cards:openingStats': (input?: OpeningStatsPayload) => Res<OpeningStatsResult>
+
+  /**
+   * 換牌建議 - keep or swap, against one opponent class.
+   *
+   * Separate from `cards:openingStats` because it answers a different question
+   * with a different estimand: that channel compares being dealt a card
+   * against not being dealt it, which is randomised and clean; this one
+   * compares keeping against swapping, which is a decision and is not. They
+   * would be misread as the same number if they shared a shape.
+   */
+  'cards:mulligan': (input?: MulliganPayload) => Res<MulliganResult>
 
   // -------------------------------------------------------------------- hud
   //

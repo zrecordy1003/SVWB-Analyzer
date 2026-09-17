@@ -313,3 +313,133 @@ export const OPENING_THRESHOLDS = {
 export const DECK_SIZE = 40
 /** Cards dealt before the mulligan. */
 export const HAND_SIZE = 4
+
+// ============================================================ 換牌建議（M5）
+
+/**
+ * How many bands the rest of the hand is summarised into.
+ *
+ * Three, and the reason is arithmetic rather than taste: the whole point of
+ * the band is to compare keeping a card against swapping it *within* similar
+ * hands, and every extra band divides an already small sample again. Three
+ * distinguishes "the rest of my hand was cheap", "ordinary" and "expensive",
+ * which is the distinction the confounding actually runs along - people keep a
+ * costly card when the other three are cheap. Five would be more faithful and
+ * would empty every cell.
+ */
+export const REST_BANDS = 3
+
+/** Which comparison a piece of advice was actually computed from. */
+export type AdviceBasis =
+  /**
+   * Same opponent, same turn order, and combined ACROSS the rest-of-hand bands
+   * by Mantel-Haenszel rather than taken from one of them. The real thing.
+   */
+  | 'stratified'
+  /** Same opponent and turn order, bands pooled raw. One rung down. */
+  | 'turn-order'
+  /** Same opponent, turn orders pooled too. */
+  | 'opponent'
+  /** Opponents pooled as well. The weakest basis still worth printing. */
+  | 'all-opponents'
+
+/**
+ * One card's keep-or-swap record against the current opponent filter.
+ *
+ * The estimand is `kept − swapped`, which is the question a mulligan actually
+ * asks. It is NOT the clean causal quantity `dealt − notDealt` that
+ * [[OpeningCardStat]] carries: keeping is a decision, so this comparison is
+ * confounded by whatever made the player decide - above all by the other three
+ * cards. `basis` says how much of that was conditioned away.
+ *
+ * Locally this is better than any pooled version can be, and for a reason
+ * worth stating: there is one player, so the comparison is within-player by
+ * construction and skill cannot confound it. What a hundred installs would buy
+ * is sample size, not cleanliness.
+ */
+export type KeepAdvice = {
+  cardId: number
+  name: string
+  cost: number | null
+  bannerHash: string | null
+  imageHash: string | null
+
+  /** Times this card was dealt, inside the current filter. */
+  dealt: number
+  /** Of those, how often it survived. */
+  kept: number
+  /** `kept / dealt`. Descriptive, no estimation, readable early. */
+  keepRate: Rate | null
+
+  /** Win rate of the matches where it was kept. */
+  keptWr: Rate | null
+  /** Win rate of the matches where it went back. */
+  swappedWr: Rate | null
+  /**
+   * The adjusted difference in points, shrunk toward zero.
+   *
+   * Positive means the matches where this card stayed went better. It does
+   * not mean keeping it caused that - read `basis` and the interval.
+   *
+   * **This is not `keptWr.rate − swappedWr.rate`.** At `basis: 'stratified'`
+   * it is a Mantel-Haenszel combination across the rest-of-hand bands, so it
+   * can differ from the crude gap between the two rates beside it - and that
+   * gap is the confounding those bands exist to remove. At the lower rungs
+   * there is nothing to adjust and the two do coincide.
+   */
+  diff: number | null
+  diffLo: number | null
+  diffHi: number | null
+
+  /** How the estimate was reached, after any fallback. */
+  basis: AdviceBasis
+  /**
+   * The per-band arms behind a `'stratified'` estimate, for the drill-down.
+   *
+   * Empty at every other basis. Worth opening because a difference that lives
+   * in one band and vanishes in the others is a difference that is probably
+   * noise, and no summary number can show that.
+   */
+  bands: KeepBand[]
+  confidence: Confidence
+  missing: Missing | null
+}
+
+/**
+ * The per-band detail behind one card, for the drill-down.
+ *
+ * Kept separate from [[KeepAdvice]] because the summary is what the page
+ * shows and this is what a suspicious reader opens to check: a difference
+ * that only exists in one band is a difference that is probably noise.
+ */
+export type KeepBand = {
+  /** 0 = the other three were cheapest, `REST_BANDS - 1` = most expensive. */
+  band: number
+  keptWr: Rate | null
+  swappedWr: Rate | null
+}
+
+export type MulliganPayload = OpeningStatsPayload & {
+  /** Null pools every opponent. A class name narrows to that matchup. */
+  oppoClass?: string | null
+  /** Null pools both. `'first'` / `'second'` narrows. */
+  playOrder?: string | null
+}
+
+export type MulliganResult = {
+  /** Matches inside the filter whose pre-mulligan hand was read in full. */
+  matches: number
+  /** The filter's own win rate - the baseline every card is read against. */
+  baseline: Rate | null
+  cards: KeepAdvice[]
+}
+
+/** Thresholds for the keep comparison. Both arms, not the sum. */
+export const KEEP_THRESHOLDS = {
+  /** Times dealt before a keep rate is printed. */
+  keepRate: 8,
+  /** Per arm before a difference is shown at all. */
+  show: 12,
+  /** Per arm before the table may be sorted on it. */
+  sort: 30
+} as const

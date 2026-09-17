@@ -322,14 +322,108 @@ export function shrink(diff: number, nA: number, nB: number, priorWeight: number
  * is what limits the variance of the difference (see [[shrink]] on `n_eff`),
  * so it is the smaller arm that decides.
  */
-export function confidenceFor(nDealt: number, nNotDealt: number): Confidence {
+export function confidenceFor(
+  nDealt: number,
+  nNotDealt: number,
+  /**
+   * Where the two bars sit.
+   *
+   * Defaulted rather than fixed because the keep-or-swap comparison runs at a
+   * different scale: it splits an already-split sample by opponent and by the
+   * rest of the hand, so it sets its own, lower pair in `KEEP_THRESHOLDS`.
+   * The first version of this hard-coded the opening-hand numbers and its
+   * caller quietly grew a second copy of this function - one rule spelled
+   * twice is the thing this file exists to prevent.
+   */
+  thresholds: { show: number; sort: number } = {
+    show: OPENING_THRESHOLDS.wrShow,
+    sort: OPENING_THRESHOLDS.wrSort
+  }
+): Confidence {
   const smaller = Math.min(
     Number.isFinite(nDealt) ? nDealt : 0,
     Number.isFinite(nNotDealt) ? nNotDealt : 0
   )
-  if (smaller >= OPENING_THRESHOLDS.wrSort) return 'sortable'
-  if (smaller >= OPENING_THRESHOLDS.wrShow) return 'shown'
+  if (smaller >= thresholds.sort) return 'sortable'
+  if (smaller >= thresholds.show) return 'shown'
   return 'hidden'
+}
+
+/**
+ * Mantel-Haenszel risk difference: one number across several strata.
+ *
+ * This is what "conditioning on the rest of the hand" has to mean in the end.
+ * Splitting the comparison into bands removes the confounding within each
+ * band, but leaves three separate answers; picking the biggest band throws
+ * two of them away, and pooling the raw counts puts the confounding straight
+ * back. MH combines them by weighting each stratum with `n1*n0/(n1+n0)` -
+ * the inverse of its variance, up to a constant - so a stratum with a
+ * lopsided or tiny pair of arms contributes proportionately little.
+ *
+ * Returns `null` when no stratum has both arms, which is a real state and not
+ * a zero: it means nobody ever made the other choice in comparable spots.
+ *
+ * The interval is Greenland-Robins (1985), which is the variance that belongs
+ * to THIS estimator. Reusing a Newcombe interval built from the pooled arms
+ * would centre the interval on the crude gap while the estimate sits at the
+ * adjusted one - and when the confounding is large those are far apart, so the
+ * page would draw a point outside its own interval. An interval that does not
+ * contain its estimate is worse than no interval.
+ *
+ * The result does NOT equal the difference of the two crude rates a caller
+ * might display beside it, and it is not supposed to. That gap IS the
+ * confounding, and a UI that shows both owes the reader a word about it.
+ */
+export function mantelHaenszelDiff(
+  strata: readonly { aWins: number; aTotal: number; bWins: number; bTotal: number }[]
+): { diff: number; lo: number; hi: number } | null {
+  let numerator = 0
+  let weight = 0
+  let variance = 0
+  for (const s of strata) {
+    const n1 = Math.max(0, Math.floor(s.aTotal))
+    const n0 = Math.max(0, Math.floor(s.bTotal))
+    if (n1 <= 0 || n0 <= 0) continue
+    const a = Math.min(n1, Math.max(0, s.aWins))
+    const c = Math.min(n0, Math.max(0, s.bWins))
+    const b = n1 - a
+    const d = n0 - c
+    const total = n1 + n0
+    const w = (n1 * n0) / total
+    numerator += w * (a / n1 - c / n0)
+    weight += w
+
+    // Greenland-Robins (1985), the variance that belongs to this estimator -
+    // with a half added to each cell of a stratum that would otherwise
+    // contribute nothing.
+    //
+    // Without the correction, a stratum where every kept game was won and
+    // every swapped game lost has `a*b` and `c*d` both zero, so it adds zero
+    // variance. Sixteen observations each way then produce an interval of zero
+    // width: a claim of certainty from thirty-two games, on the row where the
+    // data looks most dramatic and is least trustworthy. That is the same
+    // boundary collapse this file rejects Wald intervals for, and it would
+    // appear exactly where a reader is most likely to act on it.
+    //
+    // Only the variance is corrected, not the estimate: a risk of zero or one
+    // is a perfectly good risk and shifting it would bias the point to buy
+    // nothing. And only strata that need it are touched, which does leave the
+    // width very slightly discontinuous as a cell fills - preferable to
+    // inflating every interval on the page to smooth a boundary case.
+    const degenerate = a * b === 0 || c * d === 0
+    const [ca, cb, cc, cd] = degenerate ? [a + 0.5, b + 0.5, c + 0.5, d + 0.5] : [a, b, c, d]
+    const cn1 = ca + cb
+    const cn0 = cc + cd
+    variance += (ca * cb * cn0 ** 3 + cc * cd * cn1 ** 3) / (cn1 * cn0 * (cn1 + cn0) ** 2)
+  }
+  if (weight <= 0) return null
+  const diff = numerator / weight
+  const half = Z_95 * Math.sqrt(variance / weight ** 2)
+  return {
+    diff: +(diff * 100).toFixed(2),
+    lo: +(Math.max(-1, diff - half) * 100).toFixed(2),
+    hi: +(Math.min(1, diff + half) * 100).toFixed(2)
+  }
 }
 
 /**

@@ -15,7 +15,8 @@ import {
   newcombeDiff,
   rate,
   shrink,
-  wilson
+  wilson,
+  mantelHaenszelDiff
 } from '../../src/shared/stats'
 
 const finite = (value: { rate: number; lo: number; hi: number }): void => {
@@ -333,5 +334,44 @@ describe('mean', () => {
   it('skips non-finite entries rather than poisoning the result', () => {
     expect(mean([1, NaN, 3])).toBe(2)
     expect(mean([NaN, Infinity])).toBeNull()
+  })
+})
+
+describe('mantelHaenszelDiff', () => {
+  it('combines strata rather than pooling their counts', () => {
+    // Keeping happens mostly in the cheap-hand stratum and swapping mostly in
+    // the expensive one, so the crude gap is enormous and almost all of it is
+    // the stratum, not the decision.
+    const strata = [
+      { aWins: 16, aTotal: 20, bWins: 3, bTotal: 4 },
+      { aWins: 1, aTotal: 4, bWins: 4, bTotal: 20 }
+    ]
+    const crude = ((16 + 1) / 24 - (3 + 4) / 24) * 100
+    const mh = mantelHaenszelDiff(strata)
+    expect(crude).toBeCloseTo(41.67, 1)
+    expect(mh?.diff).toBeCloseTo(5, 1)
+    expect(mh!.lo).toBeLessThan(mh!.diff)
+    expect(mh!.hi).toBeGreaterThan(mh!.diff)
+  })
+
+  it('refuses to answer when no stratum has both arms', () => {
+    expect(mantelHaenszelDiff([{ aWins: 3, aTotal: 5, bWins: 0, bTotal: 0 }])).toBeNull()
+    expect(mantelHaenszelDiff([])).toBeNull()
+  })
+
+  it('does not claim certainty when every game in a stratum went the same way', () => {
+    // Sixteen wins kept against sixteen losses swapped. The uncorrected
+    // Greenland-Robins variance is exactly zero here, which would draw a
+    // zero-width interval on the most dramatic row of the page.
+    const mh = mantelHaenszelDiff([{ aWins: 16, aTotal: 16, bWins: 0, bTotal: 16 }])
+    expect(mh?.diff).toBeCloseTo(100, 5)
+    expect(mh!.hi - mh!.lo).toBeGreaterThan(1)
+    expect(mh!.lo).toBeLessThan(100)
+  })
+
+  it('keeps the point estimate exactly where the uncorrected one was', () => {
+    // The correction touches the variance only, so a risk of one stays one.
+    const mh = mantelHaenszelDiff([{ aWins: 10, aTotal: 10, bWins: 0, bTotal: 10 }])
+    expect(mh?.diff).toBeCloseTo(100, 5)
   })
 })

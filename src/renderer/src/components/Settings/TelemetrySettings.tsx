@@ -85,8 +85,16 @@ const TelemetrySettings: React.FC = () => {
             <span>分享對局數據</span>
             <InfoHint
               title={
-                <Box display="flex" flexDirection="column" gap={0.5}>
-                  <span>開啟後，定期上傳對戰資料，不會收集任何隱私資料，且不佔用頻寬。</span>
+                <Box display="flex" flexDirection="column" gap={0.75}>
+                  <span>開啟後定期上傳，內容只有這些，而且是整天合併過的計數：</span>
+                  <Box component="ul" sx={{ m: 0, pl: 2.25 }}>
+                    <li>職業、對手職業、先攻或後攻、模式、分數段、勝負</li>
+                    <li>起手四張的卡號，以及各自有沒有被換掉</li>
+                  </Box>
+                  <span>
+                    不含帳號、暱稱、牌組名稱、對手名字或任何可以認出你的東西，也不會上傳
+                    單場紀錄——伺服器收到的是「這一天這種組合出現幾次」。
+                  </span>
                   {enabled && <span>{lastUploadLine}</span>}
                 </Box>
               }

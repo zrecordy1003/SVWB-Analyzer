@@ -552,6 +552,9 @@ app.whenReady().then(async () => {
   const { registerOpeningStatsIpc } = await import('./ipc/openingStats.js')
   registerOpeningStatsIpc()
 
+  const { registerMulliganIpc } = await import('./ipc/mulligan.js')
+  registerMulliganIpc()
+
   const { registerMetaIpc } = await import('./ipc/meta.js')
   registerMetaIpc()
 
