@@ -53,6 +53,29 @@ describe('classifyRow', () => {
     expect(classifyRow(row())).toBe('clean')
   })
 
+  it('refuses a source this build does not recognise', () => {
+    // The demo seeder writes 'demo-seed'. Before this check the row fell
+    // through to `clean` and 583 invented matches uploaded themselves as the
+    // most trustworthy tier there is. Anything that is not the engine and not
+    // the manual form is somebody's tooling, and tooling does not get a vote.
+    expect(classifyRow(row({ source: 'demo-seed' }))).toBe('invalid')
+    expect(classifyRow(row({ source: 'import' }))).toBe('invalid')
+    expect(classifyRow(row({ source: 'engine' }))).toBe('clean')
+  })
+
+  it('still counts a row from before there was a source column', () => {
+    // `legacy` is the one unrecognised source that is real data.
+    expect(classifyRow(row({ source: null }))).toBe('legacy')
+  })
+
+  it('keeps an unrecognised source out of the buckets entirely', () => {
+    const days = rollup([row({ source: 'demo-seed' }), row({ source: 'engine' })], NOW)
+    const counted = days.flatMap((d) => d.buckets).reduce((n, b) => n + b.count, 0)
+    expect(counted).toBe(1)
+    // Not counted as manual or abandoned either - it is not a match anyone played.
+    expect(days.reduce((n, d) => n + d.manual + d.abandoned, 0)).toBe(0)
+  })
+
   it('is edited only when an observed column was overwritten', () => {
     expect(classifyRow(row({ edited_fields: '["note","my_deckId","tags"]' }))).toBe('clean')
     expect(classifyRow(row({ edited_fields: '["note","mode"]' }))).toBe('edited')

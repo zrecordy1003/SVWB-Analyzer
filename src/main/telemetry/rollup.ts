@@ -107,6 +107,19 @@ export type RowClass = TelemetryTier | 'manual' | 'abandoned' | 'invalid'
  */
 export function classifyRow(row: RollupRow): RowClass {
   if (row.source === 'manual') return 'manual'
+  // A source this build does not recognise is excluded, not trusted.
+  //
+  // This used to fall through to `clean`, which made the check fail OPEN: any
+  // row written by something other than the engine or the manual form counted
+  // as the most trustworthy tier there is. That is not hypothetical - the demo
+  // seeder (`tools/seed-opening-demo.mjs`) writes `source = 'demo-seed'`, and
+  // 583 fabricated matches duly uploaded themselves as `clean` before anyone
+  // noticed. Ten of them reached the published meta document.
+  //
+  // `legacy` is the one unrecognised value that is still real: rows predating
+  // migration 008 have no source at all, and they are handled below as their
+  // own tier. Everything else is somebody's tooling.
+  if (row.source !== null && row.source !== 'engine') return 'invalid'
   if (
     !TELEMETRY_CLASSES.includes(row.my_class) ||
     !TELEMETRY_CLASSES.includes(row.oppo_class) ||
