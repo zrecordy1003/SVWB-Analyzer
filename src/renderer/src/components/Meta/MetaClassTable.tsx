@@ -39,12 +39,26 @@ import type { MetaClassRow, MetaSideSplit } from './metaModel'
 
 const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
-/** 職業 · 先攻 · 後攻 · 先後差徽章 · 總勝率。三個勝率等寬，讀成一家人。 */
+/**
+ * 職業 · 先攻 · 後攻 · 先後差徽章 · 總勝率。三個勝率等寬，讀成一家人。
+ *
+ * 四欄都是 `minmax(下限, 1fr)` 而不是固定寬度，是為了讓多出來的寬度**攤給每一
+ * 欄**。原本只有職業名那欄是 `1fr`，於是在寬一點的版面（尤其是雙欄版型裡那個
+ * 固定 472px 的左欄）它把剩下的空間全部吃掉：職業名和第一個百分比之間開了一片
+ * 空白，三個勝率則擠在最右邊，看起來像表格沒有撐到底。
+ *
+ * 職業名那欄給 1.4fr：它裝的是圖示加二到四個中文字，本來就該比一欄百分比寬，
+ * 但不該寬到把數字推走。徽章維持固定 60px——它是「有就出現、沒有就空著」的東西，
+ * 讓它伸縮會使有徽章和沒徽章的兩列對不齊。
+ */
 const COLUMNS = {
-  gridTemplateColumns: 'minmax(104px, 1fr) 80px 80px 60px 80px'
+  gridTemplateColumns:
+    'minmax(104px, 1.4fr) minmax(80px, 1fr) minmax(80px, 1fr) 60px minmax(80px, 1fr)'
 }
 /** 窄的時候先丟掉徽章：它是兩欄的差，兩欄都在，差自己看得出來。 */
-const COLUMNS_NARROW = { gridTemplateColumns: 'minmax(92px, 1fr) 68px 68px 0 68px' }
+const COLUMNS_NARROW = {
+  gridTemplateColumns: 'minmax(92px, 1.4fr) minmax(68px, 1fr) minmax(68px, 1fr) 0 minmax(68px, 1fr)'
+}
 
 const HIDE_NARROW = { '@media (max-width: 720px)': { display: 'none' } } as const
 
