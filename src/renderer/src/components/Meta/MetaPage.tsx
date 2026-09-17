@@ -5,7 +5,7 @@
  * 這頁回答「現在大家在打什麼、哪個職業強」- 資料來自公開端點 `/v1/meta`，
  * 由 `src/main/ipc/meta.ts` 代為讀取（那支檔案說明了為什麼它不跟著上傳開關走）。
  *
- * 由上而下三塊，順序就是信任的順序：
+ * 三塊，順序就是信任的順序：
  *
  * 1. **這份資料有多大**：幾位使用者、幾場觀測、統計窗多長。放在最上面是因為
  *    底下每一個百分比的意義都由它決定，而一個統計頁最容易犯的錯就是先給結論
@@ -16,18 +16,23 @@
  *    熱圖／長條圖，只是資料換成環境的。計畫 P6 就是這樣寫的：門檻與畫法只能有
  *    一套，否則同一個 52% 在兩頁會讀成兩件事。
  *
+ * 版面：窗夠寬時 2 與 3 左右並排，職業層級在左、對位在右；不夠寬就由上而下疊。
+ * 並排不只是塞得下的問題——對位那張圖的長條是直的，容器多高它就多高，疊著放時
+ * 它永遠只拿得到頁面最底下剩的那一截，同一張圖在分析器那邊卻是整頁高。讓它自己
+ * 佔一整欄，高度的問題就跟著版面一起解了。切換的門檻與左右的分配見
+ * `SPLIT_MIN_WIDTH` 與 `CLASS_COLUMN_WIDTH` 的說明。
+ *
  * 伺服器自己附帶的 `caveats` 收在工具列時間戳旁邊的 ⓘ 裡。那幾句不是免責聲明
  * 樣板，是這份資料真正的邊界（樣本是誰、為什麼會重複計、為什麼不能分段位），
  * 所以它們跟著資料走，不寫死在這裡 - 伺服器改了規則，這頁說的話就跟著改。
  * 它們曾經是頁尾一整塊散文，搬進 hover 是因為那是這頁唯一沒有人會讀第二次的
  * 段落；搬走而不是刪掉，是因為少了它們，數字看起來會比實際上更乾淨。
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
   Button,
-  Collapse,
   Divider,
   IconButton,
   Paper,
@@ -36,7 +41,6 @@ import {
   Typography
 } from '@mui/material'
 import AlignHorizontalLeftIcon from '@mui/icons-material/AlignHorizontalLeft'
-import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
@@ -66,6 +70,70 @@ import type { ClassName } from '@shared/domain'
 const TOOLBAR_CONTROL_HEIGHT = 36
 const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
+/** 面板內距（`p: 2`）的像素數；下面算欄寬時要把它加回去。 */
+const PANEL_PADDING = 16
+/** 兩欄之間、以及上下兩塊之間的間距（`gap: 1.5`）。 */
+const BLOCK_GAP = 12
+
+/**
+ * 並排時左欄（環＋職業表）的寬度。
+ *
+ * 440 是職業表五欄不擠的最小寬（`MetaClassTable` 的欄位定義），加上面板兩側的
+ * 內距。左欄是**固定寬**而不是跟右欄平分：這一塊的內容有一個硬的下限、卻沒有
+ * 任何東西能把多出來的寬度用掉——環是固定 200px，表格多給的寬只會變成職業名那
+ * 一欄的空白。對位圖則相反，長條的軌道每多一像素就多一點解析度。所以把能長的
+ * 那一塊放在會長的那一欄。
+ *
+ * 環在並排時放在表的**上方**而不是旁邊：旁邊要多 200 + 24 = 224px，那 224px
+ * 從對位圖那欄扣，而環只有七塊，直著讀還是橫著讀都一樣。
+ */
+const CLASS_COLUMN_WIDTH = 440 + PANEL_PADDING * 2
+
+/**
+ * 並排時右欄（對位圖）至少要有的寬度。
+ *
+ * 兩張圖裡比較貪的那張決定這個數：熱圖六欄加五個間距是 536px；長條圖是職業欄
+ * 150 + 間距 12 + 先後攻標籤 34 + 數值 52 + 兩個 8px 的欄距，剩下的才是軌道——
+ * 軌道低於 300px 時 48% 與 52% 的差是四個像素，這張圖就沒有存在的理由了。所以
+ * 150 + 12 + 102 + 300 ≈ 564，加每一列左右各 8px 的內距，取 580。
+ *
+ * 還有一個不那麼明顯的原因不能讓這欄更窄：熱圖、長條圖、職業表把窄版排法掛在
+ * `@media (max-width: 720px)` 上，那量的是**視窗**寬，不是欄寬。一個 1300px
+ * 的視窗裡塞一條 450px 的欄，它們仍然會照桌機版畫六欄——然後被截掉。
+ */
+const MATCHUP_COLUMN_MIN_WIDTH = 580
+
+/**
+ * 頁面內容區（不含側欄與 `Main` 的內距）至少要這麼寬才並排。
+ *
+ * 就是左欄 + 間距 + 右欄的下限，1064px；換成視窗寬度大約是 1064 + 92（側欄）
+ * + 48（左右內距）≈ 1200px。視窗的下限是 1100，所以最小視窗仍然是疊著的——
+ * 那時右欄只能拿到 476px，比疊著放時整頁寬的圖還難讀，並排在那裡不是改善。
+ *
+ * 量的是這個元件自己的寬而不是 `useMediaQuery` 的視窗寬：兩者差一個常數沒錯，
+ * 但那個常數住在 `App.tsx` 裡，側欄或內距一改，寫在這裡的視窗數字就悄悄錯了。
+ * 量自己，不用知道外面長什麼樣。
+ */
+const SPLIT_MIN_WIDTH = CLASS_COLUMN_WIDTH + BLOCK_GAP + MATCHUP_COLUMN_MIN_WIDTH
+
+/**
+ * 疊著放（窗不夠寬）時，對位圖那一塊的最小高度。
+ *
+ * 並排時用不到這個數：右欄本身就是整頁高，圖跟分析器一樣是 `flex: 1` 吃滿。
+ * 疊著放時圖排在環與職業表底下，頁面剩多少它拿多少，而最小視窗（700 高）
+ * 扣掉工具列與上面那塊之後剩不到 200px，七列長條會擠成七條線。所以疊著時
+ * 給它一個實數，讓整頁捲動而不是把圖壓扁。620 大約是分析器在預設視窗高度
+ * 給那張圖的空間，讀起來像同一張圖。
+ */
+const MATCHUP_STACKED_MIN_H = 620
+
+/** 分析器那邊的原句：捲得動但不畫原生捲軸——它會蓋在最右邊那欄數字上。 */
+const HIDDEN_SCROLL_SX = {
+  overflowY: 'auto',
+  scrollbarWidth: 'none',
+  '&::-webkit-scrollbar': { display: 'none' }
+} as const
+
 type ChartKind = 'heatmap' | 'bars'
 
 const WINDOW_OPTIONS = META_WINDOW_DAYS.map((days) => ({ id: String(days), label: `${days} 天` }))
@@ -77,9 +145,7 @@ const CHART_OPTIONS: Array<{ id: ChartKind; label: string; icon: React.ReactNode
 const SETTINGS_KEYS = {
   days: 'meta.days',
   myClass: 'meta.myClass',
-  chartKind: 'meta.chartKind',
-  /** 「這份資料有多大」那一塊是攤開還是收著。預設收著：它被抱怨的就是佔位。 */
-  scaleOpen: 'meta.scaleOpen'
+  chartKind: 'meta.chartKind'
 } as const
 
 const isWindowDays = (value: unknown): value is MetaWindowDays =>
@@ -88,39 +154,55 @@ const isWindowDays = (value: unknown): value is MetaWindowDays =>
 const isClassName = (value: unknown): value is ClassName =>
   classes.some((klass) => String(klass.id) === value)
 
-/** 一個數字加一行標籤。和熱圖上方那排是同一種東西，所以長得一樣。 */
-function Metric({
-  label,
-  value,
-  unit,
-  hint
-}: {
-  label: string
-  value: string
-  unit?: string
-  hint?: React.ReactNode
-}): React.JSX.Element {
+/**
+ * 這一頁現在有多寬，決定要不要並排。
+ *
+ * 用 `ResizeObserver` 量根元素，而不是 `useMediaQuery`：理由寫在
+ * `SPLIT_MIN_WIDTH` 上。第一次在 layout effect 裡同步量一次，否則第一幀會先
+ * 畫疊著的版、observer 回來再跳成並排，換頁的瞬間版面會抖一下。量不到（測試
+ * 環境沒有 `ResizeObserver`）就當作不夠寬，疊著放是兩種版面裡比較保守的那種。
+ */
+function useIsWide(ref: React.RefObject<HTMLElement | null>): boolean {
+  const [wide, setWide] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = (width: number): void => setWide(width >= SPLIT_MIN_WIDTH)
+    measure(el.getBoundingClientRect().width)
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) measure(entry.contentRect.width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+  return wide
+}
+
+/**
+ * ⓘ 裡的一列：名稱、值，底下一行但書。
+ *
+ * 取代了原本那個 20px 大字的 `Metric`。那個尺寸是給版面上的數字用的，而這些
+ * 數字已經不在版面上了——它們現在只在滑過去的時候出現，而 tooltip 裡的 20px
+ * 會讀成標題而不是資料。
+ */
+function Row({ k, v, note }: { k: string; v: string; note?: string }): React.JSX.Element {
   return (
-    <Box>
-      <Box display="flex" alignItems="center" gap={0.5}>
-        <Typography variant="caption" sx={{ opacity: 0.55, lineHeight: 1.6 }}>
-          {label}
+    <>
+      <Typography variant="caption" sx={{ opacity: 0.55, whiteSpace: 'nowrap', pt: '1px' }}>
+        {k}
+      </Typography>
+      <Box>
+        <Typography variant="body2" sx={NUMERIC}>
+          {v}
         </Typography>
-        {hint && <InfoHint title={hint} label={label} />}
-      </Box>
-      <Box display="flex" alignItems="baseline" gap={0.5}>
-        <Typography
-          sx={{ ...NUMERIC, fontSize: 20, lineHeight: 1.3, color: 'rgba(255,255,255,0.92)' }}
-        >
-          {value}
-        </Typography>
-        {unit && (
-          <Typography variant="caption" sx={{ opacity: 0.5 }}>
-            {unit}
+        {note && (
+          <Typography variant="caption" sx={{ display: 'block', opacity: 0.6, lineHeight: 1.5 }}>
+            {note}
           </Typography>
         )}
       </Box>
-    </Box>
+    </>
   )
 }
 
@@ -128,12 +210,6 @@ export default function MetaPage(): React.JSX.Element {
   const [days, setDays] = useState<MetaWindowDays>(14)
   const [myClass, setMyClass] = useState<ClassName>('elf')
   const [chartKind, setChartKind] = useState<ChartKind>('heatmap')
-  /**
-   * 「這份資料有多大」那一塊攤開了沒。收著時只剩一行摘要，攤開才是五個數字各佔
-   * 一格的原版。和 `days`、`chartKind` 一樣存回設定：一個人每次進來都要多按一下
-   * 才看得到他上次已經決定要看的東西，那個開關就等於沒有。
-   */
-  const [scaleOpen, setScaleOpen] = useState(false)
   const [snapshot, setSnapshot] = useState<MetaSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -142,6 +218,9 @@ export default function MetaPage(): React.JSX.Element {
    * 裡，因為兩邊都要讀也都要寫 - 一邊持有另一邊就得往上再傳一層。
    */
   const [highlighted, setHighlighted] = useState<string | null>(null)
+
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const wide = useIsWide(rootRef)
 
   /**
    * 存回設定的閘門，和分析器踩過的是同一個坑：讀回來之前就寫，會把存檔用預設
@@ -179,8 +258,6 @@ export default function MetaPage(): React.JSX.Element {
         if (isClassName(storedClass)) setMyClass(storedClass)
         const storedChart = readSetting(raw, SETTINGS_KEYS.chartKind)
         if (storedChart === 'heatmap' || storedChart === 'bars') setChartKind(storedChart)
-        const storedScaleOpen = readSetting(raw, SETTINGS_KEYS.scaleOpen)
-        if (typeof storedScaleOpen === 'boolean') setScaleOpen(storedScaleOpen)
       })
       .catch(() => {})
       .finally(() => {
@@ -199,11 +276,10 @@ export default function MetaPage(): React.JSX.Element {
       .setMany({
         [SETTINGS_KEYS.days]: days,
         [SETTINGS_KEYS.myClass]: myClass,
-        [SETTINGS_KEYS.chartKind]: chartKind,
-        [SETTINGS_KEYS.scaleOpen]: scaleOpen
+        [SETTINGS_KEYS.chartKind]: chartKind
       })
       .catch(() => {})
-  }, [chartKind, days, myClass, scaleOpen])
+  }, [chartKind, days, myClass])
 
   const load = useCallback(async (windowDays: MetaWindowDays, refresh: boolean): Promise<void> => {
     setLoading(true)
@@ -247,12 +323,20 @@ export default function MetaPage(): React.JSX.Element {
   const advantage = useMemo(() => metaFirstTurnAdvantage(doc), [doc])
 
   const hasData = (doc?.cells.length ?? 0) > 0
+  const showSkeleton = loading && !snapshot
+  const showEmpty = !showSkeleton && !hasData
+  /**
+   * 空狀態永遠是一欄：它是一段置中的字，並排只會讓它偏到左邊一欄裡。骨架則跟
+   * 資料走同一種版面，否則資料回來的那一瞬間兩塊會從上下跳成左右。
+   */
+  const twoColumn = wide && !showEmpty
 
   const generatedAt = doc?.generatedAt ? new Date(doc.generatedAt) : null
   const fetchedAt = snapshot?.fetchedAt ? new Date(snapshot.fetchedAt) : null
 
   return (
     <Box
+      ref={rootRef}
       sx={{
         position: 'relative',
         display: 'flex',
@@ -273,47 +357,62 @@ export default function MetaPage(): React.JSX.Element {
             一樣、讀第二次就沒有用的話，佔的還是整條工具列最左邊、視線第一個
             落點的位置。換成這份文件實際有多大：同樣一行的高度，但它每次都不
             一樣，而且它決定了底下每個百分比能不能信。
-
-            點它會攤開完整的五個數字（先手優勢、模式，以及每個數字的 ⓘ 說明）。
-            整塊都是點擊目標，不是只有 chevron。
           */}
-          <Box
-            role="button"
-            tabIndex={0}
-            aria-expanded={scaleOpen}
-            aria-label={scaleOpen ? '收起資料規模' : '展開資料規模'}
-            onClick={() => setScaleOpen((open) => !open)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                setScaleOpen((open) => !open)
-              }
-            }}
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 0.75,
-              cursor: 'pointer',
-              userSelect: 'none',
-              borderRadius: 1,
-              mx: -0.75,
-              px: 0.75,
-              '&:hover': { bgcolor: 'action.hover' },
-              outlineOffset: 2,
-              '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main' }
-            }}
-          >
+          <Box display="flex" alignItems="center" gap={0.75}>
             <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85 }} noWrap>
               {(doc?.installs ?? 0).toLocaleString()} 位使用者 ・{' '}
               {(doc?.matches ?? 0).toLocaleString()} 場 ・ {doc?.window.days ?? days} 天
             </Typography>
-            <ExpandMoreRoundedIcon
-              fontSize="small"
-              sx={{
-                color: 'text.secondary',
-                transition: 'transform .18s',
-                transform: scaleOpen ? 'rotate(180deg)' : 'none'
-              }}
+            {/*
+              滑過去才給細節，不是點開。
+
+              這一行的三個數字是常看的，其餘（統計區間起點、先手優勢、模式、
+              以及每個數字各自的但書）是偶爾才需要確認的——那正是 ⓘ 的用途，
+              而這一頁其他地方本來就是這樣做的。展開式在這裡是多餘的第三種
+              互動：同一塊資訊既能點又能滑，讀者得先猜哪一種才有東西。
+            */}
+            <InfoHint
+              label="這份資料有多大"
+              maxWidth={420}
+              title={
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 12px' }}>
+                  <Row
+                    k="貢獻的使用者"
+                    v={`${(doc?.installs ?? 0).toLocaleString()} 位`}
+                    note="這個區間內至少上傳過一次的安裝數。一個人有兩台機器就算兩個。"
+                  />
+                  <Row
+                    k="觀測場次"
+                    v={`${(doc?.matches ?? 0).toLocaleString()} 場`}
+                    note="是「被記錄到的次數」而不是「不重複的對局數」：兩個使用者對打時，同一場會被雙方各記一次。"
+                  />
+                  <Row
+                    k="統計區間"
+                    v={`${doc?.window.days ?? days} 天（自 ${doc?.window.since ?? '—'}）`}
+                  />
+                  <Row
+                    k="先手優勢"
+                    v={
+                      advantage === null
+                        ? '—'
+                        : `${advantage >= 0 ? '+' : '−'}${Math.abs(advantage).toFixed(1)}%`
+                    }
+                    note="整個環境合起來，先攻勝率減後攻勝率。"
+                  />
+                  <Row
+                    k="模式"
+                    v={doc?.mode === 'ranked' ? '天梯' : (doc?.mode ?? '—')}
+                    note="公開統計只算天梯，而且只算引擎自己辨識、沒有被手動改過的對局。"
+                  />
+                  {(doc?.sampling.suppressedCells ?? 0) > 0 && (
+                    <Row
+                      k="未發布"
+                      v={`${doc?.sampling.suppressedCells} 個對位 · ${(doc?.sampling.suppressedMatches ?? 0).toLocaleString()} 場`}
+                      note={`貢獻的使用者不足 ${doc?.sampling.minInstallsPerCell} 位。單一使用者的對位紀錄等同於那個人的戰績，所以人數不夠時寧可不發布。`}
+                    />
+                  )}
+                </Box>
+              }
             />
           </Box>
 
@@ -394,60 +493,6 @@ export default function MetaPage(): React.JSX.Element {
             </span>
           </Tooltip>
         </Box>
-
-        {/* 攤開的完整規模：五個數字與它們的 ⓘ。和上面那行摘要同一塊卡，
-            不再自成一張 Paper——被抱怨的就是它多佔了一整張卡的邊框與內距。 */}
-        <Collapse in={scaleOpen} unmountOnExit>
-          <Box
-            display="flex"
-            alignItems="flex-start"
-            gap={{ xs: 2.5, md: 4 }}
-            flexWrap="wrap"
-            sx={{ pt: 1.5, pb: 1 }}
-          >
-            <Metric
-              label="貢獻的使用者"
-              value={(doc?.installs ?? 0).toLocaleString()}
-              unit="位"
-              hint="這個區間內至少上傳過一次的安裝數。一個人有兩台機器就算兩個。"
-            />
-            <Metric
-              label="觀測場次"
-              value={(doc?.matches ?? 0).toLocaleString()}
-              unit="場"
-              hint="是「被記錄到的次數」而不是「不重複的對局數」：兩個使用者對打時，同一場會被雙方各記一次。"
-            />
-            <Metric
-              label="統計區間"
-              value={`${doc?.window.days ?? days}`}
-              unit={`天（自 ${doc?.window.since ?? '—'}）`}
-            />
-            <Metric
-              label="先手優勢"
-              value={
-                advantage === null
-                  ? '—'
-                  : `${advantage >= 0 ? '+' : '−'}${Math.abs(advantage).toFixed(1)}`
-              }
-              unit={advantage === null ? undefined : '%'}
-              hint="整個環境合起來，先攻勝率減後攻勝率。"
-            />
-            <Metric
-              label="模式"
-              value={doc?.mode === 'ranked' ? '天梯' : (doc?.mode ?? '—')}
-              hint="公開統計只算天梯，而且只算引擎自己辨識、沒有被手動改過的對局。"
-            />
-          </Box>
-
-          {(doc?.sampling.suppressedCells ?? 0) > 0 && (
-            <Typography variant="caption" sx={{ display: 'block', mt: 1.5, opacity: 0.55 }}>
-              另有 {doc?.sampling.suppressedCells} 個對位因為貢獻的使用者不足{' '}
-              {doc?.sampling.minInstallsPerCell} 位而未發布（共{' '}
-              {(doc?.sampling.suppressedMatches ?? 0).toLocaleString()}{' '}
-              場）。單一使用者的對位紀錄等同於那個人的戰績，所以人數不夠時寧可不發布。
-            </Typography>
-          )}
-        </Collapse>
       </Paper>
 
       {error && (
@@ -463,25 +508,45 @@ export default function MetaPage(): React.JSX.Element {
         </Alert>
       )}
 
+      {/*
+        內容區。並排時是一列、兩欄各自捲，這一層不捲（`overflow: hidden`）：
+        外層一捲，右欄那張圖的 `flex: 1` 就會對著一個「跟內容一樣高」的父層算，
+        整欄高度的意義就沒了，而且分析器那張圖也是自己捲的。疊著放時退回原本
+        的一欄整頁捲——那時對位圖有一個固定的最小高度，內容本來就比頁面高。
+      */}
       <Box
         sx={{
           flex: 1,
           minHeight: 0,
-          overflowY: 'auto',
           display: 'flex',
-          flexDirection: 'column',
-          gap: 1.5
+          flexDirection: twoColumn ? 'row' : 'column',
+          alignItems: 'stretch',
+          gap: 1.5,
+          overflowY: twoColumn ? 'hidden' : 'auto'
         }}
       >
-        {loading && !snapshot ? (
+        {showSkeleton ? (
           <>
-            {/* 規模那一塊現在住在工具列裡，工具列不在這個載入分支底下，所以這裡
-                不再需要替它留一塊骨架——留了反而會在資料回來時多塌一格。剩下兩塊
-                對應的是環＋職業表與對位圖。 */}
-            <Skeleton variant="rounded" height={260} />
-            <Skeleton variant="rounded" height={380} />
+            {/* 規模那一塊住在工具列裡，工具列不在這個載入分支底下，所以這裡
+                不替它留骨架——留了反而會在資料回來時多塌一格。兩塊骨架對應的
+                是環＋職業表與對位圖，並排時就照並排的欄寬與整欄高來畫，
+                資料回來時版面不會跳。 */}
+            {twoColumn ? (
+              <>
+                <Skeleton
+                  variant="rounded"
+                  sx={{ flex: `0 0 ${CLASS_COLUMN_WIDTH}px`, height: 'auto' }}
+                />
+                <Skeleton variant="rounded" sx={{ flex: 1, height: 'auto' }} />
+              </>
+            ) : (
+              <>
+                <Skeleton variant="rounded" height={260} />
+                <Skeleton variant="rounded" height={380} />
+              </>
+            )}
           </>
-        ) : !hasData ? (
+        ) : showEmpty ? (
           <EmptyState
             title="還沒有足夠的資料"
             description="公開統計要有足夠多的使用者同時打過同一個對位才會發布。過一陣子再回來看，或換一個較長的區間。"
@@ -490,7 +555,26 @@ export default function MetaPage(): React.JSX.Element {
         ) : (
           <>
             {/* ---------- 職業層級 ---------- */}
-            <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
+            {/*
+              並排時這一欄是固定寬、整欄高、自己捲（視窗矮到 700 時表格會超出
+              一點）。對位圖那邊沒有 Paper，這裡留著：環、說明、表是三樣東西
+              合成一張圖，邊框是把它們讀成一組的那條線；對位圖自己有摘要列、
+              尺規和七列，本來就是一個整體。
+            */}
+            <Paper
+              variant="outlined"
+              sx={{
+                borderRadius: 2,
+                p: 2,
+                ...(twoColumn
+                  ? {
+                      flex: `0 0 ${CLASS_COLUMN_WIDTH}px`,
+                      minHeight: 0,
+                      ...HIDDEN_SCROLL_SX
+                    }
+                  : {})
+              }}
+            >
               <Box display="flex" alignItems="baseline" gap={1} mb={1.5} flexWrap="wrap">
                 <Typography variant="h6">職業分佈與勝率</Typography>
                 <InfoHint
@@ -509,13 +593,30 @@ export default function MetaPage(): React.JSX.Element {
                   }
                 />
                 <Typography variant="caption" sx={{ opacity: 0.55 }}>
-                  點一列或一塊可以切換下方的對位表
+                  點一列或一塊可以切換{twoColumn ? '右側' : '下方'}的對位表
                 </Typography>
               </Box>
-              {/* 環在左、表在右；容器窄到並排不下時環會折到表的上方，而不是兩者
-                  互相擠壓。環的寬度是固定的，表吃剩下的空間。 */}
-              <Box display="flex" alignItems="flex-start" gap={{ xs: 2, md: 3 }} flexWrap="wrap">
-                <Box display="flex" flexDirection="column" alignItems="center" gap={1}>
+              {/*
+                並排時環在表的上方（理由見 `CLASS_COLUMN_WIDTH`）；疊著放時環在
+                左、表在右，容器窄到並排不下時環會折到表的上方，而不是兩者互相
+                擠壓。環的寬度是固定的，表吃剩下的空間。
+              */}
+              <Box
+                sx={{
+                  display: 'flex',
+                  flexDirection: twoColumn ? 'column' : 'row',
+                  flexWrap: twoColumn ? 'nowrap' : 'wrap',
+                  alignItems: twoColumn ? 'stretch' : 'flex-start',
+                  gap: twoColumn ? 2 : { xs: 2, md: 3 }
+                }}
+              >
+                <Box
+                  display="flex"
+                  flexDirection="column"
+                  alignItems="center"
+                  gap={1}
+                  sx={{ alignSelf: twoColumn ? 'center' : 'auto' }}
+                >
                   <Box display="flex" alignItems="center" gap={0.5}>
                     <Typography variant="caption" sx={{ opacity: 0.55 }}>
                       環境佔比
@@ -535,8 +636,9 @@ export default function MetaPage(): React.JSX.Element {
                     }}
                   />
                 </Box>
-                {/* 440 是表格五欄不擠的最小寬：低於這個寬度就讓環折到上面去。 */}
-                <Box sx={{ flex: '1 1 440px', minWidth: 0 }}>
+                {/* 440 是表格五欄不擠的最小寬：疊著放、低於這個寬度時就讓環折到
+                    上面去。並排時這個 flex-basis 會變成在算高度，所以要換掉。 */}
+                <Box sx={twoColumn ? { width: '100%' } : { flex: '1 1 440px', minWidth: 0 }}>
                   <MetaClassTable
                     rows={rows}
                     selected={myClass}
@@ -551,19 +653,22 @@ export default function MetaPage(): React.JSX.Element {
             </Paper>
 
             {/* ---------- 對位層級 ---------- */}
-            <Paper
-              variant="outlined"
-              // `flex: 1` + `minHeight: 0`：這是最後一塊，剩下的高度都歸它，裡面
-              // 那張圖才拿得到空間。少了這兩個，圖的 `flex: 1` 會對著一個
-              // 「跟內容一樣高」的父層算，等於沒有作用。
+            {/*
+              沒有 Paper。分析器那張圖直接坐在頁面上，這裡原本包了一層帶邊框、
+              `p: 2` 的面板，同一張圖因此比那邊四邊各短 17px，看起來就是另一張
+              圖。要「看起來一樣」，容器就得一樣：沒有邊框、沒有內距、`flex: 1`
+              把整欄（並排）或剩下的高度（疊著）吃掉。
+            */}
+            <Box
               sx={{
-                borderRadius: 2,
-                p: 2,
+                flex: 1,
+                minWidth: 0,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 1.5,
-                flex: 1,
-                minHeight: 420
+                // 並排時整欄高，`minHeight: 0` 讓圖的 `flex: 1` 對著欄高算；
+                // 疊著放時給一個實數，理由見 `MATCHUP_STACKED_MIN_H`。
+                minHeight: twoColumn ? 0 : MATCHUP_STACKED_MIN_H
               }}
             >
               <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
@@ -587,22 +692,19 @@ export default function MetaPage(): React.JSX.Element {
               </Box>
 
               {/*
-                和分析器同一張圖、同一組門檻。差別只有資料來源，而上面那排
-                數字已經說了資料來自哪裡。
-
-                連容器也要跟分析器一樣。這裡原本寫死 `minHeight: 360`，於是不管
-                七列長條要多高，都被壓進同一個 360px——分析器那邊給的是
-                `flex: 1` + `minHeight: 0` + 自己捲動，圖要多高就多高。同一張圖
-                在兩頁擠成不同的樣子，讀起來會像資料不一樣。
+                和分析器同一張圖、同一組門檻、同一個容器配方：`flex: 1` +
+                `minHeight: 0` + 自己捲、不畫捲軸。差別只有資料來源，而上面那排
+                數字已經說了資料來自哪裡。`MatchupBars` 內部是 `flex: 1 1 0`，
+                容器多高長條就多高——這一塊拿到的高度就是那張圖的大小。
               */}
-              <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <Box sx={{ flex: 1, minHeight: 0, ...HIDDEN_SCROLL_SX }}>
                 {chartKind === 'heatmap' ? (
                   <MatchupHeatmap data={matchup} />
                 ) : (
                   <MatchupBars data={matchup} />
                 )}
               </Box>
-            </Paper>
+            </Box>
           </>
         )}
       </Box>
