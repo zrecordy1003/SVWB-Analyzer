@@ -20,13 +20,25 @@
  * from the portal, and inventing hashes would only produce broken images.
  */
 import type {
+  AdviceBasis,
   CurvePoint,
+  KeepAdvice,
+  KeepBand,
   Missing,
+  MulliganResult,
   OpeningCardStat,
   OpeningStatsResult,
   Rate,
   SwapBand
 } from '@shared/openingStats'
+import { KEEP_THRESHOLDS } from '@shared/openingStats'
+import {
+  confidenceFor,
+  mantelHaenszelDiff,
+  newcombeDiff,
+  rate as statsRate,
+  shrink
+} from '@shared/stats'
 import { wilsonInterval } from '@renderer/components/Analyzer/confidence'
 
 const rate = (wins: number, total: number): Rate => {
@@ -614,3 +626,356 @@ export function demoOpponentSplit(
   const kept = Math.min(dealt, Math.round(stat.kept * SPLIT_WEIGHTS[i]))
   return { dealt, kept }
 }
+
+/* ------------------------------------------------------------ 換牌建議 */
+
+/**
+ * The advisor's fixture is built by re-running the handler's own ladder over
+ * hand-written arm counts, with the same `mantelHaenszelDiff`, `newcombeDiff`
+ * and `shrink` the real handler calls. Writing the outputs by hand instead
+ * would have meant inventing a `diff` that does not match its own bands, and
+ * the whole point of the drill-down is that a reader can check one against
+ * the other. The counts are made up; the arithmetic on them is real.
+ *
+ * The cards are written as if the page were pinned to one opponent and one
+ * turn order, so that every rung of the ladder has a distinct population and
+ * the fallback rows really are fallbacks. With no pin set the basis labels
+ * will read 「全部合併」 for those rows - correctly, since the page labels the
+ * comparison the user asked for, and the banner already says filters do not
+ * apply to demo data.
+ */
+type Arm = [wins: number, total: number]
+type Cell = { kept: Arm; swapped: Arm }
+
+type AdviceInput = {
+  cardId: number
+  name: string
+  cost: number | null
+  dealt: number
+  kept: number
+  /** Indexed by band. An arm of `[0, 0]` is a band where that choice was never made. */
+  bands: Cell[]
+  /** The pooled rungs, outward. Omit a rung to reuse the one before it. */
+  turnOrder?: Cell
+  opponent?: Cell
+  allOpponents?: Cell
+  unidentified?: boolean
+}
+
+const cellArms = (c: Cell): number => Math.min(c.kept[1], c.swapped[1])
+
+function advice(input: AdviceInput): KeepAdvice {
+  const identity = {
+    cardId: input.cardId,
+    name: input.name,
+    cost: input.cost,
+    bannerHash: null,
+    imageHash: null,
+    dealt: input.dealt,
+    kept: input.kept
+  }
+  if (input.unidentified) {
+    return {
+      ...identity,
+      keepRate: null,
+      keptWr: null,
+      swappedWr: null,
+      diff: null,
+      diffLo: null,
+      diffHi: null,
+      basis: 'all-opponents',
+      bands: [],
+      confidence: 'hidden',
+      missing: 'unidentified'
+    }
+  }
+
+  const keepRate =
+    input.dealt >= KEEP_THRESHOLDS.keepRate ? statsRate(input.kept, input.dealt) : null
+
+  const contributing = input.bands.filter((c) => cellArms(c) > 0)
+  const stratifiedCell: Cell = contributing.reduce<Cell>(
+    (acc, c) => ({
+      kept: [acc.kept[0] + c.kept[0], acc.kept[1] + c.kept[1]],
+      swapped: [acc.swapped[0] + c.swapped[0], acc.swapped[1] + c.swapped[1]]
+    }),
+    { kept: [0, 0], swapped: [0, 0] }
+  )
+  const mh = mantelHaenszelDiff(
+    contributing.map((c) => ({
+      aWins: c.kept[0],
+      aTotal: c.kept[1],
+      bWins: c.swapped[0],
+      bTotal: c.swapped[1]
+    }))
+  )
+  const bandDetail: KeepBand[] = input.bands
+    .map((c, band) => ({
+      band,
+      keptWr: c.kept[1] > 0 ? statsRate(...c.kept) : null,
+      swappedWr: c.swapped[1] > 0 ? statsRate(...c.swapped) : null
+    }))
+    .filter((_, band) => input.bands[band].kept[1] + input.bands[band].swapped[1] > 0)
+
+  const turnOrder = input.turnOrder ?? stratifiedCell
+  const opponent = input.opponent ?? turnOrder
+  const allOpponents = input.allOpponents ?? opponent
+
+  type Rung = { basis: AdviceBasis; cell: Cell | null; adjusted: typeof mh; bands: KeepBand[] }
+  const ladder: Rung[] = [
+    { basis: 'stratified', cell: mh ? stratifiedCell : null, adjusted: mh, bands: bandDetail },
+    { basis: 'turn-order', cell: turnOrder, adjusted: null, bands: [] },
+    { basis: 'opponent', cell: opponent, adjusted: null, bands: [] },
+    { basis: 'all-opponents', cell: allOpponents, adjusted: null, bands: [] }
+  ]
+  const chosen = ladder.find((r) => r.cell && cellArms(r.cell) >= KEEP_THRESHOLDS.show) ?? null
+  const cell = chosen?.cell ?? null
+  const confidence = cell ? confidenceFor(cell.kept[1], cell.swapped[1], KEEP_THRESHOLDS) : 'hidden'
+
+  let keptWr: Rate | null = null
+  let swappedWr: Rate | null = null
+  let diff: number | null = null
+  let diffLo: number | null = null
+  let diffHi: number | null = null
+  let bands: KeepBand[] = []
+  if (cell && chosen && confidence !== 'hidden') {
+    keptWr = statsRate(...cell.kept)
+    swappedWr = statsRate(...cell.swapped)
+    const interval =
+      chosen.adjusted ??
+      newcombeDiff(
+        { wins: cell.kept[0], total: cell.kept[1] },
+        { wins: cell.swapped[0], total: cell.swapped[1] }
+      )
+    diff = +shrink(interval.diff, cell.kept[1], cell.swapped[1]).toFixed(2)
+    diffLo = +interval.lo.toFixed(2)
+    diffHi = +interval.hi.toFixed(2)
+    bands = chosen.bands
+  }
+
+  return {
+    ...identity,
+    keepRate,
+    keptWr,
+    swappedWr,
+    diff,
+    diffLo,
+    diffHi,
+    basis: chosen?.basis ?? 'all-opponents',
+    bands,
+    confidence,
+    missing: keepRate === null || confidence === 'hidden' ? 'low-sample' : null
+  }
+}
+
+/** The full page, written as if pinned to 龍族・先攻 over a 巫師 deck. */
+export const DEMO_MULLIGAN_FULL: MulliganResult = {
+  matches: 118,
+  baseline: statsRate(61, 118),
+  cards: [
+    // The clean case: every band has both arms, MH combines them, and the
+    // three bands agree. Sortable.
+    advice({
+      cardId: 900101,
+      name: '魔力調節師',
+      cost: 2,
+      dealt: 94,
+      kept: 58,
+      bands: [
+        { kept: [12, 18], swapped: [6, 12] },
+        { kept: [20, 30], swapped: [8, 16] },
+        { kept: [6, 10], swapped: [3, 8] }
+      ]
+    }),
+    // Bands that disagree. Kept when the rest was cheap and it went well;
+    // kept when the rest was expensive and it went badly. The crude gap is
+    // positive, the adjusted one is near zero, and the drawer shows why.
+    advice({
+      cardId: 900102,
+      name: '古老的巨人',
+      cost: 8,
+      dealt: 84,
+      kept: 40,
+      bands: [
+        { kept: [14, 18], swapped: [3, 8] },
+        { kept: [8, 16], swapped: [9, 16] },
+        { kept: [1, 6], swapped: [12, 20] }
+      ]
+    }),
+    // Kept 95% of the time. The swapped arm has three observations at every
+    // rung, so the comparison is hidden and the row prints `n=58 / 3`; the
+    // keep rate itself is perfectly readable. This is the plan's 四 in a row.
+    advice({
+      cardId: 900103,
+      name: '魔法飛彈',
+      cost: 1,
+      dealt: 61,
+      kept: 58,
+      bands: [
+        { kept: [11, 20], swapped: [1, 1] },
+        { kept: [15, 28], swapped: [1, 2] },
+        { kept: [6, 10], swapped: [0, 0] }
+      ],
+      allOpponents: { kept: [70, 131], swapped: [3, 7] }
+    }),
+    // Stratified, with a one-armed band: never swapped when the rest of the
+    // hand was cheap, so that band appears in the drill-down but is not in
+    // the estimate.
+    advice({
+      cardId: 900104,
+      name: '知識的探求者',
+      cost: 2,
+      dealt: 58,
+      kept: 40,
+      bands: [
+        { kept: [11, 16], swapped: [0, 0] },
+        { kept: [10, 16], swapped: [6, 12] },
+        { kept: [3, 8], swapped: [4, 9] }
+      ]
+    }),
+    // Fell to 'turn-order': the bands hold both arms but too thinly once the
+    // one-armed band is dropped; pooled raw within the pin they clear `show`.
+    advice({
+      cardId: 900105,
+      name: '深淵的召喚',
+      cost: 6,
+      dealt: 38,
+      kept: 23,
+      bands: [
+        { kept: [8, 13], swapped: [0, 0] },
+        { kept: [5, 8], swapped: [6, 10] },
+        { kept: [1, 2], swapped: [3, 5] }
+      ],
+      turnOrder: { kept: [14, 23], swapped: [9, 15] }
+    }),
+    // Fell to 'opponent': the pinned turn order had too few swaps, both
+    // orders together have enough.
+    advice({
+      cardId: 900106,
+      name: '晶石守衛',
+      cost: 4,
+      dealt: 21,
+      kept: 15,
+      bands: [
+        { kept: [4, 6], swapped: [1, 2] },
+        { kept: [4, 7], swapped: [2, 3] },
+        { kept: [1, 2], swapped: [0, 1] }
+      ],
+      opponent: { kept: [20, 33], swapped: [10, 18] }
+    }),
+    // Fell all the way to 'all-opponents' - and is SORTABLE there, which is
+    // the row that has to look like what it is: a confident number about a
+    // different question than the header asks.
+    advice({
+      cardId: 900201,
+      name: '天使的祝福',
+      cost: 3,
+      dealt: 12,
+      kept: 7,
+      bands: [
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [0, 1], swapped: [0, 1] }
+      ],
+      opponent: { kept: [8, 13], swapped: [5, 9] },
+      allOpponents: { kept: [30, 52], swapped: [22, 41] }
+    }),
+    // Hidden, and even the keep rate is under its line.
+    advice({
+      cardId: 900107,
+      name: '禁忌的實驗',
+      cost: 5,
+      dealt: 5,
+      kept: 2,
+      bands: [
+        { kept: [1, 1], swapped: [1, 2] },
+        { kept: [0, 1], swapped: [0, 1] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    }),
+    // Seen only in hands that were never read in full.
+    advice({
+      cardId: 900110,
+      name: '星辰的賢者',
+      cost: 3,
+      dealt: 0,
+      kept: 0,
+      bands: [],
+      unidentified: true
+    })
+  ]
+}
+
+/**
+ * The state most real accounts will be in for their first weeks: hands read,
+ * keep rates showing, and not one comparison over its line. The page has to
+ * be worth opening in this state or it will not be opened in the next.
+ */
+export const DEMO_MULLIGAN_YOUNG: MulliganResult = {
+  matches: 19,
+  baseline: statsRate(10, 19),
+  cards: [
+    advice({
+      cardId: 900101,
+      name: '魔力調節師',
+      cost: 2,
+      dealt: 14,
+      kept: 11,
+      bands: [
+        { kept: [3, 4], swapped: [0, 1] },
+        { kept: [3, 5], swapped: [1, 2] },
+        { kept: [1, 2], swapped: [0, 0] }
+      ]
+    }),
+    advice({
+      cardId: 900103,
+      name: '魔法飛彈',
+      cost: 1,
+      dealt: 12,
+      kept: 7,
+      bands: [
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [0, 1], swapped: [0, 1] }
+      ]
+    }),
+    advice({
+      cardId: 900102,
+      name: '古老的巨人',
+      cost: 8,
+      dealt: 9,
+      kept: 2,
+      bands: [
+        { kept: [1, 1], swapped: [2, 3] },
+        { kept: [0, 1], swapped: [1, 3] },
+        { kept: [0, 0], swapped: [0, 1] }
+      ]
+    }),
+    advice({
+      cardId: 900107,
+      name: '禁忌的實驗',
+      cost: 5,
+      dealt: 4,
+      kept: 1,
+      bands: [
+        { kept: [1, 1], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [0, 1] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    })
+  ]
+}
+
+export const DEMO_MULLIGAN_EMPTY: MulliganResult = { matches: 0, baseline: null, cards: [] }
+
+export type DemoMulliganKey = 'full' | 'young' | 'noMatches'
+
+export const DEMO_MULLIGAN_VARIANTS: ReadonlyArray<{
+  key: DemoMulliganKey
+  label: string
+  result: MulliganResult
+}> = [
+  { key: 'full', label: '完整資料', result: DEMO_MULLIGAN_FULL },
+  { key: 'young', label: '剛開始記錄的帳號', result: DEMO_MULLIGAN_YOUNG },
+  { key: 'noMatches', label: '完全沒有對局', result: DEMO_MULLIGAN_EMPTY }
+]

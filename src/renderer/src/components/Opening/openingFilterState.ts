@@ -18,7 +18,12 @@
  * +2.1. The alternative - letting them sort and greying them - is what the
  * contract's header calls "a ranking the data cannot support".
  */
-import type { OpeningCardStat, OpeningStatsPayload, OpeningStatsResult } from '@shared/openingStats'
+import type {
+  MulliganPayload,
+  OpeningCardStat,
+  OpeningStatsPayload,
+  OpeningStatsResult
+} from '@shared/openingStats'
 
 import { readSetting } from '../Analyzer/filterState'
 import {
@@ -29,20 +34,48 @@ import {
   type ClassFilter,
   type ModeFilter
 } from '../Cards/cardsFilterState'
+import type { ClassChoiceId } from '../Common/filters/ClassSelect'
 import { emptyDeckSelection } from '../Common/filters/deckSelection'
 import type { DeckFamily, VersionLike } from '../DeckCards/deckVersions'
 
-export type OpeningFilters = CardsFilters
+/** Which of the page's two views is showing. The advisor is the default: it is the question the page exists for. */
+export type OpeningView = 'advisor' | 'overview'
+export const OPENING_VIEWS: readonly OpeningView[] = ['advisor', 'overview']
 
-/** Same keys as 卡片, under this page's own prefix. */
+/** The advisor's turn-order pin. `'all'` pools both, and is what a fresh install asks first. */
+export type PlayOrderChoice = 'first' | 'second' | 'all'
+export const PLAY_ORDER_CHOICES: readonly PlayOrderChoice[] = ['first', 'second', 'all']
+
+/**
+ * The 卡片 filters plus the three things only this page asks.
+ *
+ * `oppoClass` and `playOrder` are the advisor's own two selectors and they are
+ * deliberately NOT part of the shared filter bar: the handler steps outside
+ * them when a cell is thin (`basis`), which a filter baked into the match scope
+ * could never do. They live in the same state object as the rest so that one
+ * persist effect and one hydrate path cover everything, but `buildOpeningQuery`
+ * ignores them - the 手牌總覽 view is about every hand, not one matchup.
+ */
+export type OpeningFilters = CardsFilters & {
+  view: OpeningView
+  oppoClass: ClassChoiceId
+  playOrder: PlayOrderChoice
+}
+
+/** Same keys as 卡片, under this page's own prefix, plus the advisor's. */
 export const OPENING_SETTINGS_KEYS = {
   myClass: 'opening.myClass',
   gameMode: 'opening.gameMode',
   deckIds: 'opening.deckIds',
-  familyIds: 'opening.familyIds'
+  familyIds: 'opening.familyIds',
+  view: 'opening.view',
+  oppoClass: 'opening.oppoClass',
+  playOrder: 'opening.playOrder'
 } as const
 
-export const defaultOpeningFilters = defaultCardsFilters
+export function defaultOpeningFilters(): OpeningFilters {
+  return { ...defaultCardsFilters(), view: 'advisor', oppoClass: 'all', playOrder: 'all' }
+}
 
 function asNumberArray(value: unknown): number[] | null {
   if (!Array.isArray(value)) return null
@@ -67,6 +100,28 @@ export function hydrateOpeningFilters(
   const deckIds = asNumberArray(readSetting(raw, OPENING_SETTINGS_KEYS.deckIds)) ?? []
   const familyIds = asNumberArray(readSetting(raw, OPENING_SETTINGS_KEYS.familyIds)) ?? []
   base.decks = familyIds.length || deckIds.length ? { familyIds, deckIds } : emptyDeckSelection()
+
+  // Each of the three validated against its own vocabulary, so a key written by
+  // a build that spelled a value differently falls back to the default instead
+  // of handing the page a view it has no branch for.
+  const view = readSetting(raw, OPENING_SETTINGS_KEYS.view)
+  if (typeof view === 'string' && (OPENING_VIEWS as readonly string[]).includes(view)) {
+    base.view = view as OpeningView
+  }
+  const oppoClass = readSetting(raw, OPENING_SETTINGS_KEYS.oppoClass)
+  if (
+    typeof oppoClass === 'string' &&
+    (oppoClass === 'all' || vocab.classIds.includes(oppoClass))
+  ) {
+    base.oppoClass = oppoClass as ClassChoiceId
+  }
+  const playOrder = readSetting(raw, OPENING_SETTINGS_KEYS.playOrder)
+  if (
+    typeof playOrder === 'string' &&
+    (PLAY_ORDER_CHOICES as readonly string[]).includes(playOrder)
+  ) {
+    base.playOrder = playOrder as PlayOrderChoice
+  }
   return base
 }
 
@@ -75,7 +130,10 @@ export function toOpeningSettingsRecord(filters: OpeningFilters): Record<string,
     [OPENING_SETTINGS_KEYS.myClass]: filters.myClass,
     [OPENING_SETTINGS_KEYS.gameMode]: filters.gameMode,
     [OPENING_SETTINGS_KEYS.deckIds]: filters.decks.deckIds,
-    [OPENING_SETTINGS_KEYS.familyIds]: filters.decks.familyIds
+    [OPENING_SETTINGS_KEYS.familyIds]: filters.decks.familyIds,
+    [OPENING_SETTINGS_KEYS.view]: filters.view,
+    [OPENING_SETTINGS_KEYS.oppoClass]: filters.oppoClass,
+    [OPENING_SETTINGS_KEYS.playOrder]: filters.playOrder
   }
 }
 
@@ -99,12 +157,27 @@ export function diffOpeningPersistPatch(
   return Object.keys(patch).length ? patch : null
 }
 
-/** Filter state -> the `cards:openingStats` payload. */
+/** Filter state -> the `cards:openingStats` payload. The advisor's two pins are not part of it. */
 export function buildOpeningQuery(
   filters: OpeningFilters,
   families: readonly DeckFamily<VersionLike>[] = []
 ): OpeningStatsPayload {
   return buildCardsQuery(filters, families)
+}
+
+/**
+ * Filter state -> the `cards:mulligan` payload: the shared filters, plus the
+ * two pins as the handler wants them (`null` for "pool it").
+ */
+export function buildMulliganQuery(
+  filters: OpeningFilters,
+  families: readonly DeckFamily<VersionLike>[] = []
+): MulliganPayload {
+  return {
+    ...buildCardsQuery(filters, families),
+    oppoClass: filters.oppoClass === 'all' ? null : filters.oppoClass,
+    playOrder: filters.playOrder === 'all' ? null : filters.playOrder
+  }
 }
 
 /* ---------------------------------------------------------------- rows */
