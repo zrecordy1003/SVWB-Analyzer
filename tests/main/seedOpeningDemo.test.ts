@@ -16,11 +16,21 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ADVISOR_CLASS,
+  ADVISOR_DECK_PROFILE,
+  ADVISOR_FAST_CLASSES,
+  ADVISOR_MATCHES,
+  ADVISOR_OPPO_WEIGHTS,
+  ADVISOR_PRIMARY_OPPO,
   CLASS_POOL_PROFILE,
   DECK_SIZE,
   DEMO_DECK_PROFILE,
   DEMO_SEED,
+  DEMO_SOURCE,
   HAND_SIZE,
+  REST_BANDS,
+  advisorKeepProbability,
+  chooseAdvisorPlants,
   choosePlants,
   generateAll,
   expandDeck,
@@ -28,8 +38,11 @@ import {
   generateMatches,
   keepProbability,
   makeRng,
-  recordHand
+  recordHand,
+  restBandOf
 } from '../../tools/seed-opening-demo.mjs'
+import { KEEP_THRESHOLDS } from '../../src/shared/openingStats'
+import { classifyRow, rollup, type RollupRow } from '../../src/main/telemetry/rollup'
 
 type DeckEntry = { cardId: number; count: number; cost: number }
 
@@ -60,6 +73,21 @@ const WITCH_DECK: DeckEntry[] = [
 ]
 
 const COST_OF = new Map<number, number>(WITCH_DECK.map((e) => [e.cardId, e.cost]))
+
+/**
+ * The advisor deck, with synthetic ids.
+ *
+ * `buildAdvisorDeckList` needs a database to find real royal cards in, and
+ * nothing in the generator depends on WHICH card an id names — only on its cost
+ * and its count, both of which come from `ADVISOR_DECK_PROFILE`. So the fixture
+ * below is the same deck the seeder builds against the user's `Card` table, with
+ * the ids replaced. Ascending ids in profile order also make
+ * `chooseAdvisorPlants`, which sorts by cost then id, pick the row the profile's
+ * comment says it picks.
+ */
+const ADVISOR_DECK: DeckEntry[] = (ADVISOR_DECK_PROFILE as [number, number][]).map(
+  ([cost, count], i) => ({ cardId: 900_001 + i, count, cost })
+)
 
 const THREE_OF = 10031210
 const ONE_OF = 10104120
@@ -373,5 +401,395 @@ describe('the seed', () => {
     expect(sum(DEMO_DECK_PROFILE)).toBe(DECK_SIZE)
     // The pool is the broader one: more distinct cards, so hands look like hands.
     expect(CLASS_POOL_PROFILE.length).toBeGreaterThan(DEMO_DECK_PROFILE.length)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The one that matters most: seeded rows must be unable to reach the server.
+// ---------------------------------------------------------------------------
+
+/**
+ * A `Match` row exactly as `insertSets` writes one, reduced to the columns
+ * `rollup.ts` reads.
+ *
+ * Built from the generator's own output rather than typed out by hand, so that
+ * a future change to what the seeder writes is a change to what this test
+ * feeds `classifyRow`. A hand-written fixture would keep passing while the
+ * seeder started writing something else — which is precisely how the original
+ * accident survived review.
+ */
+function rollupRowsFromSeeder(playedAt: number): RollupRow[] {
+  const sets = generateAll({
+    decks: {
+      witch: { deckId: 43, deckName: 'witch go', deckList: WITCH_DECK, created: false },
+      royal: { deckId: 44, deckName: 'demo', deckList: ADVISOR_DECK, created: true },
+      nightmare: { deckId: 45, deckName: 'demo', deckList: WITCH_DECK, created: true },
+      dragon: { deckId: 46, deckName: 'demo', deckList: WITCH_DECK, created: true },
+      elf: { deckId: null, deckName: '—', deckList: WITCH_DECK, created: false, drawOnly: true }
+    },
+    now: playedAt
+  })
+
+  return sets.flatMap((set: { matches: Record<string, unknown>[] }) =>
+    set.matches.map((m) => ({
+      result: m.result as number,
+      play_order: m.play_order as string,
+      my_class: m.my_class as string,
+      oppo_class: m.oppo_class as string,
+      mode: m.mode as string,
+      // Forced INTO the upload window on purpose. The seeder spreads its
+      // matches over six months, so most of them are outside the 14-day window
+      // and `rollup` would skip them for a reason that has nothing to do with
+      // `source` — which would make this whole test pass while proving nothing.
+      playedAt,
+      source: m.source as string,
+      current_cr: null,
+      edited_fields: null,
+      recog_flags: null
+    }))
+  )
+}
+
+describe('seeded matches and the telemetry uploader', () => {
+  /**
+   * The tripwire, stated as plainly as it can be stated.
+   *
+   * `classifyRow` fails closed: anything that is not `'engine'`, not `'manual'`
+   * and not NULL is `'invalid'` and is dropped. `DEMO_SOURCE` is safe because it
+   * is none of those three, and for no other reason. If somebody changes it to
+   * one of them, this is the assertion that should stop them.
+   */
+  it('writes a source that the telemetry classifier refuses to recognise', () => {
+    expect(
+      DEMO_SOURCE,
+      "DEMO_SOURCE has been changed to 'engine'. Every seeded match would now upload " +
+        'as the CLEAN tier. This is the exact change that put ten fabricated ranked ' +
+        'games into the published meta document.'
+    ).not.toBe('engine')
+    expect(
+      DEMO_SOURCE,
+      "DEMO_SOURCE has been changed to 'manual'. Seeded matches would be counted in " +
+        "the uploaded 'manual' tally."
+    ).not.toBe('manual')
+    expect(
+      DEMO_SOURCE,
+      'DEMO_SOURCE has been changed to NULL. Seeded matches would classify as the ' +
+        "'legacy' tier, which uploads."
+    ).not.toBeNull()
+  })
+
+  it('classifies every single seeded row as invalid, so none of them can be uploaded', () => {
+    const rows = rollupRowsFromSeeder(Date.UTC(2026, 5, 15, 12))
+    expect(rows.length).toBeGreaterThan(1_000)
+
+    const escaped = rows.filter((row) => classifyRow(row) !== 'invalid')
+    expect(
+      escaped.length,
+      `${escaped.length} of ${rows.length} seeded matches were NOT classified 'invalid'. ` +
+        'They would be uploaded to the production telemetry Worker and counted as real ' +
+        `games by somebody else's meta document. First offender: ` +
+        `${JSON.stringify(escaped[0] ?? null)}`
+    ).toBe(0)
+  })
+
+  it('produces zero buckets, zero manual and zero abandoned when rolled up', () => {
+    const now = Date.UTC(2026, 5, 15, 12)
+    const days = rollup(rollupRowsFromSeeder(now), now)
+
+    // Every date in the window is still present — an empty day is a fact the
+    // server needs. What must be empty is the contents.
+    expect(days.length).toBeGreaterThan(0)
+    for (const day of days) {
+      expect(
+        day.buckets,
+        `${day.date} carries ${day.buckets.length} uploadable buckets built from seeded ` +
+          'matches. Local test data has left the machine.'
+      ).toEqual([])
+      expect(day.manual, `${day.date} counted seeded matches as hand-typed ones.`).toBe(0)
+      expect(day.abandoned, `${day.date} counted seeded matches as abandoned ones.`).toBe(0)
+    }
+  })
+
+  it('would have uploaded those same rows if the source were the engine — so the test is not vacuous', () => {
+    // The control. Without it, all three assertions above would still pass if
+    // `rollup` were broken, if the window arithmetic put every row outside it,
+    // or if `rollupRowsFromSeeder` returned rows the uploader ignores for some
+    // reason unrelated to `source`. The ONLY difference between these rows and
+    // the ones above is the one column this whole section is about.
+    const now = Date.UTC(2026, 5, 15, 12)
+    const asEngine = rollupRowsFromSeeder(now).map((row) => ({ ...row, source: 'engine' }))
+    const buckets = rollup(asEngine, now).reduce((sum, day) => sum + day.buckets.length, 0)
+    expect(
+      buckets,
+      'The control produced no buckets either, so the assertions above prove nothing ' +
+        'about `source`. Fix this test before trusting it.'
+    ).toBeGreaterThan(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The 換牌建議 fixture. Not "does the generator do what it says" — whether the
+// data it produces can fill the cells `src/main/ipc/mulligan.ts` needs filled.
+// ---------------------------------------------------------------------------
+
+/** One arm of one comparison: how many copies, and how many of them won. */
+type Arm = { n: number; wins: number }
+/** Copies of one card at one scope, split the way the handler splits them. */
+type Cell = { kept: Arm; swapped: Arm }
+const emptyCell = (): Cell => ({ kept: { n: 0, wins: 0 }, swapped: { n: 0, wins: 0 } })
+const smaller = (cell: Cell): number => Math.min(cell.kept.n, cell.swapped.n)
+const wr = (arm: Arm): number => (arm.n === 0 ? 0 : (100 * arm.wins) / arm.n)
+const gap = (cell: Cell): number => wr(cell.kept) - wr(cell.swapped)
+
+/**
+ * Tally one card's copies across the scopes the fallback ladder walks.
+ *
+ * A deliberately small re-implementation of the handler's counting rules, and
+ * only of the counting: a hand whose four pre slots are not all named is
+ * skipped, a copy's fate comes off its own `swapped` flag, and the band is the
+ * mean cost of the OTHER THREE SLOTS of that hand. What it does not do is decide
+ * which rung wins — that is the handler's judgement, and a second copy of it
+ * here would only ever agree with itself.
+ */
+function tally(matches: Record<string, unknown>[], cardId: number, costOf: Map<number, number>) {
+  const out = {
+    narrow: emptyCell(),
+    opponent: emptyCell(),
+    all: emptyCell(),
+    bands: Array.from({ length: REST_BANDS }, emptyCell),
+    keptBy: new Map<string, { kept: number; dealt: number }>()
+  }
+  for (const m of matches) {
+    const cards = m.openingCards as { stage: string; cardId: number | null; swapped: number }[]
+    const pre = cards.filter((c) => c.stage === 'pre')
+    if (pre.length !== HAND_SIZE || pre.some((c) => c.cardId == null)) continue
+    const costs = pre.map((c) => costOf.get(c.cardId as number) ?? null)
+    pre.forEach((slot, i) => {
+      if (slot.cardId !== cardId) return
+      const won = m.result === 1
+      const bump = (cell: Cell): void => {
+        const a = slot.swapped === 1 ? cell.swapped : cell.kept
+        a.n += 1
+        if (won) a.wins += 1
+      }
+      bump(out.all)
+      const band = restBandOf(costs.filter((_c, j) => j !== i))
+      if (band != null) bump(out.bands[band])
+      if (m.oppo_class === ADVISOR_PRIMARY_OPPO) {
+        bump(out.opponent)
+        if (m.play_order === 'first') bump(out.narrow)
+      }
+      const key = m.oppo_class as string
+      const seen = out.keptBy.get(key) ?? { kept: 0, dealt: 0 }
+      seen.dealt += 1
+      if (slot.swapped !== 1) seen.kept += 1
+      out.keptBy.set(key, seen)
+    })
+  }
+  return out
+}
+
+/** Mantel-Haenszel risk difference over the bands that hold both arms. */
+function mh(bands: Cell[]): number {
+  let numerator = 0
+  let weight = 0
+  for (const cell of bands) {
+    if (cell.kept.n === 0 || cell.swapped.n === 0) continue
+    const w = (cell.kept.n * cell.swapped.n) / (cell.kept.n + cell.swapped.n)
+    numerator += w * gap(cell)
+    weight += w
+  }
+  return weight === 0 ? 0 : numerator / weight
+}
+
+describe('the 換牌建議 fixture', () => {
+  const costOf = new Map<number, number>(ADVISOR_DECK.map((e) => [e.cardId, e.cost]))
+  const plants = chooseAdvisorPlants(ADVISOR_DECK) as Record<string, number>
+  const decks = {
+    [ADVISOR_CLASS]: { deckId: 44, deckName: 'demo', deckList: ADVISOR_DECK, created: true }
+  }
+  const sets = generateAll({ decks, now: Date.UTC(2026, 6, 1) })
+  const advisor = sets.find((s: { label: string }) => s.label === ADVISOR_CLASS)
+  const matches = advisor.matches as Record<string, unknown>[]
+  const of = (role: string) => tally(matches, plants[role], costOf)
+
+  it('bands a hand the way the handler bands it, including on the boundary', () => {
+    // Transcribed from `REST_BAND_CUTS` in `src/main/ipc/mulligan.ts`. The
+    // boundary case is the one worth pinning: a mean of exactly 4.0 belongs to
+    // the HIGHER band, because the handler's comparison is `< cut`.
+    expect(restBandOf([1, 2, 3])).toBe(0) // 2.0
+    expect(restBandOf([2, 2, 3])).toBe(0) // 2.33
+    expect(restBandOf([2, 3, 3])).toBe(1) // 2.67
+    expect(restBandOf([3, 4, 4])).toBe(1) // 3.67
+    expect(restBandOf([4, 4, 4])).toBe(2) // exactly 4.0 goes UP
+    expect(restBandOf([5, 6, 7])).toBe(2)
+    // A companion with no known cost makes the band undefined rather than
+    // approximate, which is what the handler does and why it matters: the
+    // missing card is exactly the one that would have moved the mean.
+    expect(restBandOf([1, 2, null])).toBeNull()
+  })
+
+  it('draws all three bands often enough for the stratified rung to exist', () => {
+    // The whole reason the advisor gets its own deck. On the user's real deck 43
+    // (mean cost 4.875) band 0 essentially never happens, every hand lands in
+    // band 2, and a "stratified" estimate combined across one stratum is the
+    // crude one wearing a hat.
+    const seen = [0, 0, 0]
+    const rng = makeRng(DEMO_SEED)
+    const pool = expandDeck(ADVISOR_DECK)
+    for (let i = 0; i < 20_000; i += 1) {
+      for (const band of generateHand(rng, { pool, costOf }).bands) seen[band] += 1
+    }
+    const total = seen.reduce((a, b) => a + b, 0)
+    for (const band of seen) expect(band / total).toBeGreaterThan(0.15)
+  })
+
+  it('plants every role on a distinct card of the deck', () => {
+    const ids = Object.values(plants)
+    expect(new Set(ids).size).toBe(ids.length)
+    const inDeck = new Set(ADVISOR_DECK.map((e) => e.cardId))
+    for (const id of ids) expect(inDeck.has(id)).toBe(true)
+    // Two runs, same answer — the fixture has to survive `--remove` and a
+    // re-seed, or the page the user was looking at is not the page they get back.
+    expect(chooseAdvisorPlants(ADVISOR_DECK)).toEqual(plants)
+  })
+
+  it('writes the volume the arithmetic at ADVISOR_MATCHES asks for', () => {
+    expect(matches).toHaveLength(ADVISOR_MATCHES)
+    // Every hand complete. The advisor drops a hand with one unnamed slot
+    // entirely — the band is undefined without the fourth card — so a nulled
+    // slot here costs four copies, not one.
+    for (const m of matches) {
+      const cards = m.openingCards as { stage: string; cardId: number | null }[]
+      expect(cards).toHaveLength(HAND_SIZE * 2)
+      for (const c of cards.filter((x) => x.stage === 'pre')) expect(c.cardId).not.toBeNull()
+    }
+  })
+
+  it('makes the keep decision depend on the OPPONENT, which is the whole premise', () => {
+    const fast = [...ADVISOR_FAST_CLASSES] as string[]
+    const slow = (ADVISOR_OPPO_WEIGHTS as { value: string }[])
+      .map((e) => e.value)
+      .filter((c) => !ADVISOR_FAST_CLASSES.has(c))
+
+    const rateFor = (role: string, classes: string[]): number => {
+      const seen = of(role).keptBy
+      let kept = 0
+      let dealt = 0
+      for (const className of classes) {
+        const row = seen.get(className)
+        if (!row) continue
+        kept += row.kept
+        dealt += row.dealt
+      }
+      return dealt === 0 ? 0 : kept / dealt
+    }
+
+    // A card kept most of the time against fast classes and thrown back against
+    // slow ones. If this ever collapses to one number, the advisor page has
+    // nothing to be about: every matchup would show the same row.
+    expect(rateFor('oppoFast', fast)).toBeGreaterThan(0.75)
+    expect(rateFor('oppoFast', slow)).toBeLessThan(0.35)
+    // ...and one that does the opposite, so the page is not demonstrating a
+    // single card's quirk.
+    expect(rateFor('oppoSlow', fast)).toBeLessThan(0.35)
+    expect(rateFor('oppoSlow', slow)).toBeGreaterThan(0.72)
+  })
+
+  it('plants a real keep effect that survives the band adjustment', () => {
+    const t = of('trueKeep')
+    // Both arms past `sort`, in the narrowest scope the page can ask for, or
+    // the row is not sortable and the effect cannot be found by a reader.
+    expect(smaller(t.narrow)).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.sort)
+    // Crude and adjusted AGREE, which is what makes it real: the effect is not
+    // an artefact of which hands the card was kept in.
+    expect(gap(t.all)).toBeGreaterThan(10)
+    expect(mh(t.bands)).toBeGreaterThan(10)
+    for (const band of t.bands) {
+      expect(band.kept.n).toBeGreaterThan(0)
+      expect(band.swapped.n).toBeGreaterThan(0)
+    }
+  })
+
+  it('plants a confounded card whose crude gap the adjustment collapses', () => {
+    const c = of('confounded')
+    expect(smaller(c.all)).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.sort)
+    // Every band contributes, or there is nothing to combine and the page falls
+    // off the stratified rung instead of showing the disagreement.
+    for (const band of c.bands) {
+      expect(band.kept.n).toBeGreaterThan(0)
+      expect(band.swapped.n).toBeGreaterThan(0)
+    }
+    // The point of the whole set: a big crude difference and a small adjusted
+    // one, which is the shape `tests/main/mulligan.test.ts` builds by hand as
+    // 41.7 against 5.0. Asserted as a ratio as well as an absolute, because
+    // "large" and "small" are only meaningful relative to each other.
+    expect(gap(c.all)).toBeGreaterThan(20)
+    expect(Math.abs(mh(c.bands))).toBeLessThan(12)
+    expect(gap(c.all)).toBeGreaterThan(2.5 * Math.abs(mh(c.bands)))
+    // ...and the bands must visibly disagree in the drill-down, which is the
+    // evidence the page offers a reader who does not trust the adjustment.
+    const wrs = c.bands.map((b) => wr(b.kept))
+    expect(Math.max(...wrs) - Math.min(...wrs)).toBeGreaterThan(40)
+  })
+
+  it('plants a card kept ~95% of the time, whose row has to stay hidden', () => {
+    const a = of('alwaysKept')
+    expect(a.all.kept.n / (a.all.kept.n + a.all.swapped.n)).toBeGreaterThan(0.9)
+    // The failure mode `KEEP_THRESHOLDS` exists for. Even at the WIDEST rung —
+    // every opponent, both turn orders, bands pooled — the swapped arm never
+    // reaches `show`, so there is no honest comparison to print at any rung.
+    expect(a.all.swapped.n).toBeLessThan(KEEP_THRESHOLDS.show)
+    // But it is dealt often enough for a keep rate, so the row is not empty: it
+    // says 95% kept and declines to say whether that was wise.
+    expect(a.narrow.kept.n + a.narrow.swapped.n).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.keepRate)
+  })
+
+  it('leaves one card with no usable stratum, so the ladder has to step down', () => {
+    // `bandSplit` is kept in bands 0-1 and never in band 2, so no band offers
+    // both arms, `mantelHaenszelDiff` returns null and the stratified rung has
+    // nothing. The next rung down pools the bands and does have both arms.
+    const b = of('bandSplit')
+    for (const band of b.bands) expect(Math.min(band.kept.n, band.swapped.n)).toBe(0)
+    expect(smaller(b.narrow)).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.show)
+  })
+
+  it('starves the narrow arm of one card, so the ladder has to reach the opponent rung', () => {
+    // Kept 95% on the play and 15% on the draw: plenty of data, all of it on one
+    // side of the question once a turn order is pinned.
+    const o = of('orderSplit')
+    expect(smaller(o.narrow)).toBeLessThan(KEEP_THRESHOLDS.show)
+    expect(smaller(o.opponent)).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.show)
+  })
+
+  it('starves the opponent rung of one card, so the ladder has to pool every matchup', () => {
+    const o = of('oppoOneSided')
+    expect(smaller(o.opponent)).toBeLessThan(KEEP_THRESHOLDS.show)
+    expect(smaller(o.all)).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.show)
+  })
+
+  it('leaves the rest of the deck on the ordinary cost curve', () => {
+    // Eight planted cards out of eighteen rows is already a lot of fiction. The
+    // rest must still behave like a deck, or the 起手 keep-rate column for this
+    // class becomes a list of constants.
+    const planted = new Set(Object.values(plants))
+    const ordinary = ADVISOR_DECK.filter((e) => !planted.has(e.cardId))
+    expect(ordinary.length).toBeGreaterThan(5)
+    for (const entry of ordinary) {
+      expect(
+        advisorKeepProbability(plants, {
+          cardId: entry.cardId,
+          cost: entry.cost,
+          band: 0,
+          oppoClass: ADVISOR_PRIMARY_OPPO,
+          playOrder: 'first'
+        })
+      ).toBeNull()
+    }
+  })
+
+  it('still produces identical data on two runs', () => {
+    const again = generateAll({ decks, now: Date.UTC(2026, 6, 1) })
+    expect(JSON.stringify(again)).toBe(JSON.stringify(sets))
   })
 })

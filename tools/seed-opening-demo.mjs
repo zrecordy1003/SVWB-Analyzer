@@ -1,5 +1,34 @@
 /**
- * Demo data for the 起手 (opening hand) page — reversible, tagged, and off by default.
+ * Demo data for the 起手 (opening hand) and 換牌建議 (mulligan advisor) pages —
+ * reversible, tagged, and off by default.
+ *
+ * THIS DATA MUST NEVER LEAVE THE MACHINE
+ * --------------------------------------
+ * Read this section before changing anything in this file, because one line in
+ * it is load-bearing for something much bigger than a demo page.
+ *
+ * Every `Match` row written here carries `source = 'demo-seed'` (the constant
+ * `DEMO_SOURCE`, below). `classifyRow` in `src/main/telemetry/rollup.ts` is the
+ * single gate every uploaded row passes through, and it FAILS CLOSED: a
+ * `source` that is neither `'engine'` nor `'manual'` nor NULL classifies as
+ * `'invalid'` and is dropped before it can become a bucket, be counted as
+ * `manual`, or be counted as `abandoned`. `'demo-seed'` is none of those three,
+ * so the rows this script writes are excluded — by that one comparison and by
+ * nothing else.
+ *
+ * That is not a theoretical safeguard. The check used to fall through to
+ * `clean`, 583 seeded matches uploaded themselves as the most trustworthy tier
+ * there is, and ten fabricated ranked games reached the published meta
+ * document. The server has been repaired and the gate now fails closed, but the
+ * gate is the only thing standing there.
+ *
+ * So: **changing `DEMO_SOURCE` away from `'demo-seed'` re-opens the hole.**
+ * Setting it to `'engine'` would upload every seeded match. Setting it to NULL
+ * would classify them as `legacy`, which is also a real tier and also uploads.
+ * Any other string is safe today only because `classifyRow` rejects everything
+ * it does not recognise — which is a property of that function, not of this one,
+ * and is why `tests/main/seedOpeningDemo.test.ts` asserts it directly against
+ * rows shaped the way this file writes them rather than trusting this comment.
  *
  * WHAT THIS WRITES, AND WHERE
  * ---------------------------
@@ -47,6 +76,30 @@
  * fat-fingered shell history entry away from being a data-loss incident, and
  * this one runs against the only copy of 353 matches somebody cares about.
  *
+ * TWO PAGES, TWO VERY DIFFERENT DATA REQUIREMENTS
+ * -----------------------------------------------
+ * The 起手 page asks "was this card dealt, and did that go well". One
+ * observation per match, no decision involved, and a few hundred matches are
+ * plenty. That is the `witch` set, and it is unchanged.
+ *
+ * 換牌建議 asks "you kept this card against THIS class with THAT sort of hand
+ * beside it — did that go well". `src/main/ipc/mulligan.ts` counts COPIES, not
+ * matches; it splits them by the rest-of-hand band (the mean cost of the other
+ * three slots, cut at 2.5 and 4.0); it requires BOTH arms of a comparison to
+ * clear `KEEP_THRESHOLDS.show` (12) before a number appears and `sort` (30)
+ * before it can be ordered on; and it walks a four-rung ladder outward
+ * (`stratified` → `turn-order` → `opponent` → `all-opponents`) when a cell is
+ * too thin. Multiply those together and the cell that has to be filled is
+ * small: one card, one opponent class, one turn order, one band, both arms.
+ *
+ * The old generator made the keep decision a function of COST ALONE. That is
+ * enough for a keep-rate column and useless for the advisor: a card kept 93% of
+ * the time has no swapped arm to compare against, the keep decision is
+ * independent of the opponent so every matchup looks the same, and nothing is
+ * confounded so the Mantel-Haenszel adjustment has nothing to do. The `royal`
+ * set below exists to fix exactly that, and `ADVISOR_PLANT_RULES` says what each
+ * planted card is supposed to make the page show.
+ *
  * DETERMINISM
  * -----------
  * The RNG is a mulberry32 seeded from a constant (`DEMO_SEED`), implemented in
@@ -89,20 +142,68 @@ export const DEMO_DECK_REF = 'demo-seed'
 /**
  * Fixed, so two runs produce identical data.
  *
- * Not an arbitrary constant: seeds 1..6000 were scanned against the user's own
- * decks, and this is the one whose REALISED numbers land closest to the ones
- * the demo claims — 8.1pp of signal, 11.6% suppressed, 0.883 share. That matters
- * because every interesting figure here is a sample of a few hundred, and at
- * n=420 an 8-point win-rate signal can come out as zero on an unlucky draw —
- * the first seed tried produced 49.2% dealt against 50.0% not dealt, which
- * would have left the comparison column looking broken rather than quiet. The
- * rejected alternative was to widen the planted effect until any seed showed
+ * Not an arbitrary constant: seeds were scanned against the user's own decks for
+ * the one whose REALISED numbers land closest to the ones the demo claims. That
+ * matters because every interesting figure here is a sample of a few hundred,
+ * and at n=420 an 8-point win-rate signal can come out as zero on an unlucky
+ * draw — the first seed tried produced 49.2% dealt against 50.0% not dealt,
+ * which would have left the comparison column looking broken rather than quiet.
+ * The rejected alternative was to widen the planted effect until any seed showed
  * it, which would have meant demonstrating the page with an effect size no real
  * card has.
  *
- * Change it only to reshuffle, and re-check the figures the dry run prints.
+ * The scan now lives one level down, at `SET_SEED_OFFSETS`: each set draws from
+ * its own stream, so a set can be retuned without disturbing its neighbours, and
+ * this constant is only the base they are all offset from. Change it to reshuffle
+ * EVERYTHING, and re-check every figure the dry run prints.
  */
 export const DEMO_SEED = 2021
+
+/**
+ * Per-set stream offsets, added to `DEMO_SEED`.
+ *
+ * Only `witch` is tuned; the rest are arbitrary distinct constants whose only
+ * job is to keep the streams apart. Witch is tuned because it is the set whose
+ * REALISED figures are claimed in the summary — a planted 8pp win-rate signal
+ * measured over 420 matches is a draw, not a setting, and the first offsets
+ * tried produced a 9.0% observed deal rate against a claimed ~12%, which reads
+ * as a broken page rather than a suppressed card.
+ *
+ * Scanned over 0..6000 against three targets at once: the suppressed card's
+ * observed deal rate near 12%, `recognisedShare` comfortably under 0.9, and the
+ * signal card's realised win-rate gap near the 8pp that was planted.
+ *
+ * Retune by re-running the scan, not by nudging: the three targets pull against
+ * each other and the dry run prints all three, so "it looks better" is an
+ * observation you can actually make.
+ */
+export const SET_SEED_OFFSETS = {
+  /** Scanned: suppressed 11.9% observed, recognisedShare 0.879, signal +8.1pp. */
+  witch: 117,
+  /**
+   * Scanned too, and against a longer list of targets, because the advisor set
+   * has more that can go wrong than a win rate: the crude kept-vs-swapped gap on
+   * the confounded card must be large (32.3pp here) while the Mantel-Haenszel
+   * estimate collapses (5.7pp), every band must hold BOTH arms or the stratified
+   * rung has nothing to combine, and each of the four rungs has to be reachable
+   * by the card that was planted to reach it — which means checking that some
+   * arms fall SHORT of `KEEP_THRESHOLDS.show` as well as that others clear it.
+   * `orderSplit` at 90/2 in the narrow scope is a deliberate failure.
+   */
+  royal: 207,
+  nightmare: 3001,
+  elf: 5003,
+  dragon: 7001
+}
+
+/**
+ * Distance between a set's card stream and its context stream.
+ *
+ * Large and odd rather than 1: mulberry32 decorrelates adjacent seeds perfectly
+ * well, but "perfectly well" is a property of the generator and this is a
+ * property of the constant, which costs nothing to get right.
+ */
+export const CTX_STREAM_GAP = 0x9e_37_79_b9
 
 /** `tools/engine/src/fingerprint.rs`: `ALGO_VERSION`, and the 32x36 grey reduction. */
 export const ART_ALGO_VERSION = 2
@@ -216,25 +317,80 @@ export function keepProbability(cost) {
 }
 
 /**
+ * Mirror of `REST_BAND_CUTS` in `src/main/ipc/mulligan.ts`. Re-declared for the
+ * same reason `DECK_SIZE` is: this file is bare `.mjs` with no transpiler in
+ * front of it. If those cut-points ever move, this constant has to move with
+ * them or every planted band effect lands in the wrong stratum and the demo
+ * quietly stops demonstrating anything.
+ */
+export const REST_BAND_CUTS = [2.5, 4]
+/** Mirror of `REST_BANDS` in `src/shared/openingStats.ts`. */
+export const REST_BANDS = 3
+
+/**
+ * Which rest-of-hand band a slot sits in, given the costs of the OTHER three
+ * slots. A transcription of `restBand` in `src/main/ipc/mulligan.ts`, down to
+ * the `< cut` comparison that sends an exact 4.0 into the higher band.
+ *
+ * It is a transcription rather than an import on purpose, and the duplication is
+ * the point of the test that checks the two agree: the generator has to bucket a
+ * hand into precisely the bucket the handler will bucket it into, or a planted
+ * "80% kept in band 0" effect turns up smeared across two bands and the
+ * Mantel-Haenszel demonstration collapses into noise.
+ */
+export function restBandOf(costs) {
+  if (costs.length === 0) return null
+  let sum = 0
+  for (const cost of costs) {
+    if (cost == null || !Number.isFinite(cost)) return null
+    sum += cost
+  }
+  const avg = sum / costs.length
+  for (let band = 0; band < REST_BAND_CUTS.length; band += 1) {
+    if (avg < REST_BAND_CUTS[band]) return band
+  }
+  return REST_BANDS - 1
+}
+
+/**
  * One hand: four cards dealt, a swap decision per slot, four cards kept.
  *
  * `slot` is stable across the two stages, which is the migration's rule and not
  * an implementation detail: the mulligan panel moves a discarded card into the
  * row above without changing its column, which is how `swapped` is legible
  * without recognising any card at all.
+ *
+ * `ctx.keepProbFor` is how a set makes the decision depend on something other
+ * than the card's own cost — the opponent, the turn order, the rest of the hand.
+ * It is given `{ cardId, cost, band, pre }` and returns a probability, or null
+ * to mean "no opinion, use the cost curve". Defaulting to the cost curve rather
+ * than requiring a model keeps every set that does not care about the advisor
+ * (witch, elf, dragon) drawing exactly the hands it drew before.
+ *
+ * Note the band is computed from the TRUE dealt hand, before the recogniser gets
+ * its hands on it. That is the direction of causation — the player saw four real
+ * cards and decided — and it also means a planted band effect is not quietly
+ * destroyed by a set that nulls slots.
  */
 export function generateHand(rng, ctx) {
-  const { pool, costOf } = ctx
+  const { pool, costOf, keepProbFor = null } = ctx
   const { drawn: pre, rest } = drawWithoutReplacement(rng, pool, HAND_SIZE)
 
-  const swapped = pre.map((cardId) => rng() >= keepProbability(costOf.get(cardId) ?? null))
+  const costs = pre.map((cardId) => costOf.get(cardId) ?? null)
+  const bands = pre.map((_, slot) => restBandOf(costs.filter((_c, i) => i !== slot)))
+
+  const swapped = pre.map((cardId, slot) => {
+    const cost = costs[slot]
+    const planted = keepProbFor ? keepProbFor({ cardId, cost, band: bands[slot], slot, pre }) : null
+    return rng() >= (planted ?? keepProbability(cost))
+  })
   const swapCount = swapped.filter(Boolean).length
   const { drawn: replacements } = drawWithoutReplacement(rng, rest, swapCount)
 
   let taken = 0
   const post = pre.map((cardId, slot) => (swapped[slot] ? replacements[taken++] : cardId))
 
-  return { pre, post, swapped }
+  return { pre, post, swapped, bands }
 }
 
 // ---------------------------------------------------------------------------
@@ -387,6 +543,275 @@ export const DECKLESS_MODES = [
 /** Six months back from `now`, in milliseconds. Date filters need something to bite on. */
 export const SPREAD_MS = 183 * 24 * 60 * 60 * 1000
 
+// ---------------------------------------------------------------------------
+// PURE: the mulligan advisor fixture
+//
+// Everything in this block exists to fill ONE cell shape on 換牌建議: a single
+// card, against a single opponent class, at a single turn order, inside a single
+// rest-of-hand band, with enough observations on BOTH sides of the keep/swap
+// split to clear `KEEP_THRESHOLDS`. Nothing else on either page needs this much
+// care, and the arithmetic for why it needs this many matches is at
+// `ADVISOR_MATCHES`.
+// ---------------------------------------------------------------------------
+
+/**
+ * The class whose matches carry the advisor fixture.
+ *
+ * Royal rather than witch, and the reason is the cost curve. The user's real
+ * deck 43 ("witch go") averages 4.875 mana across its forty cards, so the mean
+ * of any three of them is almost always at or above 4.0 — every hand lands in
+ * band 2, the other two strata stay empty, `mantelHaenszelDiff` gets one
+ * stratum, and the adjusted estimate becomes the crude one wearing a different
+ * name. A demonstration of stratification needs strata.
+ *
+ * So the advisor set gets a purpose-built list with a known curve. The rejected
+ * alternative was to reuse a real deck and hope: it keeps the "reuse first"
+ * rule that the rest of this script follows, and it buys a fixture whose most
+ * important property depends on a deck the user can edit at any time.
+ */
+export const ADVISOR_CLASS = 'royal'
+
+/**
+ * The opponent the advisor fixture is about.
+ *
+ * One class has to dominate, because the narrow rungs of the ladder are
+ * per-opponent and splitting 1200 matches across seven classes the way
+ * `OPPO_WEIGHTS` does would leave the biggest matchup with ~330 matches, ~165
+ * per turn order, and a 3-of showing 49 copies before the keep/swap split — not
+ * enough for `sort` on both arms. A player who has been grinding one matchup is
+ * also a perfectly ordinary thing to be.
+ */
+export const ADVISOR_PRIMARY_OPPO = 'dragon'
+
+/** Half the advisor set is the primary matchup; the rest is a plausible tail. */
+export const ADVISOR_OPPO_WEIGHTS = [
+  { value: ADVISOR_PRIMARY_OPPO, weight: 50 },
+  { value: 'nightmare', weight: 12 },
+  { value: 'bishop', weight: 10 },
+  { value: 'witch', weight: 10 },
+  { value: 'royal', weight: 8 },
+  { value: 'nemesis', weight: 6 },
+  { value: 'elf', weight: 4 }
+]
+
+/**
+ * Which opponents count as "fast" for the opponent-dependent keep plants.
+ *
+ * Arbitrary but not random: these are the three classes whose usual builds
+ * punish a slow hand, which is the premise the advisor exists to measure. It is
+ * a demo fixture, not a metagame claim, and nothing outside this file reads it.
+ */
+export const ADVISOR_FAST_CLASSES = new Set(['elf', 'royal', 'nemesis'])
+
+/**
+ * How many matches the advisor set writes, and the arithmetic that fixes it.
+ *
+ *   a 3-of is 3 of 40 cards, so a four-card hand holds 4 × 3/40 = 0.30 copies
+ *   of it on average (the familiar 27.7% is P(at least one hand), which is the
+ *   wrong unit here — `mulligan.ts` counts copies).
+ *
+ *   1200 matches
+ *     × 0.50 against `ADVISOR_PRIMARY_OPPO`      =  600
+ *     × 0.50 on one turn order                   =  300   ← the narrowest scope
+ *     × 0.30 copies of a 3-of per hand           =   90 copies
+ *     × a ~50/50 keep split                      =   45 kept / 45 swapped
+ *
+ * 45 clears `KEEP_THRESHOLDS.sort` (30) on both arms with half again to spare,
+ * which is what "sortable for at least a few cards" costs. Split those 90 copies
+ * across the three bands (~25 / ~50 / ~25 for the curve below) and the
+ * stratified rung still holds ~22 / ~45 / ~22, so every band contributes a real
+ * comparison rather than a one-armed one that has to be dropped.
+ *
+ * Halving this to 600 would leave 22/22 per arm — past `show` (12), short of
+ * `sort` — and the page would never draw a sorted advisor table, which is the
+ * state most worth reviewing. The cost of the extra 600 is ~4800 more
+ * `MatchOpeningCard` rows, which SQLite does not notice.
+ */
+export const ADVISOR_MATCHES = 1200
+
+/**
+ * What each planted card is for, in the order the roles are assigned.
+ *
+ * Roles are attached to real cards BY RULE (see `chooseAdvisorPlants`), never by
+ * hardcoded id, so the fixture survives the card master cache changing under it.
+ * The `shows` strings are printed by the dry run, so a reviewer can put a name
+ * against each row of the advisor page without reading this file.
+ */
+export const ADVISOR_PLANT_RULES = [
+  {
+    role: 'confounded',
+    // Deliberately a five-drop: "do I keep this when the rest of my hand is
+    // cheap" is the actual question a five-drop poses, so the confounding here
+    // is the real thing rather than an arrangement of numbers.
+    threeOfIndex: 8,
+    shows: 'crude gap ~32pp that Mantel-Haenszel collapses to ~6pp — bands disagree'
+  },
+  {
+    role: 'trueKeep',
+    threeOfIndex: 5,
+    shows: 'a REAL keep effect: ~+19pp, flat across bands, survives adjustment'
+  },
+  // The planted gap is 30pp (0.68 kept against 0.38 swapped), not 22. The
+  // difference is dilution: `advisorWinProbability` resolves by priority, and
+  // the ~27% of this card's hands that also hold `confounded` take their result
+  // from that card's model instead, which is uncorrelated with this one's keep
+  // decision. 30pp × 0.73 lands where the row claims to land.
+  {
+    role: 'oppoFast',
+    threeOfIndex: 2,
+    shows: 'kept 85% vs fast classes, 25% vs slow — opponent-dependent'
+  },
+  {
+    role: 'oppoSlow',
+    threeOfIndex: 9,
+    shows: 'the mirror: kept 25% vs fast, 82% vs slow'
+  },
+  {
+    role: 'bandSplit',
+    threeOfIndex: 7,
+    shows: "always kept in bands 0-1, never in band 2 → no stratum → 'turn-order'"
+  },
+  {
+    role: 'orderSplit',
+    threeOfIndex: 6,
+    shows: "kept 95% on the play, 15% on the draw → narrow arm empty → 'opponent'"
+  },
+  {
+    role: 'oppoOneSided',
+    threeOfIndex: 3,
+    shows: "kept 97% vs the primary matchup only → 'all-opponents'"
+  },
+  {
+    role: 'alwaysKept',
+    oneOfIndex: 0,
+    shows: "kept ~95%: swapped arm never fills, row is correctly 'hidden'"
+  }
+]
+
+/**
+ * Attach every role in `ADVISOR_PLANT_RULES` to a card of the given deck list.
+ *
+ * Indices into the cost-sorted 3-ofs (and 1-ofs), not card ids, so two runs
+ * agree and so the fixture still works on a deck list this script did not build.
+ * Indices wrap, because a caller may hand this a shorter list — a duplicate role
+ * on one card degrades the demo, whereas a crash in a seeder does not degrade
+ * anything, it just stops.
+ */
+export function chooseAdvisorPlants(deckList) {
+  const byCost = (a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.cardId - b.cardId
+  const threes = deckList.filter((e) => e.count >= 3).sort(byCost)
+  const ones = deckList.filter((e) => e.count === 1).sort(byCost)
+
+  const out = {}
+  for (const rule of ADVISOR_PLANT_RULES) {
+    const source = rule.threeOfIndex == null ? ones : threes
+    const index = rule.threeOfIndex ?? rule.oneOfIndex
+    out[rule.role] = source.length === 0 ? null : source[index % source.length].cardId
+  }
+  return out
+}
+
+/**
+ * The keep probability for one slot of one advisor hand.
+ *
+ * Returns null for a card with no role, which sends the caller back to the
+ * ordinary cost curve — most of the deck should still behave like a deck, or the
+ * keep-rate column on 起手 would turn into a list of eight planted constants.
+ *
+ * The three one-sided plants (`orderSplit`, `oppoOneSided`, `alwaysKept`) are
+ * how the fallback ladder gets exercised, and it is worth being explicit that
+ * they work by STARVING the narrow arm rather than by having few observations.
+ * That is the failure the ladder was designed for: plenty of data, all of it on
+ * one side of the question, so the honest thing is to step outward and say so.
+ * The alternative — simply seeding fewer matches against some opponent — would
+ * have exercised the same code path for the boring reason and taught the
+ * reviewer nothing about why `basis` is on the row.
+ */
+export function advisorKeepProbability(plants, ctx) {
+  const { cardId, band, oppoClass, playOrder } = ctx
+  const fast = ADVISOR_FAST_CLASSES.has(oppoClass)
+
+  switch (cardId) {
+    case plants.confounded:
+      // The engine of the whole demonstration. Keeping is strongly predicted by
+      // the rest of the hand, and (see `advisorWinProbability`) so is winning.
+      // The crude comparison therefore compares mostly-band-0 keeps against
+      // mostly-band-2 swaps, which is two different populations wearing one
+      // card's name.
+      return band == null ? 0.5 : [0.85, 0.5, 0.15][band]
+    case plants.trueKeep:
+      // Flat on purpose. Its effect has to survive adjustment, so nothing about
+      // the decision may correlate with the band.
+      return 0.5
+    case plants.oppoFast:
+      return fast ? 0.85 : 0.25
+    case plants.oppoSlow:
+      // 0.82 rather than a symmetric 0.85: at 0.85 the swapped arm against the
+      // primary matchup lands near 13 copies, one unlucky draw from falling
+      // under `show` (12) and turning a deliberate demo row into a dash.
+      return fast ? 0.25 : 0.82
+    case plants.bandSplit:
+      // Deterministic, which is the whole trick: band 0 and band 1 hold keeps
+      // only, band 2 holds swaps only, so NO band offers both arms, `mh` is
+      // null, and the stratified rung has nothing to return. This is the one
+      // plant that is not a probability at all.
+      return band == null ? 0.5 : band <= 1 ? 1 : 0
+    case plants.orderSplit:
+      return playOrder === 'first' ? 0.95 : 0.15
+    case plants.oppoOneSided:
+      return oppoClass === ADVISOR_PRIMARY_OPPO ? 0.97 : 0.5
+    case plants.alwaysKept:
+      return 0.95
+    default:
+      return null
+  }
+}
+
+/**
+ * The match result model for the advisor set.
+ *
+ * ONE match has ONE result, so when two planted cards are in the same hand
+ * something has to win. They are resolved by priority rather than combined,
+ * and the order is `confounded` first because its shape (a crude gap that the
+ * adjustment destroys) is the thing the page most needs to be able to show, and
+ * because it has the most room to lose: a ~40pp crude difference survives being
+ * diluted in the ~8% of hands that hold both plants, whereas `trueKeep`'s ~22pp
+ * has less to spare.
+ *
+ * The rejected alternative was to combine the effects additively on the
+ * probability scale. It reads better in the abstract and it clips: two plants
+ * both pushing up from a 0.5 base run past 1.0, and the clipping lands
+ * disproportionately on exactly the hands that hold both cards, which
+ * reintroduces a correlation between the two plants that neither of them asked
+ * for.
+ *
+ * Hands holding neither plant sit at the base rate, so the set's own baseline is
+ * not itself a planted number.
+ */
+export function advisorWinProbability(plants, hand, baseWinP) {
+  const slotOf = (cardId) => hand.pre.indexOf(cardId)
+
+  const cf = slotOf(plants.confounded)
+  if (cf >= 0) {
+    const kept = !hand.swapped[cf]
+    const band = hand.bands[cf] ?? 1
+    // The shape `tests/main/mulligan.test.ts` uses to produce a crude 41.7
+    // against an adjusted 5.0: a five-point kept-over-swapped edge inside every
+    // band, and a colossal band-to-band difference that the crude comparison
+    // mistakes for it.
+    return [
+      [0.75, 0.8],
+      [0.48, 0.52],
+      [0.2, 0.25]
+    ][band][kept ? 1 : 0]
+  }
+
+  const tk = slotOf(plants.trueKeep)
+  if (tk >= 0) return hand.swapped[tk] ? 0.38 : 0.68
+
+  return baseWinP
+}
+
 /**
  * One class's worth of demo matches.
  *
@@ -405,7 +830,18 @@ export function generateMatches(opts) {
     now,
     baseWinP = 0.52,
     signalDealtWinP = null,
-    signalNotDealtWinP = null
+    signalNotDealtWinP = null,
+    oppoWeights = OPPO_WEIGHTS,
+    advisorPlants = null,
+    // A SECOND stream, for the facts about a match that are not its cards: who
+    // the opponent was, who went first, which queue it was. Splitting the two is
+    // not tidiness. The advisor needs the opponent and the turn order BEFORE it
+    // can decide whether a card was kept, so those draws had to move ahead of
+    // the hand — and on one shared stream that reordering would have reshuffled
+    // every hand in the witch set too, discarding the seed scan recorded at
+    // `DEMO_SEED` and the realised figures the 起手 demo was tuned to. Two
+    // independent streams make the two questions independent, which they are.
+    ctxRng = rng
   } = opts
 
   const costOf = new Map(deckList.map((e) => [e.cardId, e.cost ?? null]))
@@ -423,7 +859,17 @@ export function generateMatches(opts) {
   const matches = []
 
   for (let i = 0; i < count; i += 1) {
-    const hand = pool.length >= HAND_SIZE ? generateHand(rng, { pool, costOf }) : null
+    // Context first, cards second. See `ctxRng` above for why these three come
+    // off a different stream than everything below them.
+    const playOrder = ctxRng() < 0.5 ? 'first' : 'second'
+    const oppoClass = pickWeighted(ctxRng, oppoWeights)
+    const mode = pickWeighted(ctxRng, modes)
+
+    const keepProbFor = advisorPlants
+      ? (slotCtx) => advisorKeepProbability(advisorPlants, { ...slotCtx, oppoClass, playOrder })
+      : null
+
+    const hand = pool.length >= HAND_SIZE ? generateHand(rng, { pool, costOf, keepProbFor }) : null
     const recorded = hand ? recordHand(rng, hand, plan) : null
 
     // The win rate is computed from the TRUE hand, not the recorded one. That
@@ -434,6 +880,7 @@ export function generateMatches(opts) {
     if (plan.signal != null && signalDealtWinP != null && signalNotDealtWinP != null && hand) {
       winP = hand.pre.includes(plan.signal) ? signalDealtWinP : signalNotDealtWinP
     }
+    if (advisorPlants && hand) winP = advisorWinProbability(advisorPlants, hand, baseWinP)
 
     const playedAt = Math.round(now - rng() * SPREAD_MS)
     const durationTime = 90 + randInt(rng, 480)
@@ -441,11 +888,11 @@ export function generateMatches(opts) {
 
     matches.push({
       result: rng() < winP ? 1 : 0,
-      play_order: rng() < 0.5 ? 'first' : 'second',
+      play_order: playOrder,
       my_class: myClass,
-      oppo_class: pickWeighted(rng, OPPO_WEIGHTS),
+      oppo_class: oppoClass,
       my_deckId: deckId,
-      mode: pickWeighted(rng, modes),
+      mode,
       playedAt,
       endedAt: playedAt + durationTime * 1000,
       durationTime,
@@ -511,8 +958,25 @@ export function makeArtVector(rng) {
  */
 export function generateAll(opts) {
   const { decks, now, seed = DEMO_SEED } = opts
-  const rng = makeRng(seed)
   const out = []
+
+  // One stream per set, rather than one stream threaded through all of them.
+  //
+  // The old arrangement was a single `makeRng(DEMO_SEED)` handed to each set in
+  // turn, which has a property nobody wants: every set is downstream of every
+  // earlier set's exact number of random draws. Adding the royal set below, and
+  // moving three draws onto the context stream, both silently reshuffled the
+  // witch hands — and the witch set is the one whose realised figures were
+  // scanned for (`DEMO_SEED`). One stream per set makes the sets independent,
+  // so the next person to add a cohort does not have to re-check this one's
+  // numbers, and so a single set's offset can be tuned without touching the
+  // others.
+  const rngFor = (label) => makeRng((seed + (SET_SEED_OFFSETS[label] ?? 0)) >>> 0)
+  // The context stream: who the opponent was, who went first, which queue. See
+  // `ctxRng` in `generateMatches` for why this is separate from the cards.
+  const ctxFor = (label) => makeRng((seed + (SET_SEED_OFFSETS[label] ?? 0) + CTX_STREAM_GAP) >>> 0)
+  const rng = rngFor('witch')
+  const ctxRng = ctxFor('witch')
 
   // ---- witch: everything unlocked, and every planted anomaly ----
   const witch = decks.witch
@@ -548,6 +1012,7 @@ export function generateAll(opts) {
       shows: "everything unlocked, incl. 'sortable' difference rows",
       matches: generateMatches({
         rng,
+        ctxRng,
         count: 420,
         myClass: 'witch',
         deckId: witch.deckId,
@@ -564,30 +1029,53 @@ export function generateAll(opts) {
     })
   }
 
-  // ---- royal: past `wrShow` (20), short of `wrSort` (50) ----
-  if (decks.royal) {
+  // ---- royal: the 換牌建議 fixture ----
+  //
+  // The big one, and the only set whose size is derived rather than chosen — see
+  // `ADVISOR_MATCHES`. Its recognition plan is deliberately EMPTY: the advisor
+  // drops any hand whose four pre slots are not all named (the rest-of-hand band
+  // is undefined without the fourth card), so a single nulled slot costs four
+  // copies rather than one, and a `slotNullRate` of even 0.05 would quietly
+  // remove ~19% of the hands this set exists to provide. The unreadable-slot
+  // states are demonstrated by the dragon set, where they cost nothing.
+  const advisor = decks[ADVISOR_CLASS]
+  const advisorPlants = advisor ? chooseAdvisorPlants(advisor.deckList) : null
+  if (advisor) {
     out.push({
-      label: 'royal',
-      shows: "'shown' but not 'sortable' — the middle confidence state",
+      label: ADVISOR_CLASS,
+      shows: '換牌建議: every rung, a real effect, a confounded one, a hidden one',
       matches: generateMatches({
-        rng,
-        count: 90,
-        myClass: 'royal',
-        deckId: decks.royal.deckId,
-        deckList: decks.royal.deckList,
-        now
-      })
+        rng: rngFor(ADVISOR_CLASS),
+        ctxRng: ctxFor(ADVISOR_CLASS),
+        count: ADVISOR_MATCHES,
+        myClass: ADVISOR_CLASS,
+        deckId: advisor.deckId,
+        deckList: advisor.deckList,
+        now,
+        oppoWeights: ADVISOR_OPPO_WEIGHTS,
+        advisorPlants,
+        // Only reached by hands holding neither of the two win-effect plants.
+        baseWinP: 0.5
+      }),
+      advisorPlants
     })
   }
 
-  // ---- nightmare: under almost every threshold ----
+  // ---- nightmare: past `wrShow` (20), short of `wrSort` (50) ----
+  //
+  // This set used to be 25 matches and used to be the "below every threshold"
+  // one; royal was the middle state. Royal is now 1200 matches and clears
+  // everything, so the middle state moved here, and the tiny-sample state is
+  // covered by the 8-match dragon set below. Both states are still on the page;
+  // only which class carries them changed.
   if (decks.nightmare) {
     out.push({
       label: 'nightmare',
-      shows: "below most thresholds — 'low-sample' everywhere",
+      shows: "'shown' but not 'sortable' — the middle confidence state",
       matches: generateMatches({
-        rng,
-        count: 25,
+        rng: rngFor('nightmare'),
+        ctxRng: ctxFor('nightmare'),
+        count: 90,
         myClass: 'nightmare',
         deckId: decks.nightmare.deckId,
         deckList: decks.nightmare.deckList,
@@ -623,7 +1111,8 @@ export function generateAll(opts) {
     label: 'elf',
     shows: "'no-deck': hands are readable, deal rates are not",
     matches: generateMatches({
-      rng,
+      rng: rngFor('elf'),
+      ctxRng: ctxFor('elf'),
       count: 40,
       myClass: 'elf',
       deckId: null,
@@ -638,7 +1127,8 @@ export function generateAll(opts) {
       label: 'dragon',
       shows: "tiny sample, plus 'unidentified' slots and a non-zero pendingRetry",
       matches: generateMatches({
-        rng,
+        rng: rngFor('dragon'),
+        ctxRng: ctxFor('dragon'),
         count: 8,
         myClass: 'dragon',
         deckId: decks.dragon.deckId,
@@ -747,6 +1237,19 @@ export function planDecks(db) {
   const toCreate = []
 
   for (const className of classesNeedingDecks) {
+    // The advisor class is the one exception to "reuse first", and it is an
+    // exception on purpose rather than an oversight. The fixture's most
+    // important property — that all three rest-of-hand bands are populated — is
+    // a property of the deck's COST CURVE, and a deck the user owns and can edit
+    // has whatever curve it has. See `ADVISOR_CLASS`. So this class always gets
+    // a `[demo]`-tagged list built to a known curve, which `--remove` deletes.
+    if (className === ADVISOR_CLASS) {
+      const deckList = buildAdvisorDeckList(db, className)
+      out[className] = { deckId: null, deckName: `[demo] ${className}`, deckList, created: true }
+      toCreate.push({ className, cards: deckList.reduce((s, e) => s + e.count, 0) })
+      continue
+    }
+
     const row = db
       .prepare(
         `SELECT d.id, d.name,
@@ -881,6 +1384,96 @@ export function buildClassDrawPool(db, className) {
 
 /** Three of the pool's 22 rows are neutral, all singletons — deck 43's ratio. */
 export const POOL_NEUTRAL_ROWS = 3
+
+/**
+ * The advisor deck, as `[cost, count]` rows summing to 40.
+ *
+ * Unlike `DEMO_DECK_PROFILE`, which takes evenly spaced entries from whatever
+ * the class pool happens to look like, this one names the cost of every row.
+ * That is the point: the rest-of-hand band is the mean cost of three cards, so
+ * the band distribution is a function of this curve and of nothing else, and
+ * the fixture needs all three bands to be full.
+ *
+ *   costs   1 × 8, 2 × 10, 3 × 7, 4 × 4, 5 × 4, 6 × 4, 7 × 3     = 40 cards
+ *   mean    130 / 40 = 3.25,  E[c²] = 14.15,  sd ≈ 1.89
+ *   mean of three companions:  sd ≈ 1.89 / √3 ≈ 1.09
+ *     P(mean < 2.5)  = P(z < −0.69) ≈ 25%   → band 0
+ *     P(mean ≥ 4.0)  = P(z > +0.69) ≈ 25%   → band 2
+ *     the rest                       ≈ 50%   → band 1
+ *
+ * A ~25/50/25 split is what makes the stratified rung real: the two end bands
+ * still hold ~22 copies of a 3-of per arm at `ADVISOR_MATCHES`, so both of them
+ * contribute a comparison instead of being dropped for having one arm. The
+ * rejected alternative was the real curve of deck 43 (mean 4.875), where band 0
+ * essentially never occurs and the "stratified" estimate would be band 2 alone.
+ *
+ * Eleven 3-ofs and seven 1-ofs, ordered by cost, because `chooseAdvisorPlants`
+ * indexes into the cost-sorted 3-ofs and wants a five-drop and a six-drop to
+ * exist. Not a deck anyone would play; a deck whose arithmetic is known.
+ */
+export const ADVISOR_DECK_PROFILE = [
+  [1, 3],
+  [1, 3],
+  [1, 1],
+  [1, 1],
+  [2, 3],
+  [2, 3],
+  [2, 3],
+  [2, 1],
+  [3, 3],
+  [3, 3],
+  [3, 1],
+  [4, 3],
+  [4, 1],
+  [5, 3],
+  [5, 1],
+  [6, 3],
+  [6, 1],
+  [7, 3]
+]
+
+/**
+ * A 40-card list for `ADVISOR_CLASS`, hitting `ADVISOR_DECK_PROFILE`'s costs
+ * with the user's REAL `Card` rows.
+ *
+ * Cards are taken from the class's own pool at each requested cost, walking to
+ * the next-nearest cost when a cost is exhausted, and never reusing a card —
+ * two rows naming the same card would be a `DeckCard` primary-key collision on
+ * insert, which is a crash at the worst possible moment (mid-transaction, in a
+ * production database, after the backup was taken but before the summary was
+ * printed).
+ *
+ * Real ids only, for the same reason `buildDemoDeckList` insists on them: a
+ * `MatchOpeningCard.cardId` with no `Card` row renders as `#10573310`, has no
+ * cost, and therefore has no band — so an invented id would not merely look
+ * broken, it would silently delete the hand from the advisor's input.
+ */
+export function buildAdvisorDeckList(db, className) {
+  const pool = classCards(db, className, NEUTRAL_CLASS_ID, false)
+  const used = new Set()
+
+  /** The unused card whose cost is closest to `target`, cheapest id first. */
+  const nearest = (target) => {
+    let best = null
+    for (const card of pool) {
+      if (used.has(card.cardId)) continue
+      const distance = Math.abs((card.cost ?? 0) - target)
+      if (best === null || distance < best.distance) best = { card, distance }
+    }
+    return best?.card ?? null
+  }
+
+  return ADVISOR_DECK_PROFILE.map(([cost, count]) => {
+    const card = nearest(cost)
+    if (!card) throw new Error(`not enough usable cards for the advisor deck (${className})`)
+    used.add(card.cardId)
+    return {
+      cardId: card.cardId,
+      count: Math.min(count, card.deckEnabledNum ?? 3),
+      cost: card.cost
+    }
+  })
+}
 
 /** Real `Card` rows, cost-sorted: `neutral` picks class 0 instead of the class. */
 function classCards(db, className, neutralClassId, neutral) {
@@ -1071,6 +1664,15 @@ function summarise(sets, plan, cardNames) {
     )
   }
 
+  const advisorSet = sets.find((s) => s.advisorPlants)
+  if (advisorSet) {
+    // Costs come from the deck list, not from the generated rows: an opening row
+    // records what was recognised, and the band is a fact about the card.
+    const entry = plan.decks[advisorSet.label]
+    const costOf = new Map((entry?.deckList ?? []).map((e) => [e.cardId, e.cost ?? null]))
+    lines.push(summariseAdvisor(advisorSet, nameOf, costOf))
+  }
+
   lines.push('')
   lines.push('  Overall win rate per set (plausible noise, except where planted):')
   for (const set of sets) {
@@ -1079,6 +1681,124 @@ function summarise(sets, plan, cardNames) {
       : 0
     lines.push(`    ${set.label.padEnd(10)} ${w.toFixed(1)}%  (n=${set.matches.length})`)
   }
+
+  return lines.join('\n')
+}
+
+/**
+ * What the advisor fixture actually came out as, measured off the generated
+ * rows the way `src/main/ipc/mulligan.ts` will measure it.
+ *
+ * Printed rather than asserted, and printed in the SAME units the handler uses —
+ * copies, split by the narrowest scope (primary opponent, `first`) — because
+ * every one of these is a sample. The planted probabilities say what was asked
+ * for; only these numbers say what the seed gave, and a reviewer deciding
+ * whether to run `--apply` needs the second, not the first.
+ *
+ * This deliberately stops short of re-implementing the ladder. Whether a card
+ * lands at `'stratified'` or falls to `'turn-order'` is the handler's judgement,
+ * and a second implementation of it here would agree with itself rather than
+ * with the page. What this prints is the raw material the judgement is made
+ * from: per-arm counts at each scope, so the rung is legible against
+ * `KEEP_THRESHOLDS` (show 12, sort 30) without being predicted.
+ */
+function summariseAdvisor(set, nameOf, costOf) {
+  const plants = set.advisorPlants
+  const lines = []
+  lines.push('')
+  lines.push(
+    `  換牌建議 fixture (${set.label}), as the advisor will count it — COPIES, not matches.`
+  )
+  lines.push(
+    `  Narrow scope = oppo ${ADVISOR_PRIMARY_OPPO} + play_order first.` +
+      `  Thresholds: show 12, sort 30, on the SMALLER arm.`
+  )
+  lines.push('')
+  lines.push(
+    '    role          narrow k/s      +both orders    all opponents   card / what it shows'
+  )
+  lines.push('    ' + '-'.repeat(110))
+
+  // One pass over every pre slot of every match, bucketed exactly the way the
+  // handler buckets: a hand with an unnamed slot contributes nothing at all.
+  const counts = new Map()
+  const bandCounts = new Map()
+  for (const rule of ADVISOR_PLANT_RULES) {
+    counts.set(rule.role, { narrow: [0, 0], oppo: [0, 0], all: [0, 0] })
+    bandCounts.set(
+      rule.role,
+      Array.from({ length: REST_BANDS }, () => ({ kept: [0, 0], swapped: [0, 0] }))
+    )
+  }
+
+  for (const m of set.matches) {
+    const pre = m.openingCards.filter((c) => c.stage === 'pre')
+    if (pre.length !== HAND_SIZE || pre.some((c) => c.cardId == null)) continue
+    const costs = pre.map((c) => costOf.get(c.cardId) ?? null)
+    pre.forEach((cell, slot) => {
+      for (const rule of ADVISOR_PLANT_RULES) {
+        if (plants[rule.role] !== cell.cardId) continue
+        const arm = cell.swapped === 1 ? 1 : 0
+        const scope = counts.get(rule.role)
+        scope.all[arm] += 1
+        if (m.oppo_class === ADVISOR_PRIMARY_OPPO) {
+          scope.oppo[arm] += 1
+          if (m.play_order === 'first') scope.narrow[arm] += 1
+        }
+        // Bands are accumulated over the WHOLE set, not the narrow scope.
+        // That is the filter the advisor page opens on (no opponent pinned, no
+        // turn order pinned), so it is the drill-down a reviewer will actually
+        // read; and it is where the sample is large enough for the planted
+        // per-band win rates to come out as the planted per-band win rates
+        // rather than as four-observation noise.
+        const band = restBandOf(costs.filter((_c, i) => i !== slot))
+        if (band != null) {
+          const bandCell = bandCounts.get(rule.role)[band][arm === 0 ? 'kept' : 'swapped']
+          bandCell[0] += 1
+          bandCell[1] += m.result
+        }
+      }
+    })
+  }
+
+  const pair = ([kept, swapped]) => `${String(kept).padStart(4)}/${String(swapped).padStart(4)}`
+  for (const rule of ADVISOR_PLANT_RULES) {
+    const c = counts.get(rule.role)
+    lines.push(
+      `    ${rule.role.padEnd(13)} ${pair(c.narrow).padEnd(15)} ${pair(c.oppo).padEnd(15)}` +
+        ` ${pair(c.all).padEnd(15)} ${nameOf(plants[rule.role])}`
+    )
+    lines.push(`    ${''.padEnd(13)} ${''.padEnd(47)} ${rule.shows}`)
+  }
+
+  // The confounded card's drill-down, which is the row the whole set exists for.
+  // If the bands do not disagree here, the Mantel-Haenszel adjustment has
+  // nothing to collapse and the demonstration has failed regardless of what any
+  // other number says.
+  lines.push('')
+  lines.push(`  Confounded card, per band, WHOLE set (the page's default filter) — must DISAGREE:`)
+  lines.push('    band   kept n (wr)        swapped n (wr)')
+  const wr = ([n, wins]) => (n === 0 ? '  —  ' : `${((100 * wins) / n).toFixed(1)}%`)
+  const cf = bandCounts.get('confounded')
+  let crudeKept = [0, 0]
+  let crudeSwapped = [0, 0]
+  cf.forEach((band, i) => {
+    crudeKept = [crudeKept[0] + band.kept[0], crudeKept[1] + band.kept[1]]
+    crudeSwapped = [crudeSwapped[0] + band.swapped[0], crudeSwapped[1] + band.swapped[1]]
+    lines.push(
+      `    ${i}      ${String(band.kept[0]).padStart(4)} (${wr(band.kept)})` +
+        `      ${String(band.swapped[0]).padStart(4)} (${wr(band.swapped)})`
+    )
+  })
+  const crude =
+    crudeKept[0] && crudeSwapped[0]
+      ? (100 * crudeKept[1]) / crudeKept[0] - (100 * crudeSwapped[1]) / crudeSwapped[0]
+      : 0
+  lines.push(
+    `    crude, pooled over bands: kept ${wr(crudeKept)} (n=${crudeKept[0]})` +
+      ` vs swapped ${wr(crudeSwapped)} (n=${crudeSwapped[0]}) = ${crude.toFixed(1)}pp`
+  )
+  lines.push('    …which the page must NOT report, because the bands above say ~5pp.')
 
   return lines.join('\n')
 }
