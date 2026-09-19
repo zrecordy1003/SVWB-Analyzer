@@ -41,7 +41,7 @@ import DeckVersionsDialog from '@renderer/components/DeckCards/DeckVersionsDialo
 import type { CorrectVersionRequest } from '@renderer/components/DeckCards/DeckVersionsPanel'
 import { groupDeckFamilies, type DeckFamily } from '@renderer/components/DeckCards/deckVersions'
 import { classes, classesMap } from '@renderer/map/classMap'
-import { cardImageUrl } from '@shared/deckImport'
+import { DECK_NAME_MAX_LEN, cardImageUrl } from '@shared/deckImport'
 import { PANEL_SX } from '@renderer/components/Common/surfaces'
 import type { ClassName } from '@shared/domain'
 import { useDecksTags, type DeckLite } from '@renderer/hooks/useDecksTags'
@@ -110,8 +110,15 @@ const CATEGORY_LABEL_MAP: Record<string, string> = {
 }
 const getCategoryLabel = (name: string) => CATEGORY_LABEL_MAP[name] ?? name
 
-/** 名稱長度限制（統一 8 字） */
-const NAME_LIMIT = 8
+/**
+ * 名稱長度限制。
+ *
+ * 從共用的那一份拿，不再自己寫一個數字：這裡本來是 `const NAME_LIMIT = 8`，
+ * 和 `shared/deckImport.ts` 的 `DECK_NAME_MAX_LEN` 是同一條規則的兩份抄本，
+ * 而兩份抄本遲早會分岔——改上限的時候只改到一邊，症狀會是「建立時能打 20 字，
+ * 改名時打到第 9 個字就被擋」。
+ */
+const NAME_LIMIT = DECK_NAME_MAX_LEN
 const displayName = (s: string) => (s.length > 12 ? s.slice(0, 12) + '…' : s)
 
 /** 「全部」分類的虛擬 id */

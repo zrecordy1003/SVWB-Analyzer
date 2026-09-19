@@ -194,7 +194,7 @@ function App(): React.JSX.Element {
     // 一顆地球：分析器看的是自己的資料，這一頁看的是所有人的。
     { key: 'Meta', text: '環境數據', icon: <PublicOutlinedIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
-    { key: 'About', text: '關於與授權', icon: <InfoOutlinedIcon /> }
+    { key: 'About', text: '贊助', icon: <InfoOutlinedIcon /> }
   ]
 
   // AppBar title 根據 page
@@ -206,7 +206,7 @@ function App(): React.JSX.Element {
     Opening: '起手',
     Meta: '環境數據',
     Settings: '設定',
-    About: '關於與授權'
+    About: '贊助'
   }
 
   useEffect(() => {

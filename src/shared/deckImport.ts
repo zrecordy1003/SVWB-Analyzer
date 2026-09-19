@@ -521,8 +521,17 @@ export const DECK_CODE_RENEW_MS = 60_000
  * Naming
  * ================================ */
 
-/** The deck name column's limit, enforced by the form. */
-export const DECK_NAME_MAX_LEN = 8
+/**
+ * The deck name column's limit, enforced by the form.
+ *
+ * Twenty rather than the original eight. Eight fits a generated name like
+ * 「巫師0919」 and nothing a person would actually type: 「秘術巫師 v3」 or
+ * 「進化打點復仇者」 are both over it, and a limit that rejects the names the
+ * feature exists to hold is the wrong limit. Twenty is where the deck picker's
+ * own column stops being able to show the whole thing anyway, so it is the
+ * point past which a longer name would only be truncated somewhere else.
+ */
+export const DECK_NAME_MAX_LEN = 20
 
 /**
  * A name to pre-fill the import form with.

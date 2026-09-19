@@ -239,10 +239,20 @@ describe('naming and links', () => {
   })
 
   it('keeps the suggestion inside the form limit for the longest class label', () => {
-    // 皇家護衛 is four characters, which with MMDD is exactly the limit.
+    // 皇家護衛 is the longest class label at four characters; with MMDD that is
+    // eight. This used to assert equality with the limit, which only held
+    // because the limit happened to be eight too - the suggestion is generated,
+    // the limit is for what a person types, and they were never the same rule.
     const name = suggestDeckName('皇家護衛', new Date(2026, 7, 31))
     expect(name).toBe('皇家護衛0831')
-    expect([...name]).toHaveLength(DECK_NAME_MAX_LEN)
+    expect([...name].length).toBeLessThanOrEqual(DECK_NAME_MAX_LEN)
+  })
+
+  it('leaves a typed name room the generated one does not need', () => {
+    // The limit exists for names like 「進化打點復仇者」 or 「秘術巫師 v3」, both
+    // of which the old eight-character cap rejected outright.
+    expect(DECK_NAME_MAX_LEN).toBeGreaterThanOrEqual('進化打點復仇者'.length)
+    expect(DECK_NAME_MAX_LEN).toBeGreaterThanOrEqual('秘術巫師 v3'.length)
   })
 
   it('builds a share link that survives the deck code expiring', () => {
