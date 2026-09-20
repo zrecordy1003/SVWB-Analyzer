@@ -21,7 +21,9 @@ import {
   ADVISOR_FAST_CLASSES,
   ADVISOR_MATCHES,
   ADVISOR_OPPO_WEIGHTS,
+  ADVISOR_PER_OPPO_MATCHES,
   ADVISOR_PRIMARY_OPPO,
+  ADVISOR_SLOW_CLASSES,
   CLASS_POOL_PROFILE,
   DECK_SIZE,
   DEMO_DECK_PROFILE,
@@ -30,6 +32,7 @@ import {
   HAND_SIZE,
   REST_BANDS,
   advisorKeepProbability,
+  advisorWinProbability,
   chooseAdvisorPlants,
   choosePlants,
   generateAll,
@@ -557,7 +560,23 @@ function tally(matches: Record<string, unknown>[], cardId: number, costOf: Map<n
     opponent: emptyCell(),
     all: emptyCell(),
     bands: Array.from({ length: REST_BANDS }, emptyCell),
-    keptBy: new Map<string, { kept: number; dealt: number }>()
+    keptBy: new Map<string, { kept: number; dealt: number }>(),
+    /**
+     * One entry per `oppo/order`, which is one COLUMN of the page.
+     *
+     * Added when the fixture grew from one matchup to seven. The three scopes
+     * above answer "can the primary matchup support a comparison"; only this
+     * answers the question the rewrite was about, which is whether the
+     * SEVENTH-best matchup can.
+     */
+    cells: new Map<string, Cell>()
+  }
+  const cellFor = (key: string): Cell => {
+    const found = out.cells.get(key)
+    if (found) return found
+    const fresh = emptyCell()
+    out.cells.set(key, fresh)
+    return fresh
   }
   for (const m of matches) {
     const cards = m.openingCards as { stage: string; cardId: number | null; swapped: number }[]
@@ -573,6 +592,7 @@ function tally(matches: Record<string, unknown>[], cardId: number, costOf: Map<n
         if (won) a.wins += 1
       }
       bump(out.all)
+      bump(cellFor(`${m.oppo_class as string}/${m.play_order as string}`))
       const band = restBandOf(costs.filter((_c, j) => j !== i))
       if (band != null) bump(out.bands[band])
       if (m.oppo_class === ADVISOR_PRIMARY_OPPO) {
@@ -733,12 +753,169 @@ describe('the 換牌建議 fixture', () => {
     expect(Math.max(...wrs) - Math.min(...wrs)).toBeGreaterThan(40)
   })
 
-  it('plants a card kept ~95% of the time, whose row has to stay hidden', () => {
+  // ---- the seven-by-two grid: the reason the fixture is the size it is ----
+
+  it('gives EVERY matchup column its own arms, not just the primary one', () => {
+    // The failure this whole rewrite is about. The set used to give one class
+    // half its matches, so six of the seven columns could only be answered from
+    // the pooled rung - and since `answersTheChosenMatchup` those six columns
+    // show nothing at all. A fixture that fills one seventh of a page is not a
+    // fixture for that page.
+    //
+    // Checked on `trueKeep`, the balanced 3-of, because it is the cheapest card
+    // in the deck to satisfy: if IT cannot fill a cell, nothing can.
+    const t = of('trueKeep')
+    expect(t.cells.size).toBe(14)
+    for (const [key, cell] of t.cells) {
+      expect(smaller(cell), `${key} has only ${smaller(cell)} in its smaller arm`).toBeGreaterThan(
+        KEEP_THRESHOLDS.sort
+      )
+    }
+  })
+
+  it('draws at least ADVISOR_PER_OPPO_MATCHES against every single opponent', () => {
+    // The floor that fixes `ADVISOR_MATCHES`. It is asserted rather than
+    // trusted because it is a multinomial draw: the rarest class is one bad
+    // seed away from coming in under the number its column needs, and the
+    // symptom would be one blank column that nobody could explain.
+    const seen = new Map<string, number>()
+    for (const m of matches) {
+      const key = m.oppo_class as string
+      seen.set(key, (seen.get(key) ?? 0) + 1)
+    }
+    expect(seen.size).toBe((ADVISOR_OPPO_WEIGHTS as { value: string }[]).length)
+    for (const [oppoClass, n] of seen) {
+      expect(n, `only ${n} matches against ${oppoClass}`).toBeGreaterThanOrEqual(
+        ADVISOR_PER_OPPO_MATCHES
+      )
+    }
+  })
+
+  it('makes the ANSWER differ between columns, not just the sample size', () => {
+    // Two columns that recommend the same cards are a page that could have been
+    // one column. Each of these four plants is planted to be worth keeping in
+    // some cells and not others, and the crude kept-minus-swapped gap is where
+    // that has to show up first - if it is not in the raw arms it cannot be in
+    // the interval either.
+    //
+    // The bar is 20 points because that is roughly the half-width of the
+    // interval at these arm sizes (see `ADVISOR_PER_OPPO_MATCHES`): below it a
+    // verdict is impossible however real the effect is, so a gap under 20 in a
+    // cell that is supposed to recommend the card is a fixture bug, not bad luck.
+    const cellGap = (role: string, oppoClass: string, playOrder: string): number => {
+      const cell = of(role).cells.get(`${oppoClass}/${playOrder}`)
+      return cell ? gap(cell) : 0
+    }
+    const fast = [...ADVISOR_FAST_CLASSES] as string[]
+    const slow = [...ADVISOR_SLOW_CLASSES] as string[]
+
+    for (const order of ['first', 'second']) {
+      for (const oppoClass of fast) {
+        expect(cellGap('fastOnly', oppoClass, order)).toBeGreaterThan(20)
+        expect(Math.abs(cellGap('slowOnly', oppoClass, order))).toBeLessThan(20)
+      }
+      for (const oppoClass of slow) {
+        expect(cellGap('slowOnly', oppoClass, order)).toBeGreaterThan(15)
+        expect(Math.abs(cellGap('fastOnly', oppoClass, order))).toBeLessThan(20)
+      }
+    }
+
+    // ...and the same story along the other axis. `firstOnly` must be worth
+    // keeping on the play and silent on the draw, which is a distinction the
+    // page draws with two columns and would be unable to demonstrate otherwise.
+    for (const oppoClass of [...fast, ...slow]) {
+      expect(cellGap('firstOnly', oppoClass, 'first')).toBeGreaterThan(20)
+      expect(Math.abs(cellGap('firstOnly', oppoClass, 'second'))).toBeLessThan(20)
+      expect(cellGap('secondOnly', oppoClass, 'second')).toBeGreaterThan(15)
+      expect(Math.abs(cellGap('secondOnly', oppoClass, 'first'))).toBeLessThan(20)
+    }
+  })
+
+  it('plants a card the page has to tell the user to THROW BACK', () => {
+    // Until this card existed the fixture had not one negative effect anywhere,
+    // so 建議換 - a whole branch of the advisor UI - had never been rendered
+    // with data behind it. Its gap has to be negative in every cell, not just
+    // on average, or the branch is only reachable from some columns.
+    const t = of('trueToss')
+    expect(gap(t.all)).toBeLessThan(-20)
+    expect(mh(t.bands)).toBeLessThan(-20)
+    for (const [key, cell] of t.cells) {
+      expect(gap(cell), `${key} does not point at a toss`).toBeLessThan(-10)
+      expect(smaller(cell)).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.show)
+    }
+  })
+
+  it('pays the skewed-arm tax on one card rather than making every plant a coin flip', () => {
+    // `ADVISOR_PER_OPPO_MATCHES` argues that a card kept 70% of the time puts
+    // only 30% of its copies in the smaller arm, so it needs ~2.5x the matches
+    // for the same precision. `slowOnly` is that card, and it is here so the
+    // claim "the fixture only works for balanced cards" is checkable.
+    //
+    // If every recommended plant were a 50/50 split this test would be the one
+    // that failed, and it would be right to.
+    const balanced = of('trueKeep')
+    const skewed = of('slowOnly')
+    const keepShare = (cell: Cell): number => cell.kept.n / (cell.kept.n + cell.swapped.n)
+    expect(keepShare(balanced.all)).toBeGreaterThan(0.45)
+    expect(keepShare(balanced.all)).toBeLessThan(0.55)
+    expect(keepShare(skewed.all)).toBeGreaterThan(0.65)
+    // ...and it still clears `show` in every cell, which is what the extra
+    // volume bought. It would not have at the old set size.
+    for (const [key, cell] of skewed.cells) {
+      expect(smaller(cell), `${key}`).toBeGreaterThanOrEqual(KEEP_THRESHOLDS.show)
+    }
+  })
+
+  it('combines several planted effects in one hand without clipping or starving any', () => {
+    // The log-odds model, stated as the two things it has to do that neither
+    // rejected alternative did. A hand holding four plants is not rare here -
+    // 21 of 40 cards carry one - so "what happens when they collide" is the
+    // common case, not an edge case.
+    const hand = {
+      pre: [plants.trueKeep, plants.trueToss, plants.fastOnly, plants.firstOnly],
+      swapped: [false, false, false, false],
+      bands: [1, 1, 1, 1]
+    }
+    const ctx = { oppoClass: 'elf', playOrder: 'first' }
+    const all = advisorWinProbability(plants, hand, 0.5, ctx)
+    expect(all).toBeGreaterThan(0)
+    expect(all).toBeLessThan(1)
+
+    // Every plant still moves the result when the others are present. Under the
+    // old priority model three of these four would have contributed nothing.
+    const withoutFast = advisorWinProbability(
+      plants,
+      { ...hand, pre: [plants.trueKeep, plants.trueToss, 0, plants.firstOnly] },
+      0.5,
+      ctx
+    )
+    expect(Math.abs(all - withoutFast)).toBeGreaterThan(0.02)
+
+    // A hand with no plant in it is untouched, so the set's own baseline is a
+    // base rate rather than a planted number.
+    expect(advisorWinProbability(plants, { ...hand, pre: [0, 0, 0, 0] }, 0.5, ctx)).toBeCloseTo(0.5)
+
+    // And the conditional plants really are conditional: the same hand against
+    // a slow class loses exactly the `fastOnly` term.
+    const vsSlow = advisorWinProbability(plants, hand, 0.5, {
+      oppoClass: [...ADVISOR_SLOW_CLASSES][0],
+      playOrder: 'first'
+    })
+    expect(vsSlow).toBeLessThan(all)
+  })
+
+  it('plants a card kept ~99% of the time, whose row has to stay hidden', () => {
     const a = of('alwaysKept')
     expect(a.all.kept.n / (a.all.kept.n + a.all.swapped.n)).toBeGreaterThan(0.9)
     // The failure mode `KEEP_THRESHOLDS` exists for. Even at the WIDEST rung —
     // every opponent, both turn orders, bands pooled — the swapped arm never
     // reaches `show`, so there is no honest comparison to print at any rung.
+    //
+    // The plant used to be kept 95% of the time. It had to go to 99% when the
+    // set grew, and that is not a fixture detail: `show` is a COUNT, so the
+    // state "not enough of one arm to say anything" erodes with volume alone.
+    // A 95%-kept card is hidden at 1200 matches and comparable at 6200, with no
+    // change in the card, the player, or the decision.
     expect(a.all.swapped.n).toBeLessThan(KEEP_THRESHOLDS.show)
     // But it is dealt often enough for a keep rate, so the row is not empty: it
     // says 95% kept and declines to say whether that was wise.

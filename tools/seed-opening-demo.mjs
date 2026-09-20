@@ -100,6 +100,28 @@
  * set below exists to fix exactly that, and `ADVISOR_PLANT_RULES` says what each
  * planted card is supposed to make the page show.
  *
+ * ...AND SINCE 2026-09-20, A VERDICT IS A MUCH HIGHER BAR THAN A NUMBER
+ * ---------------------------------------------------------------------
+ * Two changes landed that between them emptied six of the page's seven matchup
+ * columns, and the size of this fixture is a direct consequence of both.
+ *
+ * - `verdictFor` no longer asks whether the interval clears zero. It asks
+ *   whether the NEAR BOUND clears `KEEP_THRESHOLDS.minEffect`, two points. At
+ *   sixty observations an arm the interval is ±20 points wide, so a planted
+ *   effect of five points can never earn a recommendation no matter how many
+ *   games confirm it is five points. Only large effects are visible here, and
+ *   the fixture plants large ones because small ones would be honestly invisible.
+ * - `answersTheChosenMatchup` forbids the `'all-opponents'` rung from answering
+ *   a question about a named opponent (`docs/mulligan-advisor-plan.md` 七之二).
+ *   Borrowed evidence is filed under 「不分對手時」 instead. So there is no way
+ *   to fill the 「對上精靈」 column except with elf matches.
+ *
+ * Together those say: every one of the seven matchups needs its OWN several
+ * hundred matches. That is the whole reason this file now writes six thousand
+ * of them where it used to write twelve hundred. See `ADVISOR_PER_OPPO_MATCHES`
+ * for the arithmetic, and read the number as what it is — the number of games a
+ * real player would have to grind, per matchup, before the column says a word.
+ *
  * DETERMINISM
  * -----------
  * The RNG is a mulberry32 seeded from a constant (`DEMO_SEED`), implemented in
@@ -181,14 +203,21 @@ export const SET_SEED_OFFSETS = {
   /** Scanned: suppressed 11.9% observed, recognisedShare 0.879, signal +8.1pp. */
   witch: 117,
   /**
-   * Scanned too, and against a longer list of targets, because the advisor set
-   * has more that can go wrong than a win rate: the crude kept-vs-swapped gap on
-   * the confounded card must be large (32.3pp here) while the Mantel-Haenszel
-   * estimate collapses (5.7pp), every band must hold BOTH arms or the stratified
-   * rung has nothing to combine, and each of the four rungs has to be reachable
-   * by the card that was planted to reach it — which means checking that some
-   * arms fall SHORT of `KEEP_THRESHOLDS.show` as well as that others clear it.
-   * `orderSplit` at 90/2 in the narrow scope is a deliberate failure.
+   * The advisor set, which has more that can go wrong than a win rate: the crude
+   * kept-vs-swapped gap on the confounded card must be large (~31pp) while the
+   * Mantel-Haenszel estimate collapses (~4pp), every band must hold BOTH arms or
+   * the stratified rung has nothing to combine, and each of the four rungs has
+   * to be reachable by the card that was planted to reach it — which means
+   * checking that some arms fall SHORT of `KEEP_THRESHOLDS.show` as well as that
+   * others clear it. `orderSplit` at 101/5 in the narrow scope is a deliberate
+   * failure.
+   *
+   * It is no longer SCANNED, and that is worth knowing rather than inferring
+   * from the missing word. At 1200 matches every figure here was a draw and the
+   * offset had to be hunted for one that did not embarrass the page; at 6200 the
+   * per-cell arms are fifty a side and the realised numbers land within a couple
+   * of points of the planted ones on any offset. Needing a lucky seed was a
+   * symptom of the fixture being too small, and it went away by itself.
    */
   royal: 207,
   nightmare: 3001,
@@ -546,12 +575,13 @@ export const SPREAD_MS = 183 * 24 * 60 * 60 * 1000
 // ---------------------------------------------------------------------------
 // PURE: the mulligan advisor fixture
 //
-// Everything in this block exists to fill ONE cell shape on 換牌建議: a single
-// card, against a single opponent class, at a single turn order, inside a single
-// rest-of-hand band, with enough observations on BOTH sides of the keep/swap
-// split to clear `KEEP_THRESHOLDS`. Nothing else on either page needs this much
-// care, and the arithmetic for why it needs this many matches is at
-// `ADVISOR_MATCHES`.
+// Everything in this block exists to fill FOURTEEN cells on 換牌建議 — seven
+// opponent classes by two turn orders — each holding a single card, inside a
+// single rest-of-hand band, with enough observations on BOTH sides of the
+// keep/swap split to clear `KEEP_THRESHOLDS` and a planted effect large enough
+// for the interval's near bound to clear `minEffect`. It used to exist to fill
+// one. Nothing else on either page needs this much care, and the arithmetic for
+// why it needs this many matches is at `ADVISOR_PER_OPPO_MATCHES`.
 // ---------------------------------------------------------------------------
 
 /**
@@ -572,26 +602,49 @@ export const SPREAD_MS = 183 * 24 * 60 * 60 * 1000
 export const ADVISOR_CLASS = 'royal'
 
 /**
- * The opponent the advisor fixture is about.
+ * The opponent the ladder-exercising plants are aimed at.
  *
- * One class has to dominate, because the narrow rungs of the ladder are
- * per-opponent and splitting 1200 matches across seven classes the way
- * `OPPO_WEIGHTS` does would leave the biggest matchup with ~330 matches, ~165
- * per turn order, and a 3-of showing 49 copies before the keep/swap split — not
- * enough for `sort` on both arms. A player who has been grinding one matchup is
- * also a perfectly ordinary thing to be.
+ * It used to mean "the only matchup with enough data": the set gave this class
+ * half of its 1200 matches and left the other six on a few dozen each, which
+ * filled ONE column of 換牌建議 and left six looking broken. Since
+ * `answersTheChosenMatchup` started quarantining the pooled rung
+ * (`docs/mulligan-advisor-plan.md` 七之二) those six stopped being merely thin
+ * and became genuinely empty: their rows come from `'all-opponents'`, which is
+ * no longer allowed to answer a question about a named opponent, so they moved
+ * under 「不分對手時」 and the matchup columns had nothing left in them.
+ *
+ * A fixture that demonstrates one seventh of a seven-column page is not
+ * demonstrating the page. So the weights below are now nearly flat and every
+ * matchup carries its own evidence, and this constant survives only for the two
+ * jobs that really are about one matchup: the `oppoOneSided` plant, which
+ * starves every rung but the pooled one, and the narrow scope
+ * `summariseAdvisor` reports against.
  */
 export const ADVISOR_PRIMARY_OPPO = 'dragon'
 
-/** Half the advisor set is the primary matchup; the rest is a plausible tail. */
+/**
+ * Nearly flat, and deliberately not exactly flat.
+ *
+ * The floor is forced: each of the seven has to reach
+ * `ADVISOR_PER_OPPO_MATCHES` on its own, because a verdict printed in the
+ * 「對上精靈」 column may only be built out of elf data. There is no borrowing
+ * left to do — that is the whole content of 七之二.
+ *
+ * The ±15% spread on top of the floor is cosmetic, and it is kept for the
+ * reason `OPPO_WEIGHTS` gives: a matchup histogram of seven identical bars
+ * reads as a bug rather than as a demo. It is as much realism as the thresholds
+ * leave room for, and that tension is itself worth seeing — a real match history
+ * is far more lopsided than this, and the lopsided part of it is exactly the
+ * part this page cannot serve.
+ */
 export const ADVISOR_OPPO_WEIGHTS = [
-  { value: ADVISOR_PRIMARY_OPPO, weight: 50 },
-  { value: 'nightmare', weight: 12 },
-  { value: 'bishop', weight: 10 },
-  { value: 'witch', weight: 10 },
-  { value: 'royal', weight: 8 },
-  { value: 'nemesis', weight: 6 },
-  { value: 'elf', weight: 4 }
+  { value: ADVISOR_PRIMARY_OPPO, weight: 17 },
+  { value: 'nightmare', weight: 15 },
+  { value: 'bishop', weight: 14 },
+  { value: 'witch', weight: 14 },
+  { value: 'royal', weight: 14 },
+  { value: 'nemesis', weight: 13 },
+  { value: 'elf', weight: 13 }
 ]
 
 /**
@@ -604,109 +657,206 @@ export const ADVISOR_OPPO_WEIGHTS = [
 export const ADVISOR_FAST_CLASSES = new Set(['elf', 'royal', 'nemesis'])
 
 /**
- * How many matches the advisor set writes, and the arithmetic that fixes it.
+ * The complement, derived rather than written out.
  *
- *   a 3-of is 3 of 40 cards, so a four-card hand holds 4 × 3/40 = 0.30 copies
- *   of it on average (the familiar 27.7% is P(at least one hand), which is the
- *   wrong unit here — `mulligan.ts` counts copies).
- *
- *   1200 matches
- *     × 0.50 against `ADVISOR_PRIMARY_OPPO`      =  600
- *     × 0.50 on one turn order                   =  300   ← the narrowest scope
- *     × 0.30 copies of a 3-of per hand           =   90 copies
- *     × a ~50/50 keep split                      =   45 kept / 45 swapped
- *
- * 45 clears `KEEP_THRESHOLDS.sort` (30) on both arms with half again to spare,
- * which is what "sortable for at least a few cards" costs. Split those 90 copies
- * across the three bands (~25 / ~50 / ~25 for the curve below) and the
- * stratified rung still holds ~22 / ~45 / ~22, so every band contributes a real
- * comparison rather than a one-armed one that has to be dropped.
- *
- * Halving this to 600 would leave 22/22 per arm — past `show` (12), short of
- * `sort` — and the page would never draw a sorted advisor table, which is the
- * state most worth reviewing. The cost of the extra 600 is ~4800 more
- * `MatchOpeningCard` rows, which SQLite does not notice.
+ * Written out, the two lists drift: somebody moves nemesis and the card that is
+ * supposed to be recommended against exactly the classes the other one is not
+ * ends up recommended against six of seven, which looks like a plausible result
+ * and is a bug. Deriving it makes "fast" and "slow" a partition by construction.
  */
-export const ADVISOR_MATCHES = 1200
+export const ADVISOR_SLOW_CLASSES = new Set(CLASSES.filter((c) => !ADVISOR_FAST_CLASSES.has(c)))
 
 /**
- * What each planted card is for, in the order the roles are assigned.
+ * How many matches ONE matchup column needs, and the arithmetic that fixes it.
  *
- * Roles are attached to real cards BY RULE (see `chooseAdvisorPlants`), never by
- * hardcoded id, so the fixture survives the card master cache changing under it.
- * The `shows` strings are printed by the dry run, so a reviewer can put a name
- * against each row of the advisor page without reading this file.
+ * Everything on 換牌建議 is measured per (opponent, turn order) cell, so this is
+ * the only number in the file that matters, and `ADVISOR_MATCHES` below is
+ * merely it multiplied out. The chain:
+ *
+ *   N matches against one opponent
+ *     × 1/2                  one turn order — a column IS (opponent, order)
+ *     × 0.30 copies / hand   a 3-of is 3 of 40, so a four-card hand holds
+ *                            4 × 3/40 = 0.30 copies of it on average. NOT the
+ *                            familiar 27.7%, which is P(the hand holds at least
+ *                            one); `mulligan.ts` counts COPIES, and the two
+ *                            differ by the hands that hold two.
+ *     × the keep/swap split  and it is the SMALLER arm that every threshold in
+ *                            `KEEP_THRESHOLDS` is measured against.
+ *
+ *   At N = 800, for a card kept half the time:
+ *     800 × 0.5 × 0.30 = 120 copies in the cell → 60 kept / 60 swapped.
+ *
+ * WHAT 60 PER ARM BUYS. For a difference of proportions around 0.65 vs 0.35,
+ *
+ *     SE = sqrt(p₁q₁/n₁ + p₀q₀/n₀) = sqrt(2 × 0.2275/60) = 8.7 points
+ *
+ * so a 95% interval reaches ±17.1 points either side of the estimate. But the
+ * estimate the page actually shows at `basis: 'stratified'` is a
+ * Mantel-Haenszel combination over three rest-of-hand bands with a
+ * Greenland-Robins variance, which is wider — not by a factor anybody should
+ * assume, so it was measured rather than guessed, and it came out about 15-20%
+ * wider on this fixture. Call the half-width 20 points. `verdictFor` requires
+ * `diffLo ≥ KEEP_THRESHOLDS.minEffect` (2), so the planted effect must satisfy
+ *
+ *     E − 20 ≥ 2,  i.e.  E ≥ 22 points
+ *
+ * before a verdict is even POSSIBLE, and nearer 30 before it is reliable rather
+ * than a lucky draw. That is where `ADVISOR_WIN_LOGIT` is set.
+ *
+ * TWO THINGS THAT FALL OUT OF THIS AND SHOULD NOT BE BURIED.
+ *
+ * 1. **A skewed keep rate costs real matches, and the fixture must pay it.** A
+ *    card kept 80% of the time puts 0.2 of its copies in the swapped arm where
+ *    a 50/50 card puts 0.5, so the smaller arm is 40% the size and matching it
+ *    takes 2.5× the matches. Matching the INTERVAL rather than the arm is
+ *    cheaper — 1/n₁ + 1/n₀ goes from 4/C to 6.25/C, so 1.56× — but either way it
+ *    is a tax, and it is the reason `ADVISOR_KEEP_PLANTS` deliberately does not
+ *    set every recommended card to a coin flip. A fixture built only out of
+ *    50/50 cards would be quietly demonstrating the easiest case there is.
+ * 2. **This number is also the answer to "how long before my elf column says
+ *    anything".** 800 matches against ONE class, with a 3-of, for ONE verdict
+ *    about a thirty-point effect. Seven matchups is 5600 games, and a real
+ *    history is nowhere near uniform across them. Nothing in this file makes
+ *    that better; the seeder just skips the grinding.
+ */
+export const ADVISOR_PER_OPPO_MATCHES = 800
+
+/**
+ * The set size, DERIVED from the floor above and the weights, not chosen.
+ *
+ * The rarest opponent is the binding constraint — it is the column that would
+ * be blank — so the total is whatever makes the rarest one clear the floor,
+ * rounded up to a round hundred so the dry-run summary reads like a decision
+ * instead of an output. Derived rather than written down because the two used to
+ * be written down separately and the weights were edited without the count, which
+ * is the kind of drift a comment cannot prevent.
+ *
+ * It is a lot of rows — roughly 6200 matches and 50k `MatchOpeningCard` rows —
+ * and that is fine: it is synthetic, `DEMO_SOURCE` keeps it out of telemetry,
+ * `--remove` takes it all back, and SQLite does not notice fifty thousand rows.
+ */
+export const ADVISOR_MATCHES =
+  Math.ceil(
+    ADVISOR_PER_OPPO_MATCHES /
+      (Math.min(...ADVISOR_OPPO_WEIGHTS.map((e) => e.weight)) /
+        ADVISOR_OPPO_WEIGHTS.reduce((s, e) => s + e.weight, 0)) /
+      100
+  ) * 100
+
+/**
+ * What each planted card is for.
+ *
+ * Roles are attached to real cards BY RULE, never by hardcoded id, so the
+ * fixture survives the card master cache changing under it. The rule is now a
+ * position in `ADVISOR_DECK_PROFILE` (`row`), which is a change from the old
+ * "nth cheapest 3-of": once the plants stopped all being 3-ofs — three of them
+ * are deliberately 2-ofs and 1-ofs, because the sample they must NOT reach is
+ * as much a part of the fixture as the sample they must — indexing into a
+ * filtered-and-re-sorted view stopped being legible. The profile row names the
+ * cost and the count in one place and the role reads off it. The `shows`
+ * strings are printed by the dry run so a reviewer can put a card name against
+ * each row of the advisor page without reading this file.
+ *
+ * THE SEVEN-COLUMN DESIGN IS THE POINT. The first five roles below exist so the
+ * answer DIFFERS between columns. If every matchup recommended the same cards,
+ * the page would be an expensive way to print one list, and the reviewer would
+ * have no way to tell the feature from a bug that ignores the filter.
  */
 export const ADVISOR_PLANT_RULES = [
+  {
+    role: 'trueKeep',
+    row: 9, // 3-of, cost 3
+    shows: 'keep in EVERY cell: a real ~30pp effect, flat across bands and matchups'
+  },
+  {
+    role: 'trueToss',
+    row: 17, // 3-of, cost 7
+    shows: '建議換 in every cell — the only toss in the fixture, and a whole UI branch'
+  },
+  {
+    role: 'fastOnly',
+    row: 6, // 3-of, cost 2
+    shows: 'keep vs elf/royal/nemesis only; unclear vs the slow four'
+  },
+  {
+    role: 'slowOnly',
+    row: 11, // 3-of, cost 3
+    shows: 'the mirror, AND kept 70% — the skewed-arm case, which costs 2.5× the data'
+  },
+  {
+    role: 'firstOnly',
+    row: 0, // 3-of, cost 1
+    shows: 'keep on the play only; the 後攻 column must stay unclear'
+  },
+  {
+    role: 'secondOnly',
+    row: 10, // 3-of, cost 3
+    shows: 'keep on the draw only; the 先攻 column must stay unclear'
+  },
   {
     role: 'confounded',
     // Deliberately a five-drop: "do I keep this when the rest of my hand is
     // cheap" is the actual question a five-drop poses, so the confounding here
     // is the real thing rather than an arrangement of numbers.
-    threeOfIndex: 8,
-    shows: 'crude gap ~32pp that Mantel-Haenszel collapses to ~6pp — bands disagree'
+    row: 14, // 3-of, cost 5
+    shows: 'crude gap ~30pp that Mantel-Haenszel collapses — bands disagree, verdict unclear'
   },
-  {
-    role: 'trueKeep',
-    threeOfIndex: 5,
-    shows: 'a REAL keep effect: ~+19pp, flat across bands, survives adjustment'
-  },
-  // The planted gap is 30pp (0.68 kept against 0.38 swapped), not 22. The
-  // difference is dilution: `advisorWinProbability` resolves by priority, and
-  // the ~27% of this card's hands that also hold `confounded` take their result
-  // from that card's model instead, which is uncorrelated with this one's keep
-  // decision. 30pp × 0.73 lands where the row claims to land.
   {
     role: 'oppoFast',
-    threeOfIndex: 2,
-    shows: 'kept 85% vs fast classes, 25% vs slow — opponent-dependent'
+    row: 5, // 3-of, cost 2
+    shows: 'kept 85% vs fast classes, 25% vs slow — keep RATE varies, no win effect'
   },
   {
     role: 'oppoSlow',
-    threeOfIndex: 9,
+    row: 16, // 3-of, cost 6
     shows: 'the mirror: kept 25% vs fast, 82% vs slow'
   },
   {
     role: 'bandSplit',
-    threeOfIndex: 7,
+    row: 12, // 2-of, cost 4
     shows: "always kept in bands 0-1, never in band 2 → no stratum → 'turn-order'"
   },
   {
     role: 'orderSplit',
-    threeOfIndex: 6,
-    shows: "kept 95% on the play, 15% on the draw → narrow arm empty → 'opponent'"
+    row: 7, // 2-of, cost 2
+    shows: "kept 95% on the play, 15% on the draw → narrow arm starved → 'opponent'"
   },
   {
     role: 'oppoOneSided',
-    threeOfIndex: 3,
-    shows: "kept 97% vs the primary matchup only → 'all-opponents'"
+    // A 1-of now, and it had to become one. At 800+ matches per opponent a 3-of
+    // kept 97% of the time still puts ~30 copies in the swapped arm of the
+    // opponent rung, which CLEARS `show` — the plant would have stopped
+    // demonstrating the fallback it exists to demonstrate purely because the
+    // fixture grew. One third of the copies, and it starves again.
+    row: 15, // 1-of, cost 5
+    shows: "kept 99% vs dragon → 'all-opponents' there → 「不分對手時」; normal elsewhere"
   },
   {
     role: 'alwaysKept',
-    oneOfIndex: 0,
-    shows: "kept ~95%: swapped arm never fills, row is correctly 'hidden'"
+    // Same story, and worth reading twice: 'kept ~95%' used to be enough to keep
+    // the swapped arm under twelve. Over 6200 matches a 1-of is dealt ~620
+    // times, so 95% leaves ~31 swaps and the row would have started printing a
+    // comparison. It is 99% now. THAT is what volume does to a threshold
+    // expressed as a count: the state "not enough of one arm to say anything"
+    // is not a property of the card, it is a property of how long you played.
+    row: 2, // 1-of, cost 1
+    shows: "kept ~99%: swapped arm still never fills, row is correctly 'hidden'"
   }
 ]
 
 /**
  * Attach every role in `ADVISOR_PLANT_RULES` to a card of the given deck list.
  *
- * Indices into the cost-sorted 3-ofs (and 1-ofs), not card ids, so two runs
- * agree and so the fixture still works on a deck list this script did not build.
- * Indices wrap, because a caller may hand this a shorter list — a duplicate role
- * on one card degrades the demo, whereas a crash in a seeder does not degrade
- * anything, it just stops.
+ * Positional, because `buildAdvisorDeckList` builds the list by mapping over
+ * `ADVISOR_DECK_PROFILE` in order, so row *i* of the profile is entry *i* of the
+ * list by construction. Indices wrap, because a caller may hand this a shorter
+ * list — a duplicate role on one card degrades the demo, whereas a crash in a
+ * seeder does not degrade anything, it just stops.
  */
 export function chooseAdvisorPlants(deckList) {
-  const byCost = (a, b) => (a.cost ?? 0) - (b.cost ?? 0) || a.cardId - b.cardId
-  const threes = deckList.filter((e) => e.count >= 3).sort(byCost)
-  const ones = deckList.filter((e) => e.count === 1).sort(byCost)
-
   const out = {}
   for (const rule of ADVISOR_PLANT_RULES) {
-    const source = rule.threeOfIndex == null ? ones : threes
-    const index = rule.threeOfIndex ?? rule.oneOfIndex
-    out[rule.role] = source.length === 0 ? null : source[index % source.length].cardId
+    out[rule.role] = deckList.length === 0 ? null : deckList[rule.row % deckList.length].cardId
   }
   return out
 }
@@ -732,6 +882,36 @@ export function advisorKeepProbability(plants, ctx) {
   const fast = ADVISOR_FAST_CLASSES.has(oppoClass)
 
   switch (cardId) {
+    // ---- the five cards whose VERDICT is supposed to differ between columns --
+    //
+    // Their keep rates are near a coin flip because that is what puts the most
+    // observations in the smaller arm, and the smaller arm is the binding
+    // constraint (`ADVISOR_PER_OPPO_MATCHES`). They are near it rather than at
+    // it, and one of them is frankly skewed, on purpose: a fixture where every
+    // recommended card splits exactly 50/50 would only ever demonstrate the
+    // cheapest possible case, and the reviewer could not tell whether the page
+    // works or whether the fixture was built to make it work.
+    case plants.trueKeep:
+      return 0.5
+    case plants.trueToss:
+      // Above a half: the player keeps it slightly more often than not, which is
+      // the situation a 建議換 is FOR. A card nobody keeps needs no advice.
+      return 0.55
+    case plants.fastOnly:
+      return 0.45
+    case plants.slowOnly:
+      // The deliberately expensive one. At 0.7 the swapped arm is 30% of the
+      // copies rather than 50%, so this card's interval is the widest of the
+      // five and it is the first to lose its verdict if the set ever shrinks.
+      // It is here so that "the fixture only works for balanced cards" is a
+      // claim somebody can check rather than assume.
+      return 0.7
+    case plants.firstOnly:
+      return 0.52
+    case plants.secondOnly:
+      return 0.48
+
+    // ---- the cards that exist to exercise the ladder and the adjustment ----
     case plants.confounded:
       // The engine of the whole demonstration. Keeping is strongly predicted by
       // the rest of the hand, and (see `advisorWinProbability`) so is winning.
@@ -759,57 +939,143 @@ export function advisorKeepProbability(plants, ctx) {
     case plants.orderSplit:
       return playOrder === 'first' ? 0.95 : 0.15
     case plants.oppoOneSided:
-      return oppoClass === ADVISOR_PRIMARY_OPPO ? 0.97 : 0.5
+      // 0.99, not 0.97 — see the note on the rule. The number that starves an
+      // arm is a function of how many copies there are, so it had to move when
+      // the fixture grew.
+      return oppoClass === ADVISOR_PRIMARY_OPPO ? 0.99 : 0.5
     case plants.alwaysKept:
-      return 0.95
+      return 0.99
     default:
       return null
   }
 }
 
 /**
+ * How big each planted win effect is, in LOG-ODDS, for one copy of the card.
+ *
+ * Log-odds rather than percentage points, and that is the substantive decision
+ * in this block — see `advisorWinProbability`. The numbers are the half-effect:
+ * a kept copy adds `+x`, a swapped copy adds `−x`, so a card alone in a hand at
+ * a 0.5 base produces a gap of `sigmoid(x) − sigmoid(−x)`.
+ *
+ *   0.75  →  0.679 vs 0.321  =  35.8 points alone
+ *
+ * which lands near 30 once the other plants in the hand have spread the base
+ * away from 0.5 and flattened the sigmoid under it. Thirty is what
+ * `ADVISOR_PER_OPPO_MATCHES` says a verdict needs, with enough margin that one
+ * unlucky matchup does not lose its row.
+ */
+export const ADVISOR_WIN_LOGIT = {
+  /** `trueKeep`, `trueToss` (negated), and the four conditional plants. */
+  effect: 0.75,
+  /**
+   * The confounder itself: a large term that depends on the BAND and not at all
+   * on the decision. This is what makes the crude comparison lie — keeps
+   * concentrate in band 0 where the term is high, swaps in band 2 where it is
+   * low, so the crude gap measures the bands and calls it the card.
+   */
+  confoundedBand: [1.6, 0, -1.6],
+  /**
+   * ...and the tiny real edge hiding underneath it, which is what the
+   * Mantel-Haenszel estimate is supposed to recover. Deliberately far below
+   * `minEffect`, so the honest verdict for this card is 'unclear' and the page
+   * is right to refuse to recommend it.
+   */
+  confoundedKeep: 0.13
+}
+
+/**
  * The match result model for the advisor set.
  *
- * ONE match has ONE result, so when two planted cards are in the same hand
- * something has to win. They are resolved by priority rather than combined,
- * and the order is `confounded` first because its shape (a crude gap that the
- * adjustment destroys) is the thing the page most needs to be able to show, and
- * because it has the most room to lose: a ~40pp crude difference survives being
- * diluted in the ~8% of hands that hold both plants, whereas `trueKeep`'s ~22pp
- * has less to spare.
+ * ONE match has ONE result, so when several planted cards share a hand their
+ * effects have to be combined. They are summed on the LOG-ODDS scale, and the
+ * two alternatives were both tried first:
  *
- * The rejected alternative was to combine the effects additively on the
- * probability scale. It reads better in the abstract and it clips: two plants
- * both pushing up from a 0.5 base run past 1.0, and the clipping lands
- * disproportionately on exactly the hands that hold both cards, which
- * reintroduces a correlation between the two plants that neither of them asked
- * for.
+ * - **Priority — take the highest-ranked plant present and ignore the rest.**
+ *   This is what the file used to do, and it was survivable when there were two
+ *   win plants in the deck. There are now seven, covering 21 of 40 cards, so a
+ *   hand holds 2.1 of them on average and every plant below the top of the
+ *   order loses most of its observations to a card it happened to be drawn
+ *   beside. The effects would not be weakened evenly either — a plant is
+ *   displaced exactly when a higher-priority card is present, which is
+ *   independent of its own keep decision, so what it produces is dilution
+ *   toward zero, and the lowest-priority plant would have been diluted into
+ *   nothing.
+ * - **Adding percentage points.** Reads better and clips: two plants both
+ *   pushing up from 0.5 run past 1.0, and the clipping falls entirely on the
+ *   hands that hold both, which manufactures a correlation between two plants
+ *   that were supposed to be independent.
  *
- * Hands holding neither plant sit at the base rate, so the set's own baseline is
- * not itself a planted number.
+ * Log-odds has neither problem. It cannot leave (0, 1), so there is nothing to
+ * clip; every plant present contributes on every hand, so none is starved; and
+ * the price — that the marginal effect of one plant shrinks as the others push
+ * the base away from 0.5 — is a smooth attenuation of about 15%, the same for
+ * all of them, and it is measured in the dry-run summary rather than assumed.
+ *
+ * Hands holding no plant at all sit at exactly `baseWinP`, so the set's own
+ * baseline is still not a planted number.
  */
-export function advisorWinProbability(plants, hand, baseWinP) {
-  const slotOf = (cardId) => hand.pre.indexOf(cardId)
+export function advisorWinProbability(plants, hand, baseWinP, ctx) {
+  const fast = ADVISOR_FAST_CLASSES.has(ctx.oppoClass)
+  const L = ADVISOR_WIN_LOGIT
 
-  const cf = slotOf(plants.confounded)
-  if (cf >= 0) {
-    const kept = !hand.swapped[cf]
-    const band = hand.bands[cf] ?? 1
-    // The shape `tests/main/mulligan.test.ts` uses to produce a crude 41.7
-    // against an adjusted 5.0: a five-point kept-over-swapped edge inside every
-    // band, and a colossal band-to-band difference that the crude comparison
-    // mistakes for it.
-    return [
-      [0.75, 0.8],
-      [0.48, 0.52],
-      [0.2, 0.25]
-    ][band][kept ? 1 : 0]
-  }
+  // Clamped only against a base of exactly 0 or 1, which would be an infinity.
+  const p0 = Math.min(0.999, Math.max(0.001, baseWinP))
+  let logit = Math.log(p0 / (1 - p0))
 
-  const tk = slotOf(plants.trueKeep)
-  if (tk >= 0) return hand.swapped[tk] ? 0.38 : 0.68
+  hand.pre.forEach((cardId, slot) => {
+    // Every copy is its own observation with its own decision, which is the
+    // unit `mulligan.ts` counts in. A hand holding two copies of a plant, one
+    // kept and one swapped, therefore contributes nothing net — which is the
+    // right answer: the player did both things and got one result.
+    const sign = hand.swapped[slot] ? -1 : 1
+    switch (cardId) {
+      case plants.confounded:
+        logit += L.confoundedBand[hand.bands[slot] ?? 1] + sign * L.confoundedKeep
+        break
+      case plants.trueKeep:
+        logit += sign * L.effect
+        break
+      case plants.trueToss:
+        // The same magnitude pointing the other way. Keeping it loses games, so
+        // the page should say 建議換 — a branch of the UI that, until this
+        // fixture, had never once been rendered with data behind it.
+        logit -= sign * L.effect
+        break
+      case plants.fastOnly:
+        if (fast) logit += sign * L.effect
+        break
+      case plants.slowOnly:
+        if (!fast) logit += sign * L.effect
+        break
+      case plants.firstOnly:
+        if (ctx.playOrder === 'first') logit += sign * L.effect
+        break
+      case plants.secondOnly:
+        if (ctx.playOrder === 'second') logit += sign * L.effect
+        break
+      case plants.oppoOneSided:
+        // A perfectly ordinary keep effect, identical against every opponent —
+        // and that is the point. Against the primary matchup this card is kept
+        // 99% of the time, so every rung inside that matchup is one-armed and
+        // the ladder falls all the way to `'all-opponents'`, where the effect
+        // IS visible. `answersTheChosenMatchup` then refuses to let that row
+        // answer 「對上巨龍」 and files it under 「不分對手時」 instead.
+        //
+        // Before this line the plant reached the pooled rung and had nothing to
+        // say when it got there, so the quarantine heading had never once been
+        // rendered with a row under it. The same card earns an ordinary
+        // recommendation in the other six columns, which makes the rule legible
+        // in a way no amount of copy could: one card, one effect, printed under
+        // two different headings depending on which column can see it.
+        logit += sign * L.effect
+        break
+      default:
+        break
+    }
+  })
 
-  return baseWinP
+  return 1 / (1 + Math.exp(-logit))
 }
 
 /**
@@ -880,7 +1146,13 @@ export function generateMatches(opts) {
     if (plan.signal != null && signalDealtWinP != null && signalNotDealtWinP != null && hand) {
       winP = hand.pre.includes(plan.signal) ? signalDealtWinP : signalNotDealtWinP
     }
-    if (advisorPlants && hand) winP = advisorWinProbability(advisorPlants, hand, baseWinP)
+    if (advisorPlants && hand) {
+      // The context goes in because four of the plants are conditional on it:
+      // "worth keeping against fast decks" and "worth keeping on the play" are
+      // the two axes the page splits on, and a fixture that could not express
+      // them would fill all fourteen cells with the same five cards.
+      winP = advisorWinProbability(advisorPlants, hand, baseWinP, { oppoClass, playOrder })
+    }
 
     const playedAt = Math.round(now - rng() * SPREAD_MS)
     const durationTime = 90 + randInt(rng, 480)
@@ -1043,7 +1315,7 @@ export function generateAll(opts) {
   if (advisor) {
     out.push({
       label: ADVISOR_CLASS,
-      shows: '換牌建議: every rung, a real effect, a confounded one, a hidden one',
+      shows: '換牌建議: all 7 matchups × 2 orders, every rung, a toss, a confounded one',
       matches: generateMatches({
         rng: rngFor(ADVISOR_CLASS),
         ctxRng: ctxFor(ADVISOR_CLASS),
@@ -1064,8 +1336,8 @@ export function generateAll(opts) {
   // ---- nightmare: past `wrShow` (20), short of `wrSort` (50) ----
   //
   // This set used to be 25 matches and used to be the "below every threshold"
-  // one; royal was the middle state. Royal is now 1200 matches and clears
-  // everything, so the middle state moved here, and the tiny-sample state is
+  // one; royal was the middle state. Royal is now six thousand matches and
+  // clears everything, so the middle state moved here, and the tiny-sample is
   // covered by the 8-match dragon set below. Both states are still on the page;
   // only which class carries them changed.
   if (decks.nightmare) {
@@ -1394,42 +1666,56 @@ export const POOL_NEUTRAL_ROWS = 3
  * the band distribution is a function of this curve and of nothing else, and
  * the fixture needs all three bands to be full.
  *
- *   costs   1 × 8, 2 × 10, 3 × 7, 4 × 4, 5 × 4, 6 × 4, 7 × 3     = 40 cards
- *   mean    130 / 40 = 3.25,  E[c²] = 14.15,  sd ≈ 1.89
- *   mean of three companions:  sd ≈ 1.89 / √3 ≈ 1.09
- *     P(mean < 2.5)  = P(z < −0.69) ≈ 25%   → band 0
- *     P(mean ≥ 4.0)  = P(z > +0.69) ≈ 25%   → band 2
+ *   costs   1 × 8, 2 × 9, 3 × 9, 4 × 3, 5 × 4, 6 × 3, 7 × 4       = 40 cards
+ *   mean    131 / 40 = 3.275,  E[c²] = 14.425,  sd ≈ 1.92
+ *   mean of three companions:  sd ≈ 1.92 / √3 ≈ 1.11
+ *     P(mean < 2.5)  = P(z < −0.70) ≈ 24%   → band 0
+ *     P(mean ≥ 4.0)  = P(z > +0.65) ≈ 26%   → band 2
  *     the rest                       ≈ 50%   → band 1
  *
  * A ~25/50/25 split is what makes the stratified rung real: the two end bands
- * still hold ~22 copies of a 3-of per arm at `ADVISOR_MATCHES`, so both of them
- * contribute a comparison instead of being dropped for having one arm. The
+ * still hold enough copies of a 3-of per arm at `ADVISOR_MATCHES` that both of
+ * them contribute a comparison instead of being dropped for having one arm. The
  * rejected alternative was the real curve of deck 43 (mean 4.875), where band 0
  * essentially never occurs and the "stratified" estimate would be band 2 alone.
  *
- * Eleven 3-ofs and seven 1-ofs, ordered by cost, because `chooseAdvisorPlants`
- * indexes into the cost-sorted 3-ofs and wants a five-drop and a six-drop to
- * exist. Not a deck anyone would play; a deck whose arithmetic is known.
+ * NINETEEN ROWS, AND WHY THE COUNTS ARE NOT ALL THREE. The `row:` fields of
+ * `ADVISOR_PLANT_RULES` index straight into this list, so the count beside a
+ * cost is a sample size decision about one plant. Thirteen of the nineteen rows
+ * are planted and they are not interchangeable:
+ *
+ *   rows  0, 6, 9, 10, 11, 14, 16, 17   3-ofs — the plants that must be SEEN,
+ *                                       one per matchup cell, both arms
+ *   rows  7, 12                         2-ofs — plants whose job is to fail a
+ *                                       threshold in a controlled way
+ *   rows  2, 15                         1-ofs — plants whose job is to fail it
+ *                                       even at 6200 matches
+ *   rows  1, 3, 4, 8, 13, 18            six untouched rows, so the 起手
+ *                                       keep-rate column for this class is not
+ *                                       a list of planted constants
+ *
+ * Not a deck anyone would play; a deck whose arithmetic is known.
  */
 export const ADVISOR_DECK_PROFILE = [
-  [1, 3],
-  [1, 3],
-  [1, 1],
-  [1, 1],
-  [2, 3],
-  [2, 3],
-  [2, 3],
-  [2, 1],
-  [3, 3],
-  [3, 3],
-  [3, 1],
-  [4, 3],
-  [4, 1],
-  [5, 3],
-  [5, 1],
-  [6, 3],
-  [6, 1],
-  [7, 3]
+  [1, 3], //  0  firstOnly
+  [1, 2], //  1
+  [1, 1], //  2  alwaysKept
+  [1, 1], //  3
+  [1, 1], //  4
+  [2, 3], //  5  oppoFast
+  [2, 3], //  6  fastOnly
+  [2, 2], //  7  orderSplit
+  [2, 1], //  8
+  [3, 3], //  9  trueKeep
+  [3, 3], // 10  secondOnly
+  [3, 3], // 11  slowOnly
+  [4, 2], // 12  bandSplit
+  [4, 1], // 13
+  [5, 3], // 14  confounded
+  [5, 1], // 15  oppoOneSided
+  [6, 3], // 16  oppoSlow
+  [7, 3], // 17  trueToss
+  [7, 1] //  18
 ]
 
 /**
@@ -1723,12 +2009,27 @@ function summariseAdvisor(set, nameOf, costOf) {
   // handler buckets: a hand with an unnamed slot contributes nothing at all.
   const counts = new Map()
   const bandCounts = new Map()
+  // One entry per (role, opponent, turn order) — the cell a column of the page
+  // is actually built from. Added when the fixture grew to cover all seven
+  // matchups, because the three-scope summary above cannot show the thing that
+  // now matters most: whether the SEVENTH-BEST matchup still has both arms.
+  const cellCounts = new Map()
   for (const rule of ADVISOR_PLANT_RULES) {
     counts.set(rule.role, { narrow: [0, 0], oppo: [0, 0], all: [0, 0] })
     bandCounts.set(
       rule.role,
       Array.from({ length: REST_BANDS }, () => ({ kept: [0, 0], swapped: [0, 0] }))
     )
+  }
+  /** `[keptN, keptWins, swappedN, swappedWins]` for one (role, oppo, order). */
+  const cellFor = (role, oppoClass, playOrder) => {
+    const key = `${role} ${oppoClass} ${playOrder}`
+    let found = cellCounts.get(key)
+    if (!found) {
+      found = [0, 0, 0, 0]
+      cellCounts.set(key, found)
+    }
+    return found
   }
 
   for (const m of set.matches) {
@@ -1741,6 +2042,9 @@ function summariseAdvisor(set, nameOf, costOf) {
         const arm = cell.swapped === 1 ? 1 : 0
         const scope = counts.get(rule.role)
         scope.all[arm] += 1
+        const own = cellFor(rule.role, m.oppo_class, m.play_order)
+        own[arm * 2] += 1
+        own[arm * 2 + 1] += m.result
         if (m.oppo_class === ADVISOR_PRIMARY_OPPO) {
           scope.oppo[arm] += 1
           if (m.play_order === 'first') scope.narrow[arm] += 1
@@ -1769,6 +2073,45 @@ function summariseAdvisor(set, nameOf, costOf) {
         ` ${pair(c.all).padEnd(15)} ${nameOf(plants[rule.role])}`
     )
     lines.push(`    ${''.padEnd(13)} ${''.padEnd(47)} ${rule.shows}`)
+  }
+
+  // ------------------------------------------------------ the fourteen cells
+  //
+  // The table the whole rewrite is about. One row per (opponent, turn order) —
+  // which is one column of 換牌建議 — and one field per plant whose verdict is
+  // supposed to vary between them. `n` is the SMALLER arm, because that is what
+  // `KEEP_THRESHOLDS` is measured against, and the signed number beside it is
+  // the crude kept-minus-swapped gap in points.
+  //
+  // It prints the raw material and stops there, for the same reason the rung is
+  // not predicted above: whether a cell earns 建議留 depends on a
+  // Greenland-Robins interval around a Mantel-Haenszel estimate, and a second
+  // implementation of that here would only ever agree with itself. What a
+  // reviewer can do with these numbers is see whether a cell had any chance —
+  // and the rule of thumb, at these arm sizes, is that a gap under about 22
+  // points will come back 'unclear' however real it is.
+  const varying = ['trueKeep', 'trueToss', 'fastOnly', 'slowOnly', 'firstOnly', 'secondOnly']
+  const oppoList = ADVISOR_OPPO_WEIGHTS.map((e) => e.value)
+  lines.push('')
+  lines.push('  Per matchup CELL — smaller arm / crude gap in points. A cell is one page column.')
+  lines.push('  Rule of thumb at these arm sizes: |gap| under ~22 comes back 「資料還不夠」.')
+  lines.push('')
+  lines.push(
+    `    ${'opponent'.padEnd(10)} ${'order'.padEnd(7)}` + varying.map((r) => r.padEnd(12)).join('')
+  )
+  lines.push('    ' + '-'.repeat(17 + 12 * varying.length))
+  for (const oppoClass of oppoList) {
+    for (const playOrder of ['first', 'second']) {
+      const fields = varying.map((role) => {
+        const [kn, kw, sn, sw] = cellFor(role, oppoClass, playOrder)
+        const g = kn === 0 || sn === 0 ? 0 : (100 * kw) / kn - (100 * sw) / sn
+        const sign = g >= 0 ? '+' : '−'
+        return `${String(Math.min(kn, sn)).padStart(4)} ${sign}${String(Math.round(Math.abs(g))).padStart(2)}`.padEnd(
+          12
+        )
+      })
+      lines.push(`    ${oppoClass.padEnd(10)} ${playOrder.padEnd(7)}` + fields.join(''))
+    }
   }
 
   // The confounded card's drill-down, which is the row the whole set exists for.
