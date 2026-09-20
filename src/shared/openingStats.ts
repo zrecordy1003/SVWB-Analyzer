@@ -443,21 +443,31 @@ export const KEEP_THRESHOLDS = {
   /** Per arm before the table may be sorted on it. */
   sort: 30,
   /**
-   * Widest interval that may still produce a verdict, in points.
+   * How much of an effect the interval must guarantee, in points.
    *
-   * Clearing zero was the only test, and it has a hole: `+1 [+0.5, +35]`
-   * clears, and is one observation away from not clearing. A recommendation
-   * that flips back and forth as games arrive costs more trust than one that
-   * never appeared, and this page's whole pitch is that it does not overclaim.
+   * Clearing zero was the only test and it has a hole: `+1 [+0.5, +35]` clears
+   * it by half a point and is one game away from not clearing. A
+   * recommendation that flips back and forth as games arrive costs more trust
+   * than one that never appeared.
    *
-   * Thirty follows NCHS's suppression rule for proportions (an absolute
-   * confidence-interval width of 0.30 or more is not published). Ours is a
-   * DIFFERENCE of proportions, whose interval is wider for the same sample, so
-   * thirty is if anything the lenient reading of that precedent - which is
-   * fine, because the point here is to catch the barely-clearing case rather
-   * than to demand precision this data cannot give.
+   * The first fix here was a cap on the interval's WIDTH, and it was the wrong
+   * shape twice over. Its stated justification - that NCHS suppresses a
+   * proportion whose interval spans 0.30, so thirty is a lenient reading for us
+   * - had the direction backwards: a difference of proportions has a WIDER
+   * interval than a proportion at the same sample, so the same cap demands more
+   * data, not less. And it punished the wrong rows: `[+5, +35]` is wide and
+   * perfectly decisive, while `[+0.5, +6]` is narrow and says almost nothing.
+   *
+   * So the test is on the near bound instead: a verdict means "95% confident
+   * this is worth at least two points", which is what a recommendation claims
+   * anyway. It scales the way it should - a thirty-point effect earns a verdict
+   * at twenty-five observations an arm, a three-point one may never earn one,
+   * and neither outcome needed a second threshold to be chosen for it.
+   *
+   * Two points because below that the advice cannot matter: a mulligan
+   * decision worth one point in a hundred games is not a decision.
    */
-  maxWidth: 30
+  minEffect: 2
 } as const
 
 /**
@@ -501,10 +511,9 @@ export function verdictFor(advice: {
   if (advice.confidence === 'hidden' || advice.diffLo === null || advice.diffHi === null) {
     return 'unknown'
   }
-  // Wide enough to flip next week is not a verdict, even pointing one way.
-  if (advice.diffHi - advice.diffLo >= KEEP_THRESHOLDS.maxWidth) return 'unclear'
-  if (advice.diffLo > 0) return 'keep'
-  if (advice.diffHi < 0) return 'toss'
+  // Not "is it above zero" but "is it above zero by enough to act on".
+  if (advice.diffLo >= KEEP_THRESHOLDS.minEffect) return 'keep'
+  if (advice.diffHi <= -KEEP_THRESHOLDS.minEffect) return 'toss'
   return 'unclear'
 }
 

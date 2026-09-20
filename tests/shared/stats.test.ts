@@ -439,23 +439,29 @@ describe('answersTheChosenMatchup', () => {
   })
 })
 
-describe('verdictFor width guard', () => {
-  it('refuses a verdict from an interval wide enough to flip', () => {
-    // Clears zero, and by half a point. One more game either way and the
-    // recommendation disappears; a verdict that unstable is worse than none.
+describe('verdictFor minimum effect', () => {
+  it('refuses a verdict that clears zero by almost nothing', () => {
+    // Half a point above zero and one game from falling back under it.
     expect(verdictFor({ confidence: 'sortable', diffLo: 0.5, diffHi: 35 })).toBe('unclear')
     expect(verdictFor({ confidence: 'sortable', diffLo: -35, diffHi: -0.5 })).toBe('unclear')
   })
 
-  it('still answers when the interval is wide but decisively placed', () => {
-    // Twenty points wide and nowhere near zero - the shape a real effect has
-    // at this sample size, and what the seeded fixture's genuine keeps look like.
+  it('answers when the interval is wide but decisively placed', () => {
+    // Thirty points wide and nowhere near zero. Width alone is not the fault -
+    // this says "at least five points" and five points is worth acting on.
+    expect(verdictFor({ confidence: 'sortable', diffLo: 5, diffHi: 35 })).toBe('keep')
     expect(verdictFor({ confidence: 'sortable', diffLo: 9.5, diffHi: 29.3 })).toBe('keep')
   })
 
+  it('refuses a narrow interval that pins down a trivial effect', () => {
+    // Six points wide and very sure of itself - about one point. Certainty
+    // about something that does not matter is still not advice.
+    expect(verdictFor({ confidence: 'sortable', diffLo: 0.8, diffHi: 1.4 })).toBe('unclear')
+  })
+
   it('draws the line exactly at the threshold', () => {
-    const at = (w: number) => verdictFor({ confidence: 'sortable', diffLo: 4, diffHi: 4 + w })
-    expect(at(KEEP_THRESHOLDS.maxWidth - 0.01)).toBe('keep')
-    expect(at(KEEP_THRESHOLDS.maxWidth)).toBe('unclear')
+    const near = (lo: number) => verdictFor({ confidence: 'sortable', diffLo: lo, diffHi: 40 })
+    expect(near(KEEP_THRESHOLDS.minEffect)).toBe('keep')
+    expect(near(KEEP_THRESHOLDS.minEffect - 0.01)).toBe('unclear')
   })
 })
