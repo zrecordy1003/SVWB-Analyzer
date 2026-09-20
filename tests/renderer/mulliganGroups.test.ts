@@ -87,6 +87,30 @@ describe('groupByVerdict', () => {
     expect(g.leaning).toHaveLength(0)
   })
 
+  it('quarantines a pooled LEANING too, not only a pooled verdict', () => {
+    // The rule used to cover verdicts only, because nothing else printed a
+    // direction. A leaning prints 偏留 under a column headed by a class, so
+    // evidence that pooled that class away is making the same misattribution
+    // in smaller type — and a thin matchup is exactly where the ladder widens.
+    const g = groupByVerdict(
+      result([advice({ diff: 6, diffLo: -1, diffHi: 13, basis: 'all-opponents' })]),
+      true
+    )
+    expect(g.general).toHaveLength(1)
+    expect(g.leaning).toHaveLength(0)
+    // And the caller can still tell it apart from a quarantined verdict.
+    expect(g.verdicts.get(g.general[0].cardId)).toBe('unclear')
+  })
+
+  it('does not quarantine anything when no opponent was chosen', () => {
+    const g = groupByVerdict(
+      result([advice({ diff: 6, diffLo: -1, diffHi: 13, basis: 'all-opponents' })]),
+      false
+    )
+    expect(g.leaning).toHaveLength(1)
+    expect(g.general).toHaveLength(0)
+  })
+
   it('every card lands in exactly one tier', () => {
     const cards = [
       advice({ diff: 20, diffLo: 12, diffHi: 28 }),

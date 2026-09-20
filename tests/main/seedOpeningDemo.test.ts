@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   ADVISOR_CLASS,
+  ADVISOR_CLASSES,
   ADVISOR_DECK_PROFILE,
   ADVISOR_FAST_CLASSES,
   ADVISOR_MATCHES,
@@ -621,6 +622,47 @@ function mh(bands: Cell[]): number {
   }
   return weight === 0 ? 0 : numerator / weight
 }
+
+describe('how many classes carry the advisor fixture', () => {
+  /**
+   * The page is read through the class filter, so a fixture that lives on one
+   * class demonstrates nothing to a reader who plays another — which is how
+   * the owner ended up looking at fourteen empty columns with 巫師 selected
+   * while the verification table said every column was full. The regression is
+   * silent from inside the seeder (its own summary looks perfect), so it is
+   * pinned here.
+   */
+  const decks = Object.fromEntries(
+    ADVISOR_CLASSES.map((className: string) => [
+      className,
+      { deckId: 44, deckName: 'demo', deckList: ADVISOR_DECK, created: true }
+    ])
+  )
+  const sets = generateAll({ decks, now: Date.UTC(2026, 6, 1) })
+
+  it('builds one full-size set per advisor class', () => {
+    const advisorSets = sets.filter((s: { advisorPlants?: unknown }) => s.advisorPlants)
+    expect(advisorSets.map((s: { label: string }) => s.label).sort()).toEqual(
+      [...ADVISOR_CLASSES].sort()
+    )
+    for (const set of advisorSets) {
+      expect(set.matches.length, set.label).toBe(ADVISOR_MATCHES)
+    }
+  })
+
+  it('is more than one class, which is the whole point of the constant', () => {
+    expect(ADVISOR_CLASSES.length).toBeGreaterThan(1)
+    expect(ADVISOR_CLASSES).toContain(ADVISOR_CLASS)
+  })
+
+  it('leaves the classes that carry a thin demo state out of it', () => {
+    // These four are on the page BECAUSE they are underfed. Filling one in
+    // would delete the state it exists to show, and would do it invisibly.
+    for (const thin of ['witch', 'nightmare', 'elf', 'dragon']) {
+      expect(ADVISOR_CLASSES).not.toContain(thin)
+    }
+  })
+})
 
 describe('the 換牌建議 fixture', () => {
   const costOf = new Map<number, number>(ADVISOR_DECK.map((e) => [e.cardId, e.cost]))

@@ -904,17 +904,36 @@ export default function MulliganColumn({
                 </Typography>
               )}
               <Box sx={{ px: 0.5, opacity: 0.85 }}>
-                {groups.general.map((advice) => (
-                  <VerdictRow
-                    key={advice.cardId}
-                    advice={advice}
-                    verdict={advice.diff !== null && advice.diff >= 0 ? 'keep' : 'toss'}
-                    pins={pins}
-                    showImages={showImages}
-                    selected={advice.cardId === selectedId}
-                    onSelect={onSelect}
-                  />
-                ))}
+                {/*
+                  This group holds both tiers now, so each row keeps its own.
+                  A pooled LEANING must not borrow the verdict row's weight
+                  just because it was quarantined next to one - it is the
+                  weakest thing on the page (a direction that has not settled,
+                  measured somewhere other than where it is printed) and it
+                  should look it.
+                */}
+                {groups.general.map((advice) =>
+                  groups.verdicts.get(advice.cardId) === 'unclear' ? (
+                    <LeaningRow
+                      key={advice.cardId}
+                      advice={advice}
+                      pins={pins}
+                      showImages={showImages}
+                      selected={advice.cardId === selectedId}
+                      onSelect={onSelect}
+                    />
+                  ) : (
+                    <VerdictRow
+                      key={advice.cardId}
+                      advice={advice}
+                      verdict={advice.diff !== null && advice.diff >= 0 ? 'keep' : 'toss'}
+                      pins={pins}
+                      showImages={showImages}
+                      selected={advice.cardId === selectedId}
+                      onSelect={onSelect}
+                    />
+                  )
+                )}
               </Box>
             </Box>
           )}

@@ -197,6 +197,19 @@ export type VerdictGroups = {
    */
   leaning: KeepAdvice[]
   unknown: KeepAdvice[]
+  /**
+   * The verdict each card was given, by id.
+   *
+   * Exposed because `general` holds two tiers at once - a quarantined verdict
+   * and a quarantined leaning look different on screen - and the caller must
+   * not re-derive which is which with `verdictFor`. That function is the
+   * per-card rule; the column's answer is the BH-corrected one, and the two
+   * disagree exactly on the cards the correction demoted. Asking the wrong one
+   * would draw a row at full weight that the column had already decided
+   * against, and it would do it only on the cards where the multiplicity
+   * correction did its job.
+   */
+  verdicts: Map<number, KeepVerdict>
 }
 
 const byId = (a: KeepAdvice, b: KeepAdvice): number => a.cardId - b.cardId
@@ -235,19 +248,34 @@ export function groupByVerdict(
   /** Whether the reader actually chose an opponent, or is looking at all of them. */
   oppoPinned: boolean
 ): VerdictGroups {
-  const groups: VerdictGroups = { keep: [], toss: [], general: [], leaning: [], unknown: [] }
+  const groups: VerdictGroups = {
+    keep: [],
+    toss: [],
+    general: [],
+    leaning: [],
+    unknown: [],
+    verdicts: new Map()
+  }
   if (!result) return groups
   // One pass over the whole column, not a judgement per card: the verdicts are
   // Benjamini-Hochberg corrected against each other, so a card's answer depends
   // on how many other cards were examined beside it. See `verdictsForColumn`.
   const verdicts = verdictsForColumn(result.cards)
+  groups.verdicts = verdicts
   for (const advice of result.cards) {
     const verdict = verdicts.get(advice.cardId) ?? 'unknown'
     // A direction is only filed as advice about THIS matchup when the evidence
     // still concerns it. Otherwise it is true and it is about something else.
+    //
+    // Leanings are held to the same rule, and that is a correction rather than
+    // a refinement: when leanings were invisible the rule only had to cover
+    // verdicts, because nothing else printed a direction. Now that a leaning
+    // prints 偏留 under a column headed 「對上夜魔」, evidence that pooled 夜魔
+    // away is making the same misattribution the rule exists to prevent — in
+    // smaller type. A thin matchup is precisely where the ladder widens, so
+    // this is the common case there, not the corner.
     const misattributed =
-      (verdict === 'keep' || verdict === 'toss') &&
-      !answersTheChosenMatchup(advice.basis, oppoPinned)
+      verdict !== 'unknown' && !answersTheChosenMatchup(advice.basis, oppoPinned)
     const bucket = misattributed ? 'general' : verdict === 'unclear' ? 'leaning' : verdict
     groups[bucket].push(advice)
   }

@@ -220,6 +220,14 @@ export const SET_SEED_OFFSETS = {
    * symptom of the fixture being too small, and it went away by itself.
    */
   royal: 207,
+  /**
+   * The other two advisor classes. Distinct streams and nothing more — see the
+   * royal note: past a few thousand matches per set the realised figures stop
+   * depending on the seed, so these were picked to be different rather than
+   * hunted for.
+   */
+  bishop: 2207,
+  nemesis: 4207,
   nightmare: 3001,
   elf: 5003,
   dragon: 7001
@@ -585,7 +593,12 @@ export const SPREAD_MS = 183 * 24 * 60 * 60 * 1000
 // ---------------------------------------------------------------------------
 
 /**
- * The class whose matches carry the advisor fixture.
+ * The first of the classes carrying the advisor fixture — see
+ * `ADVISOR_CLASSES` for the other two and for why there is more than one.
+ *
+ * Kept as its own constant because the reasoning below is about the DECK, not
+ * about the class, and it applies to all three: an advisor class never reuses
+ * a deck the user owns.
  *
  * Royal rather than witch, and the reason is the cost curve. The user's real
  * deck 43 ("witch go") averages 4.875 mana across its forty cards, so the mean
@@ -600,6 +613,45 @@ export const SPREAD_MS = 183 * 24 * 60 * 60 * 1000
  * important property depends on a deck the user can edit at any time.
  */
 export const ADVISOR_CLASS = 'royal'
+
+/**
+ * Every class that carries a full advisor fixture.
+ *
+ * Three, not one and not seven, and both bounds are deliberate.
+ *
+ * NOT ONE, because the owner's saved filter is a class and the page is read
+ * through it. A fixture that lives entirely on royal means a reader who has
+ * 巫師 selected sees fourteen empty columns and concludes the feature is
+ * broken — which is exactly what happened. Whichever single class carries it
+ * is the wrong one for six readers out of seven.
+ *
+ * NOT SEVEN, because each of these costs `ADVISOR_MATCHES` (~6200 matches,
+ * ~50k opening rows) and, more importantly, because four of the seven classes
+ * are carrying demo states that only exist by being thin:
+ *
+ *   witch      the 手牌總覽 fixture — a suppressed card at ~12% observed deal
+ *              rate and an 8pp signal, both measured over exactly 420 matches
+ *              on the user's real deck 43. Six thousand more witch matches on
+ *              a different deck would pool into the same page and make every
+ *              figure the dry run claims about it false.
+ *   nightmare  the middle confidence tier: past `show`, short of `sort`
+ *   elf        readable hands with no deck — `missing: 'no-deck'`
+ *   dragon     a tiny sample with unnamed slots
+ *
+ * Those four states are on the page BECAUSE they are underfed, and filling
+ * them in is not a spread, it is a deletion. So the volume goes to the three
+ * classes that were carrying nothing: royal, and the two that used to be
+ * empty on purpose, bishop and nemesis.
+ *
+ * WHAT THAT COSTS, named rather than glossed: after this change no class is
+ * completely empty, and the owner did ask to be able to review that state.
+ * It is now reached by `--remove` (which empties all seven) rather than by
+ * picking a class, and the nearest thing still in the fixture is dragon at 8
+ * matches. Trading it away was a judgement — an empty class is one screen the
+ * owner looks at once, and the class filter is a thing they read the page
+ * through every time.
+ */
+export const ADVISOR_CLASSES = ['royal', 'bishop', 'nemesis']
 
 /**
  * The opponent the ladder-exercising plants are aimed at.
@@ -892,6 +944,11 @@ export function advisorKeepProbability(plants, ctx) {
     // cheapest possible case, and the reviewer could not tell whether the page
     // works or whether the fixture was built to make it work.
     case plants.trueKeep:
+      // Flat on purpose, and flat is the requirement rather than a convenience:
+      // its effect has to survive adjustment, so nothing about the keep
+      // decision may correlate with the band. (This arm was written twice, the
+      // second copy unreachable under the ladder section below and saying the
+      // same 0.5. Merged here, where the number is.)
       return 0.5
     case plants.trueToss:
       // Above a half: the player keeps it slightly more often than not, which is
@@ -919,10 +976,6 @@ export function advisorKeepProbability(plants, ctx) {
       // mostly-band-2 swaps, which is two different populations wearing one
       // card's name.
       return band == null ? 0.5 : [0.85, 0.5, 0.15][band]
-    case plants.trueKeep:
-      // Flat on purpose. Its effect has to survive adjustment, so nothing about
-      // the decision may correlate with the band.
-      return 0.5
     case plants.oppoFast:
       return fast ? 0.85 : 0.25
     case plants.oppoSlow:
@@ -1301,26 +1354,37 @@ export function generateAll(opts) {
     })
   }
 
-  // ---- royal: the 換牌建議 fixture ----
+  // ---- the 換牌建議 fixture, once per advisor class ----
   //
-  // The big one, and the only set whose size is derived rather than chosen — see
-  // `ADVISOR_MATCHES`. Its recognition plan is deliberately EMPTY: the advisor
-  // drops any hand whose four pre slots are not all named (the rest-of-hand band
-  // is undefined without the fourth card), so a single nulled slot costs four
-  // copies rather than one, and a `slotNullRate` of even 0.05 would quietly
-  // remove ~19% of the hands this set exists to provide. The unreadable-slot
-  // states are demonstrated by the dragon set, where they cost nothing.
-  const advisor = decks[ADVISOR_CLASS]
-  const advisorPlants = advisor ? chooseAdvisorPlants(advisor.deckList) : null
-  if (advisor) {
+  // The big ones, and the only sets whose size is derived rather than chosen —
+  // see `ADVISOR_MATCHES`. Their recognition plan is deliberately EMPTY: the
+  // advisor drops any hand whose four pre slots are not all named (the
+  // rest-of-hand band is undefined without the fourth card), so a single nulled
+  // slot costs four copies rather than one, and a `slotNullRate` of even 0.05
+  // would quietly remove ~19% of the hands these sets exist to provide. The
+  // unreadable-slot states are demonstrated by the dragon set, where they cost
+  // nothing.
+  //
+  // One per class in `ADVISOR_CLASSES`, each with its own deck, its own plants
+  // and its own RNG stream, because the page is read through the class filter
+  // and a fixture on one class is a fixture for one seventh of the readers.
+  // The plants are chosen per deck rather than shared: the role-to-card rule is
+  // positional in `ADVISOR_DECK_PROFILE`, and the three decks are built to the
+  // same profile out of different class pools, so the same role lands on a
+  // different real card in each — which is also what stops the three columns
+  // from being the same demo three times.
+  for (const className of ADVISOR_CLASSES) {
+    const advisor = decks[className]
+    if (!advisor) continue
+    const advisorPlants = chooseAdvisorPlants(advisor.deckList)
     out.push({
-      label: ADVISOR_CLASS,
+      label: className,
       shows: '換牌建議: all 7 matchups × 2 orders, every rung, a toss, a confounded one',
       matches: generateMatches({
-        rng: rngFor(ADVISOR_CLASS),
-        ctxRng: ctxFor(ADVISOR_CLASS),
+        rng: rngFor(className),
+        ctxRng: ctxFor(className),
         count: ADVISOR_MATCHES,
-        myClass: ADVISOR_CLASS,
+        myClass: className,
         deckId: advisor.deckId,
         deckList: advisor.deckList,
         now,
@@ -1503,7 +1567,7 @@ export async function backupDatabase(Database, dbPath) {
  * keys on) and deleted by `--remove`.
  */
 export function planDecks(db) {
-  const classesNeedingDecks = ['witch', 'royal', 'nightmare', 'dragon']
+  const classesNeedingDecks = ['witch', ...ADVISOR_CLASSES, 'nightmare', 'dragon']
   const out = {}
   const reused = []
   const toCreate = []
@@ -1515,7 +1579,7 @@ export function planDecks(db) {
     // a property of the deck's COST CURVE, and a deck the user owns and can edit
     // has whatever curve it has. See `ADVISOR_CLASS`. So this class always gets
     // a `[demo]`-tagged list built to a known curve, which `--remove` deletes.
-    if (className === ADVISOR_CLASS) {
+    if (ADVISOR_CLASSES.includes(className)) {
       const deckList = buildAdvisorDeckList(db, className)
       out[className] = { deckId: null, deckName: `[demo] ${className}`, deckList, created: true }
       toCreate.push({ className, cards: deckList.reduce((s, e) => s + e.count, 0) })
@@ -1719,7 +1783,7 @@ export const ADVISOR_DECK_PROFILE = [
 ]
 
 /**
- * A 40-card list for `ADVISOR_CLASS`, hitting `ADVISOR_DECK_PROFILE`'s costs
+ * A 40-card list for an advisor class, hitting `ADVISOR_DECK_PROFILE`'s costs
  * with the user's REAL `Card` rows.
  *
  * Cards are taken from the class's own pool at each requested cost, walking to
@@ -1866,7 +1930,13 @@ function summarise(sets, plan, cardNames) {
         `  ${String(setSlots).padStart(7)}  ${deck.padEnd(28)}  ${set.shows}`
     )
   }
-  for (const empty of ['bishop', 'nemesis']) {
+  // Whatever is left over after the sets — derived, not listed. It used to be
+  // the literal pair ['bishop', 'nemesis'], which printed two 0-row lines for
+  // two classes that had just been given six thousand matches each. A list of
+  // what is absent has to be computed from what is present or it becomes a
+  // claim about an older version of the file.
+  const filled = new Set(sets.map((set) => set.label))
+  for (const empty of CLASSES.filter((c) => !filled.has(c))) {
     lines.push(
       `  ${empty.padEnd(9)}  ${'0'.padStart(7)}  ${'0'.padStart(7)}  ${'—'.padEnd(28)}` +
         `  the completely-empty per-class state`
@@ -1950,8 +2020,7 @@ function summarise(sets, plan, cardNames) {
     )
   }
 
-  const advisorSet = sets.find((s) => s.advisorPlants)
-  if (advisorSet) {
+  for (const advisorSet of sets.filter((s) => s.advisorPlants)) {
     // Costs come from the deck list, not from the generated rows: an opening row
     // records what was recognised, and the band is a fact about the card.
     const entry = plan.decks[advisorSet.label]
