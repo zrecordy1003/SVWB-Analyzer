@@ -19,7 +19,8 @@ import SettingsIcon from '@mui/icons-material/Settings'
 import ListAltIcon from '@mui/icons-material/ListAlt'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
-import BackHandOutlinedIcon from '@mui/icons-material/BackHandOutlined'
+// 起手頁停用期間一起註解，見下方 OpeningPage。
+// import BackHandOutlinedIcon from '@mui/icons-material/BackHandOutlined'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
 // import AutoAwesomeMotionOutlinedIcon from '@mui/icons-material/AutoAwesomeMotionOutlined'
 // import HomeIcon from '@mui/icons-material/Home'
@@ -46,7 +47,23 @@ const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerf
  * `PAGE_KEYS`、下面的 render 分支這四處的註解拿掉。
  */
 // const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
-const OpeningPage = lazy(() => import('./components/Opening/OpeningPage'))
+/**
+ * 起手頁在這一版不上側邊欄，但**資料照收**。
+ *
+ * 收資料的是引擎（`tools/engine/src/store.rs` 直接寫 `MatchOpeningCard`），
+ * 和這個檔案、和整個 renderer 都沒有關係，所以把入口藏起來不會讓任何一場對局
+ * 少記一筆。這正是這樣做的目的：換牌建議要能講話需要**每個對位幾百場**，而
+ * 那些場次只能靠時間累積。先發一版安靜地收，下一版把頁面打開時，使用者看到的
+ * 是已經有幾週歷史的資料，而不是一頁空的。
+ *
+ * 頁面本身、`cards:openingStats`、`cards:mulligan`、`matches:openingHand*`
+ * 全部原封不動留著；對局列表那條每一場的手牌帶也留著，它是使用者（和你）唯一
+ * 能看出辨識到底有沒有在跑的地方。
+ *
+ * 要開回來：把這裡、選單項目、`PAGE_KEYS`、下面的 render 分支這四處的註解拿掉，
+ * 和 `CardsPage` 同一個作法。
+ */
+// const OpeningPage = lazy(() => import('./components/Opening/OpeningPage'))
 /**
  * 環境：唯一一頁畫的不是本機資料的頁面，資料來自公開的統計端點。lazy 在這裡
  * 比其他頁更划算 - 沒點進去的人連那段程式碼都不會抓，也不會發出任何請求。
@@ -99,7 +116,8 @@ const PAGE_KEYS: readonly PageKey[] = [
   'MatchList',
   'DeckPerformance',
   // 'Cards', // 見上面 CardsPage 的說明
-  'Opening',
+  // 'Opening', // 見上面 OpeningPage 的說明——資料照收，只是不上選單
+
   'Meta',
   'Settings',
   'About'
@@ -189,7 +207,7 @@ function App(): React.JSX.Element {
     // 疊起來的幾張：牌組戰績那顆是「一副牌」，這顆是「一堆卡」。
     // { key: 'Cards', text: '卡片', icon: <AutoAwesomeMotionOutlinedIcon /> },
     // 一隻手：起手是「手上的牌」，和上面兩顆的牌組、卡片分開。
-    { key: 'Opening', text: '起手', icon: <BackHandOutlinedIcon /> },
+    // { key: 'Opening', text: '起手', icon: <BackHandOutlinedIcon /> },
     { key: 'Analyzer', text: '分析器', icon: <TimelineIcon /> },
     // 一顆地球：分析器看的是自己的資料，這一頁看的是所有人的。
     { key: 'Meta', text: '環境數據', icon: <PublicOutlinedIcon /> },
@@ -344,7 +362,7 @@ function App(): React.JSX.Element {
             {currentPage === 'MatchList' && <MatchList />}
             {currentPage === 'DeckPerformance' && <DeckPerformance />}
             {/* {currentPage === 'Cards' && <CardsPage />} */}
-            {currentPage === 'Opening' && <OpeningPage />}
+            {/* {currentPage === 'Opening' && <OpeningPage />} */}
             {currentPage === 'Analyzer' && <Analyzer />}
             {currentPage === 'Meta' && <MetaPage />}
             {currentPage === 'Settings' && <Settings />}

@@ -46,9 +46,30 @@ pub const FINGERPRINT_BYTES: usize = (FINGERPRINT_W * FINGERPRINT_H) as usize;
 /// Bumped whenever anything above changes.
 ///
 /// Stored beside every fingerprint so a change invalidates the lot rather than
-/// silently comparing old vectors with new ones. There is no migration path for
-/// a fingerprint and there should not be: they are derived data, and recomputing
-/// them from the card images already on disk is cheap.
+/// silently comparing old vectors with new ones.
+///
+/// # A bump is cheap for one table and PERMANENTLY DESTRUCTIVE for the other
+///
+/// `CardArtSample` is recomputed from the card images on disk — that is the
+/// cheap case this comment used to describe as if it were the only one.
+///
+/// `MatchOpeningCard.artVector` is not. It is a fingerprint of a frame from a
+/// game that finished, and the frame is gone. `retry_unnamed` in `live.rs`
+/// only considers rows whose `artAlgoVersion` equals this constant, so a bump
+/// does not invalidate those rows — it ORPHANS them. Every position that was
+/// recorded before the card index caught up, on every user's machine, becomes
+/// permanently unnameable. Already-named rows keep their `cardId` and are
+/// unaffected; it is the backlog that dies, and the backlog is largest exactly
+/// where the feature is newest.
+///
+/// This matters more than usual right now: 1.3.5 ships the recorder with the
+/// 起手 page hidden, specifically so that hands accumulate before the page is
+/// turned on. A bump between that release and the one that reveals the page
+/// would silently throw away the entire reason for shipping it that way.
+///
+/// If a bump is genuinely needed, the honest options are to accept the loss
+/// knowingly, or to add a re-fingerprint path that reads the OLD vector's
+/// source — which does not exist, because there is no source to read.
 ///
 /// 2: the top edge of [`PORTAL_ART_FRACTION`] moved (2026-09-12).
 pub const ALGO_VERSION: u32 = 2;
