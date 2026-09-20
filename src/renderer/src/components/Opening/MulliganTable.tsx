@@ -44,7 +44,6 @@ import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 import { BannerArt, Digits, DivergingBar, Hint, MissingPill, RateCell, SampleOnly } from './cells'
 import {
   armsRemaining,
-  armsSample,
   basisSpec,
   keepRemaining,
   keepSample,
@@ -65,10 +64,24 @@ import { fmtDelta, fmtInterval, fmtRate, NUMERIC } from './openingFormat'
 const COST_W = 44
 const DEALT_W = 60
 const KEEP_W = 250
-const CMP_W = 210
+/**
+ * The two arms' sample sizes, as their own column.
+ *
+ * They used to be a small second line inside the comparison cell. 17Lands puts
+ * every count in a column of its own next to the rate it belongs to - `# OH`
+ * beside `OH WR`, `# GIH` beside `GIH WR` - and that is worth copying for a
+ * reason that is not taste: a column survives a layout pass, a caption does
+ * not. This page's whole claim is that it says how thin a number is, and the
+ * mark carrying that claim should not be the most deletable thing on the row.
+ *
+ * It is also the only cell that is present on EVERY row, including the ones
+ * whose estimate is withheld - on those it is the entire answer.
+ */
+const ARMS_W = 78
+const CMP_W = 190
 const BASIS_W = 128
 
-const COLUMNS = `${COST_W}px minmax(0, 1fr) ${DEALT_W}px ${KEEP_W}px ${CMP_W}px ${BASIS_W}px`
+const COLUMNS = `${COST_W}px minmax(0, 1fr) ${DEALT_W}px ${KEEP_W}px ${ARMS_W}px ${CMP_W}px ${BASIS_W}px`
 
 /* ----------------------------------------------------------------- basis */
 
@@ -168,6 +181,66 @@ function KeepCell({ advice }: { advice: KeepAdvice }): React.JSX.Element {
 }
 
 /**
+ * The two arms' sizes, always, on every row.
+ *
+ * `留 / 換` in copies, not matches - the unit `mulligan.ts` counts, so a hand
+ * holding two copies where one went back contributes to both sides.
+ *
+ * This is the cell that decides whether the comparison beside it can be
+ * believed, and it is the one number here that never goes missing: a row whose
+ * estimate is withheld still says how far off it is, and a row with a
+ * confident-looking difference still shows that one of its arms holds six
+ * observations. Greyed rather than coloured - it is context for the neighbour,
+ * not a result of its own.
+ */
+function ArmsCell({ advice }: { advice: KeepAdvice }): React.JSX.Element {
+  const kept = advice.kept
+  const swapped = advice.dealt - advice.kept
+  const thin = Math.min(kept, swapped) < KEEP_THRESHOLDS.show
+  return (
+    <Tooltip
+      title={
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'auto auto', gap: '2px 10px' }}>
+          <Typography variant="caption" sx={{ opacity: 0.6 }}>
+            留下
+          </Typography>
+          <Typography variant="body2" sx={NUMERIC}>
+            {kept} 張
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.6 }}>
+            換掉
+          </Typography>
+          <Typography variant="body2" sx={NUMERIC}>
+            {swapped} 張
+          </Typography>
+          <Typography variant="caption" sx={{ gridColumn: '1 / -1', opacity: 0.6, mt: 0.5 }}>
+            {thin
+              ? `較少的那一側不到 ${KEEP_THRESHOLDS.show} 張，所以右邊不給數字。算的是張數不是場數。`
+              : '兩側都夠，右邊的差值才成立。算的是張數不是場數。'}
+          </Typography>
+        </Box>
+      }
+      placement="top"
+      slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
+    >
+      <Typography
+        component="span"
+        sx={{
+          ...NUMERIC,
+          fontSize: 12,
+          textAlign: 'right',
+          cursor: 'help',
+          color: thin ? 'text.disabled' : 'text.secondary',
+          whiteSpace: 'nowrap'
+        }}
+      >
+        {kept} / {swapped}
+      </Typography>
+    </Tooltip>
+  )
+}
+
+/**
  * The kept-versus-swapped difference: a thinner diverging bar than the 起手
  * page's, un-emphasised digits, both arms' n after it.
  *
@@ -193,9 +266,10 @@ export function KeepDiffCell({
     !advice.swappedWr
   ) {
     if (advice.dealt === 0) return <MissingPill kind={advice.missing ?? 'unidentified'} />
-    return (
-      <SampleOnly sample={armsSample(advice)} what="留 vs 換" remaining={armsRemaining(advice)} />
-    )
+    // The counts live in the arms column now, so this says only WHY there is no
+    // number - repeating `n=105/6` a centimetre to the right read as two
+    // separate facts rather than one.
+    return <SampleOnly sample={null} what="留 vs 換" remaining={armsRemaining(advice)} />
   }
   return (
     <DiffBody
@@ -275,12 +349,9 @@ function DiffBody({
     <Tooltip title={tip} placement="top" slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, cursor: 'help' }}>
         <DivergingBar value={diff} lo={lo} hi={hi} muted={!sortable} height={6} />
-        <Digits
-          primary={fmtDelta(diff)}
-          secondary={`n=${kept.total}/${swapped.total}`}
-          colour={colour}
-          width={66}
-        />
+        {/* No `secondary` here any more: the arms have their own column, and
+            printing them twice would make the pair look like two facts. */}
+        <Digits primary={fmtDelta(diff)} colour={colour} width={58} />
       </Stack>
     </Tooltip>
   )
@@ -378,6 +449,7 @@ function CardLine({
       </Tooltip>
 
       <KeepCell advice={advice} />
+      <ArmsCell advice={advice} />
       <KeepDiffCell advice={advice} sortable={row.sortable} pins={pins} />
       <Box sx={{ minWidth: 0, display: 'flex' }}>
         <BasisMark advice={advice} pins={pins} />
@@ -536,6 +608,16 @@ export default function MulliganTable({
             }
           />
           <HeaderCell
+            label="留 / 換"
+            sort={sort}
+            onSort={onSort}
+            hint={
+              <Hint>
+                這張卡被留下與被換掉各幾張——右邊那個差值的兩個分母。它自己是一欄而不是附在差值後面的小字，是因為欄位撐得過版面調整，小字撐不過；而「這個數字有多薄」是這一頁最不該被省略的東西。算的是張數：一手兩張同名、換掉一張，兩邊各記一次。
+              </Hint>
+            }
+          />
+          <HeaderCell
             label="留 vs 換"
             sortKey="diff"
             sort={sort}
@@ -544,8 +626,8 @@ export default function MulliganTable({
             hint={
               <Hint>
                 留下這張時的勝率，減去換掉它時的勝率，已向零收縮。留不留是你決定的，所以這不是公平的比較——它會跟著其餘三張一起走，右邊那欄說明這一列用哪些手牌來比。兩邊各不到{' '}
-                {KEEP_THRESHOLDS.show} 次只印 n；各不到 {KEEP_THRESHOLDS.sort}{' '}
-                次可以看但不參與排序。
+                {KEEP_THRESHOLDS.show} 次就不給數字，左邊那欄會告訴你差多少；各不到{' '}
+                {KEEP_THRESHOLDS.sort} 次可以看但不參與排序。
               </Hint>
             }
           />

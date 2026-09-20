@@ -326,7 +326,14 @@ export function Digits({
   width = 60
 }: {
   primary: string
-  secondary: string
+  /**
+   * The quiet line under the estimate - usually its sample size.
+   *
+   * Optional, because a caller whose counts have a column of their own would
+   * otherwise print them twice a centimetre apart, which reads as two facts.
+   * Omitting it leaves a single line rather than an empty second one.
+   */
+  secondary?: string
   colour?: string
   emphasis?: boolean
   width?: number
@@ -346,18 +353,20 @@ export function Digits({
       >
         {primary}
       </Typography>
-      <Typography
-        component="div"
-        sx={{
-          ...NUMERIC,
-          fontSize: 10.5,
-          color: 'text.disabled',
-          lineHeight: 1.15,
-          whiteSpace: 'nowrap'
-        }}
-      >
-        {secondary}
-      </Typography>
+      {secondary !== undefined && (
+        <Typography
+          component="div"
+          sx={{
+            ...NUMERIC,
+            fontSize: 10.5,
+            color: 'text.disabled',
+            lineHeight: 1.15,
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {secondary}
+        </Typography>
+      )}
     </Box>
   )
 }
@@ -437,8 +446,15 @@ export function SampleOnly({
   what,
   remaining
 }: {
-  /** `n=7` or `n=41 / 6` - already formatted by `sampleFor`. */
-  sample: string
+  /**
+   * `n=7` or `n=41 / 6`, already formatted by `sampleFor`.
+   *
+   * Null where the counts have a column of their own: the advisor table's
+   * arms are their own cell, and printing them here as well would read as two
+   * separate facts. The cell then falls back to 「樣本不足」, which is the part
+   * this component is uniquely saying.
+   */
+  sample: string | null
   /** What the missing number is - `保留率`, `勝率差`. */
   what: string
   remaining: number
@@ -461,7 +477,7 @@ export function SampleOnly({
           whiteSpace: 'nowrap'
         }}
       >
-        {sample}
+        {sample ?? '樣本不足'}
       </Typography>
     </Tooltip>
   )
