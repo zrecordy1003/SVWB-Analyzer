@@ -95,6 +95,14 @@ export default function CardsPage(): React.JSX.Element {
 
   /** Write gate: opens once the stored settings have been read. */
   const settingsLoadedRef = useRef(false)
+  /**
+   * 同一件事的 state 版本，給 render 期間的閘門用。
+   *
+   * ref 只夠擋 effect 裡的寫入；**查詢是在 render 期間用 `useMemo` 算出來的**，
+   * 而 render 期間讀一個會變的 ref 既不會觸發重繪、也進不了相依陣列。起手頁
+   * 從這裡抄過去的時候把同一個缺陷一起抄走了。
+   */
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const persistedRef = useRef<CardsFilters | null>(null)
   const prevClassRef = useRef<CardsFilters['myClass'] | null>(null)
   const prunedRef = useRef(false)
@@ -113,7 +121,13 @@ export default function CardsPage(): React.JSX.Element {
       persistedRef.current = hydrated
       prevClassRef.current = hydrated.myClass
       settingsLoadedRef.current = true
+      setSettingsLoaded(true)
       setFilters(hydrated)
+      // 同一批更新裡把 debounced 也設好。不這樣做的話，閘門在設定讀回來的那一刻
+      // 打開，而 `debounced` 還停在預設條件，於是先用「沒有任何條件」查一次、
+      // 畫出一整張表，幾百毫秒後才換成真正的條件——就是使用者看到的那個抖動。
+      // 還原設定不是使用者在打字，沒有什麼需要 debounce 的。
+      setDebounced(hydrated)
     })()
     return () => {
       mounted = false
@@ -181,12 +195,12 @@ export default function CardsPage(): React.JSX.Element {
     return () => clearTimeout(handle)
   }, [filters])
   const query = useMemo(() => {
-    if (!settingsLoadedRef.current) return null
+    if (!settingsLoaded) return null
     // A deck pick resolves against the deck list; before it arrives the pick
     // would resolve to nothing, and nothing means "every deck".
     if (decksLoading && !isEmptyDeckSelection(debounced.decks)) return null
     return buildCardsQuery(debounced, deckFamilies)
-  }, [debounced, deckFamilies, decksLoading])
+  }, [debounced, deckFamilies, decksLoading, settingsLoaded])
   const { data, loading, error, showImages } = useCardStats(query)
 
   const allRows = useMemo(() => toCardRows(data), [data])

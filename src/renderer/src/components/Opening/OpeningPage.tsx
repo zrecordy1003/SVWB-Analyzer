@@ -191,6 +191,13 @@ function TableHint({
 
 export default function OpeningPage(): React.JSX.Element {
   const [filters, setFilters] = useState<OpeningFilters>(defaultOpeningFilters)
+  /**
+   * 實際拿去查詢的那一份，比 `filters` 慢一個 debounce。
+   *
+   * 宣告在這裡而不是查詢那一段，是因為還原設定的 effect 要直接設它——閉包引用
+   * 一個幾十行之後才宣告的變數在執行期沒問題，但讀的人會以為那裡不會動到它。
+   */
+  const [debounced, setDebounced] = useState<OpeningFilters>(defaultOpeningFilters)
   const [sort, setSort] = useState<OpeningSort>(DEFAULT_OPENING_SORT)
   const [showArchivedDecks, setShowArchivedDecks] = useState(false)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
@@ -203,6 +210,15 @@ export default function OpeningPage(): React.JSX.Element {
   const { allDeckVersions, loading: decksLoading, refreshDecks } = useDecksTags()
 
   const settingsLoadedRef = useRef(false)
+  /**
+   * 設定讀回來了沒——state，不是只有 ref。
+   *
+   * 兩者都要。存檔的閘門只需要「現在能不能寫」，ref 夠用；但**查詢的閘門是在
+   * render 期間算出來的**，而 render 期間讀一個會變的 ref 不會讓畫面跟著更新，
+   * 也不會進 `useMemo` 的相依。它之前看起來有效只是因為剛好有別的 `setState`
+   * 把畫面推了一次——那是巧合，不是機制。
+   */
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const persistedRef = useRef<OpeningFilters | null>(null)
   const prevClassRef = useRef<OpeningFilters['myClass'] | null>(null)
   const prunedRef = useRef(false)
@@ -221,7 +237,15 @@ export default function OpeningPage(): React.JSX.Element {
       persistedRef.current = hydrated
       prevClassRef.current = hydrated.myClass
       settingsLoadedRef.current = true
+      setSettingsLoaded(true)
       setFilters(hydrated)
+      // 同一批更新裡把 debounced 也設好，不要等 QUERY_DEBOUNCE_MS。
+      //
+      // 這是抖動的來源：設定讀回來的那一刻閘門打開了，但 `debounced` 還停在
+      // 進頁時的預設條件，於是先用「沒有任何條件」查一次、畫出一整張表，
+      // 幾百毫秒後才換成真正的條件再查一次。還原設定不是使用者在打字，
+      // 沒有什麼需要 debounce 的。
+      setDebounced(hydrated)
     })()
     return () => {
       mounted = false
@@ -278,13 +302,11 @@ export default function OpeningPage(): React.JSX.Element {
   }, [allDeckOptions, filters.myClass])
 
   /* ---------- 查詢 ---------- */
-  const [debounced, setDebounced] = useState(filters)
   useEffect(() => {
     const handle = setTimeout(() => setDebounced(filters), QUERY_DEBOUNCE_MS)
     return () => clearTimeout(handle)
   }, [filters])
-  const ready =
-    settingsLoadedRef.current && !(decksLoading && !isEmptyDeckSelection(debounced.decks))
+  const ready = settingsLoaded && !(decksLoading && !isEmptyDeckSelection(debounced.decks))
   const view = filters.view
   // Only the visible view asks. The other view's answer stays in its cache if
   // it was ever fetched, so flipping back is free; what this avoids is two
