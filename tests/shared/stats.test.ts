@@ -6,8 +6,15 @@
  */
 import { describe, expect, it } from 'vitest'
 
-import { DECK_SIZE, HAND_SIZE, OPENING_THRESHOLDS } from '../../src/shared/openingStats'
-import { answersTheChosenMatchup, verdictFor, type Confidence } from '../../src/shared/openingStats'
+import {
+  answersTheChosenMatchup,
+  DECK_SIZE,
+  HAND_SIZE,
+  KEEP_THRESHOLDS,
+  OPENING_THRESHOLDS,
+  verdictFor,
+  type Confidence
+} from '../../src/shared/openingStats'
 import {
   binomialTwoSided,
   confidenceFor,
@@ -429,5 +436,26 @@ describe('answersTheChosenMatchup', () => {
     for (const basis of ['stratified', 'turn-order', 'opponent', 'all-opponents'] as const) {
       expect(answersTheChosenMatchup(basis, false)).toBe(true)
     }
+  })
+})
+
+describe('verdictFor width guard', () => {
+  it('refuses a verdict from an interval wide enough to flip', () => {
+    // Clears zero, and by half a point. One more game either way and the
+    // recommendation disappears; a verdict that unstable is worse than none.
+    expect(verdictFor({ confidence: 'sortable', diffLo: 0.5, diffHi: 35 })).toBe('unclear')
+    expect(verdictFor({ confidence: 'sortable', diffLo: -35, diffHi: -0.5 })).toBe('unclear')
+  })
+
+  it('still answers when the interval is wide but decisively placed', () => {
+    // Twenty points wide and nowhere near zero - the shape a real effect has
+    // at this sample size, and what the seeded fixture's genuine keeps look like.
+    expect(verdictFor({ confidence: 'sortable', diffLo: 9.5, diffHi: 29.3 })).toBe('keep')
+  })
+
+  it('draws the line exactly at the threshold', () => {
+    const at = (w: number) => verdictFor({ confidence: 'sortable', diffLo: 4, diffHi: 4 + w })
+    expect(at(KEEP_THRESHOLDS.maxWidth - 0.01)).toBe('keep')
+    expect(at(KEEP_THRESHOLDS.maxWidth)).toBe('unclear')
   })
 })

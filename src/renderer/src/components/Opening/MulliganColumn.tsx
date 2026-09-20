@@ -658,7 +658,7 @@ export default function MulliganColumn({
                 sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}
               >
                 <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary' }}>
-                  不分對手的傾向
+                  不分對手時
                 </Typography>
                 <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
                   {groups.general.length}
@@ -668,11 +668,27 @@ export default function MulliganColumn({
                   title={
                     <Hint>
                       這幾張{pins.oppo ? `對上${pins.oppo}` : ''}
-                      的場數還不夠比，所以數字是把所有對手合起來算的。它們是關於你這副牌的傾向，**不是**關於這個對手——同一批卡會出現在每一欄，數字也一樣。等這個對位的場次夠了，站得住的那些會自己移到上面去。
+                      的場數還不夠比，所以數字是把所有對手合起來算的：**如果這個對手跟其他對手沒兩樣**，才會是這個答案。同一批卡會出現在每一欄，數字也一樣；等這個對位的場次夠了，站得住的那些會自己移上去。
                     </Hint>
                   }
                 />
               </Stack>
+              {/*
+                The asymmetry is worth one line. A card the pool says to KEEP is
+                usually a core card that every matchup wants, so borrowing is
+                mostly harmless. A card the pool says to THROW BACK is often
+                situational - it looks bad averaged over seven opponents
+                precisely because it is only good against one - and that one
+                may be the column you are reading.
+              */}
+              {groups.general.some((a) => (a.diff ?? 0) < 0) && (
+                <Typography
+                  sx={{ px: 1.5, pb: 0.75, fontSize: 11, color: 'warning.light', lineHeight: 1.6 }}
+                >
+                  裡面的「換」要特別小心：一張只對某個對手有用的牌，合起來算本來就難看，
+                  而那個對手可能就是這一欄。
+                </Typography>
+              )}
               <Box sx={{ px: 0.5, opacity: 0.85 }}>
                 {groups.general.map((advice) => (
                   <VerdictRow

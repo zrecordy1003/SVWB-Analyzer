@@ -441,7 +441,23 @@ export const KEEP_THRESHOLDS = {
   /** Per arm before a difference is shown at all. */
   show: 12,
   /** Per arm before the table may be sorted on it. */
-  sort: 30
+  sort: 30,
+  /**
+   * Widest interval that may still produce a verdict, in points.
+   *
+   * Clearing zero was the only test, and it has a hole: `+1 [+0.5, +35]`
+   * clears, and is one observation away from not clearing. A recommendation
+   * that flips back and forth as games arrive costs more trust than one that
+   * never appeared, and this page's whole pitch is that it does not overclaim.
+   *
+   * Thirty follows NCHS's suppression rule for proportions (an absolute
+   * confidence-interval width of 0.30 or more is not published). Ours is a
+   * DIFFERENCE of proportions, whose interval is wider for the same sample, so
+   * thirty is if anything the lenient reading of that precedent - which is
+   * fine, because the point here is to catch the barely-clearing case rather
+   * than to demand precision this data cannot give.
+   */
+  maxWidth: 30
 } as const
 
 /**
@@ -485,6 +501,8 @@ export function verdictFor(advice: {
   if (advice.confidence === 'hidden' || advice.diffLo === null || advice.diffHi === null) {
     return 'unknown'
   }
+  // Wide enough to flip next week is not a verdict, even pointing one way.
+  if (advice.diffHi - advice.diffLo >= KEEP_THRESHOLDS.maxWidth) return 'unclear'
   if (advice.diffLo > 0) return 'keep'
   if (advice.diffHi < 0) return 'toss'
   return 'unclear'
