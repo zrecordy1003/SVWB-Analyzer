@@ -635,14 +635,16 @@ export function demoOpponentSplit(
  * and `shrink` the real handler calls. Writing the outputs by hand instead
  * would have meant inventing a `diff` that does not match its own bands, and
  * the whole point of the drill-down is that a reader can check one against
- * the other. The counts are made up; the arithmetic on them is real.
+ * the other. The counts are made up; the arithmetic on them is real - and so
+ * is the verdict, which `verdictFor` reads off the resulting interval exactly
+ * as the column does. A fixture card lands in 建議留 because its made-up arms
+ * really do clear zero, not because it was labelled so.
  *
- * The cards are written as if the page were pinned to one opponent and one
- * turn order, so that every rung of the ladder has a distinct population and
- * the fallback rows really are fallbacks. With no pin set the basis labels
- * will read 「全部合併」 for those rows - correctly, since the page labels the
- * comparison the user asked for, and the banner already says filters do not
- * apply to demo data.
+ * Each variant is a PAIR of results, one per column, written as if the page
+ * were pinned to 龍族. The two columns are written to differ, because the
+ * contrast between them is the reason the layout has two: a card that is a
+ * toss on the play and a keep on the draw, a column that recommends beside
+ * one that does not yet.
  */
 type Arm = [wins: number, total: number]
 type Cell = { kept: Arm; swapped: Arm }
@@ -768,13 +770,28 @@ function advice(input: AdviceInput): KeepAdvice {
   }
 }
 
-/** The full page, written as if pinned to 龍族・先攻 over a 巫師 deck. */
-export const DEMO_MULLIGAN_FULL: MulliganResult = {
+/** One variant: the two columns' results. */
+export type MulliganPair = { first: MulliganResult; second: MulliganResult }
+
+/* ----------------------------------------------------------------- full */
+
+/**
+ * The page as it looks after a season against one opponent: both columns
+ * recommend, and they disagree about the eight-drop.
+ *
+ * 先攻 (118 matches): two keeps, two tosses, one keep that rides the
+ * all-opponents rung (the widened mark), two unclear, two unknown, one
+ * unidentified. 後攻 (103): the eight-drop flips to a keep, the two-drop that
+ * was the strongest keep on the play is merely unclear on the draw, and the
+ * pooled keep appears again with the same numbers - because that is what a
+ * pooled row does, and a reader should see it happen.
+ */
+const FULL_FIRST: MulliganResult = {
   matches: 118,
   baseline: statsRate(61, 118),
   cards: [
-    // The clean case: every band has both arms, MH combines them, and the
-    // three bands agree. Sortable.
+    // The clean case: every band has both arms, MH combines them, the three
+    // bands agree, and the interval clears zero by a wide margin.
     advice({
       cardId: 900101,
       name: '魔力調節師',
@@ -782,29 +799,99 @@ export const DEMO_MULLIGAN_FULL: MulliganResult = {
       dealt: 94,
       kept: 58,
       bands: [
-        { kept: [12, 18], swapped: [6, 12] },
-        { kept: [20, 30], swapped: [8, 16] },
-        { kept: [6, 10], swapped: [3, 8] }
+        { kept: [12, 18], swapped: [3, 12] },
+        { kept: [20, 30], swapped: [5, 16] },
+        { kept: [6, 10], swapped: [2, 8] }
       ]
     }),
-    // Bands that disagree. Kept when the rest was cheap and it went well;
-    // kept when the rest was expensive and it went badly. The crude gap is
-    // positive, the adjusted one is near zero, and the drawer shows why.
+    // A keep with a one-armed band: never swapped when the rest was cheap, so
+    // that band is listed in the drawer but not in the estimate.
+    advice({
+      cardId: 900104,
+      name: '知識的探求者',
+      cost: 2,
+      dealt: 62,
+      kept: 46,
+      bands: [
+        { kept: [11, 16], swapped: [0, 0] },
+        { kept: [14, 20], swapped: [4, 16] },
+        { kept: [6, 10], swapped: [3, 12] }
+      ]
+    }),
+    // The toss: kept rarely and it went badly when it was. Stratified.
     advice({
       cardId: 900102,
       name: '古老的巨人',
       cost: 8,
-      dealt: 84,
-      kept: 40,
+      dealt: 92,
+      kept: 42,
       bands: [
-        { kept: [14, 18], swapped: [3, 8] },
-        { kept: [8, 16], swapped: [9, 16] },
-        { kept: [1, 6], swapped: [12, 20] }
+        { kept: [3, 14], swapped: [10, 16] },
+        { kept: [5, 20], swapped: [14, 22] },
+        { kept: [1, 8], swapped: [8, 12] }
       ]
     }),
-    // Kept 95% of the time. The swapped arm has three observations at every
-    // rung, so the comparison is hidden and the row prints `n=58 / 3`; the
-    // keep rate itself is perfectly readable. This is the plan's 四 in a row.
+    // A toss at 'turn-order': the bands are too thin once the one-armed one
+    // is dropped, pooled raw within the column they clear `show`.
+    advice({
+      cardId: 900105,
+      name: '深淵的召喚',
+      cost: 6,
+      dealt: 36,
+      kept: 20,
+      bands: [
+        { kept: [4, 13], swapped: [0, 0] },
+        { kept: [1, 5], swapped: [6, 9] },
+        { kept: [0, 2], swapped: [4, 7] }
+      ],
+      turnOrder: { kept: [5, 20], swapped: [12, 16] }
+    }),
+    // Fell all the way to 'all-opponents' and is a KEEP there. This is the
+    // row the basis mark exists for: a confident verdict about a different
+    // question than the column heading asks.
+    advice({
+      cardId: 900201,
+      name: '天使的祝福',
+      cost: 3,
+      dealt: 12,
+      kept: 7,
+      bands: [
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [0, 1], swapped: [0, 1] }
+      ],
+      opponent: { kept: [8, 13], swapped: [4, 9] },
+      allOpponents: { kept: [38, 52], swapped: [15, 41] }
+    }),
+    // Unclear: both arms are there, the estimate is positive, the interval
+    // is not. The most common state of a card with real data.
+    advice({
+      cardId: 900106,
+      name: '晶石守衛',
+      cost: 4,
+      dealt: 71,
+      kept: 38,
+      bands: [
+        { kept: [10, 18], swapped: [5, 12] },
+        { kept: [8, 14], swapped: [6, 13] },
+        { kept: [3, 6], swapped: [3, 8] }
+      ]
+    }),
+    advice({
+      cardId: 900108,
+      name: '火焰術士',
+      cost: 3,
+      dealt: 71,
+      kept: 38,
+      bands: [
+        { kept: [8, 15], swapped: [6, 12] },
+        { kept: [9, 15], swapped: [7, 14] },
+        { kept: [4, 8], swapped: [3, 7] }
+      ]
+    }),
+    // Kept 95% of the time. The swapped arm has a handful of observations at
+    // every rung, so nothing can be estimated; the keep rate itself is
+    // perfectly readable. The plan's 四 in a card.
     advice({
       cardId: 900103,
       name: '魔法飛彈',
@@ -818,69 +905,7 @@ export const DEMO_MULLIGAN_FULL: MulliganResult = {
       ],
       allOpponents: { kept: [70, 131], swapped: [3, 7] }
     }),
-    // Stratified, with a one-armed band: never swapped when the rest of the
-    // hand was cheap, so that band appears in the drill-down but is not in
-    // the estimate.
-    advice({
-      cardId: 900104,
-      name: '知識的探求者',
-      cost: 2,
-      dealt: 58,
-      kept: 40,
-      bands: [
-        { kept: [11, 16], swapped: [0, 0] },
-        { kept: [10, 16], swapped: [6, 12] },
-        { kept: [3, 8], swapped: [4, 9] }
-      ]
-    }),
-    // Fell to 'turn-order': the bands hold both arms but too thinly once the
-    // one-armed band is dropped; pooled raw within the pin they clear `show`.
-    advice({
-      cardId: 900105,
-      name: '深淵的召喚',
-      cost: 6,
-      dealt: 38,
-      kept: 23,
-      bands: [
-        { kept: [8, 13], swapped: [0, 0] },
-        { kept: [5, 8], swapped: [6, 10] },
-        { kept: [1, 2], swapped: [3, 5] }
-      ],
-      turnOrder: { kept: [14, 23], swapped: [9, 15] }
-    }),
-    // Fell to 'opponent': the pinned turn order had too few swaps, both
-    // orders together have enough.
-    advice({
-      cardId: 900106,
-      name: '晶石守衛',
-      cost: 4,
-      dealt: 21,
-      kept: 15,
-      bands: [
-        { kept: [4, 6], swapped: [1, 2] },
-        { kept: [4, 7], swapped: [2, 3] },
-        { kept: [1, 2], swapped: [0, 1] }
-      ],
-      opponent: { kept: [20, 33], swapped: [10, 18] }
-    }),
-    // Fell all the way to 'all-opponents' - and is SORTABLE there, which is
-    // the row that has to look like what it is: a confident number about a
-    // different question than the header asks.
-    advice({
-      cardId: 900201,
-      name: '天使的祝福',
-      cost: 3,
-      dealt: 12,
-      kept: 7,
-      bands: [
-        { kept: [2, 3], swapped: [1, 2] },
-        { kept: [2, 3], swapped: [1, 2] },
-        { kept: [0, 1], swapped: [0, 1] }
-      ],
-      opponent: { kept: [8, 13], swapped: [5, 9] },
-      allOpponents: { kept: [30, 52], swapped: [22, 41] }
-    }),
-    // Hidden, and even the keep rate is under its line.
+    // Under every line, including the keep rate's.
     advice({
       cardId: 900107,
       name: '禁忌的實驗',
@@ -906,12 +931,297 @@ export const DEMO_MULLIGAN_FULL: MulliganResult = {
   ]
 }
 
+const FULL_SECOND: MulliganResult = {
+  matches: 103,
+  baseline: statsRate(48, 103),
+  cards: [
+    // The eight-drop, on the draw: a keep. Same card, opposite verdict to the
+    // other column, which is the whole argument for showing both at once.
+    advice({
+      cardId: 900102,
+      name: '古老的巨人',
+      cost: 8,
+      dealt: 80,
+      kept: 40,
+      bands: [
+        { kept: [10, 14], swapped: [4, 14] },
+        { kept: [12, 18], swapped: [5, 16] },
+        { kept: [5, 8], swapped: [3, 10] }
+      ]
+    }),
+    // The same pooled row as the other column, verbatim. Pooled over both
+    // turn orders and every opponent, so of course it says the same thing
+    // twice - and the mark says why.
+    advice({
+      cardId: 900201,
+      name: '天使的祝福',
+      cost: 3,
+      dealt: 10,
+      kept: 6,
+      bands: [
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [1, 2], swapped: [1, 1] },
+        { kept: [0, 1], swapped: [0, 1] }
+      ],
+      opponent: { kept: [8, 13], swapped: [4, 9] },
+      allOpponents: { kept: [38, 52], swapped: [15, 41] }
+    }),
+    // The strongest keep on the play is merely unclear on the draw.
+    advice({
+      cardId: 900101,
+      name: '魔力調節師',
+      cost: 2,
+      dealt: 83,
+      kept: 48,
+      bands: [
+        { kept: [9, 16], swapped: [6, 12] },
+        { kept: [13, 24], swapped: [8, 16] },
+        { kept: [4, 8], swapped: [3, 7] }
+      ]
+    }),
+    advice({
+      cardId: 900104,
+      name: '知識的探求者',
+      cost: 2,
+      dealt: 40,
+      kept: 22,
+      bands: [
+        { kept: [5, 8], swapped: [0, 0] },
+        { kept: [5, 10], swapped: [5, 11] },
+        { kept: [2, 4], swapped: [3, 7] }
+      ]
+    }),
+    // Kept rarely on the draw, so the kept arm is thin at 'turn-order' and
+    // the row widens to 'opponent' - where it is unclear. Widened AND
+    // undecided, which is the honest reading of a six-drop on the draw.
+    advice({
+      cardId: 900105,
+      name: '深淵的召喚',
+      cost: 6,
+      dealt: 30,
+      kept: 6,
+      bands: [
+        { kept: [2, 3], swapped: [3, 8] },
+        { kept: [1, 2], swapped: [6, 10] },
+        { kept: [0, 1], swapped: [3, 6] }
+      ],
+      opponent: { kept: [7, 14], swapped: [20, 40] }
+    }),
+    advice({
+      cardId: 900108,
+      name: '火焰術士',
+      cost: 3,
+      dealt: 60,
+      kept: 33,
+      bands: [
+        { kept: [7, 13], swapped: [5, 11] },
+        { kept: [8, 14], swapped: [6, 11] },
+        { kept: [3, 6], swapped: [2, 5] }
+      ]
+    }),
+    advice({
+      cardId: 900103,
+      name: '魔法飛彈',
+      cost: 1,
+      dealt: 52,
+      kept: 49,
+      bands: [
+        { kept: [9, 17], swapped: [1, 1] },
+        { kept: [13, 24], swapped: [1, 2] },
+        { kept: [4, 8], swapped: [0, 0] }
+      ],
+      allOpponents: { kept: [70, 131], swapped: [3, 7] }
+    }),
+    advice({
+      cardId: 900106,
+      name: '晶石守衛',
+      cost: 4,
+      dealt: 9,
+      kept: 5,
+      bands: [
+        { kept: [1, 2], swapped: [1, 2] },
+        { kept: [2, 3], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    }),
+    advice({
+      cardId: 900107,
+      name: '禁忌的實驗',
+      cost: 5,
+      dealt: 4,
+      kept: 1,
+      bands: [
+        { kept: [0, 1], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [0, 1] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    }),
+    advice({
+      cardId: 900110,
+      name: '星辰的賢者',
+      cost: 3,
+      dealt: 0,
+      kept: 0,
+      bands: [],
+      unidentified: true
+    })
+  ]
+}
+
+/* ------------------------------------------------------------ one-sided */
+
+/**
+ * A few weeks in: the play side has enough to say two things, the draw side
+ * has the same cards and says nothing yet. This is the pair the empty-column
+ * copy is judged against - it has to sit next to a column with verdicts and
+ * read as "not yet", not as "broken".
+ */
+const ONE_SIDED_FIRST: MulliganResult = {
+  matches: 57,
+  baseline: statsRate(30, 57),
+  cards: [
+    advice({
+      cardId: 900101,
+      name: '魔力調節師',
+      cost: 2,
+      dealt: 44,
+      kept: 27,
+      bands: [
+        { kept: [6, 9], swapped: [1, 6] },
+        { kept: [9, 13], swapped: [2, 8] },
+        { kept: [3, 5], swapped: [0, 3] }
+      ]
+    }),
+    advice({
+      cardId: 900102,
+      name: '古老的巨人',
+      cost: 8,
+      dealt: 40,
+      kept: 17,
+      bands: [
+        { kept: [1, 6], swapped: [5, 8] },
+        { kept: [2, 8], swapped: [8, 11] },
+        { kept: [0, 3], swapped: [3, 4] }
+      ]
+    }),
+    advice({
+      cardId: 900106,
+      name: '晶石守衛',
+      cost: 4,
+      dealt: 33,
+      kept: 18,
+      bands: [
+        { kept: [5, 9], swapped: [3, 6] },
+        { kept: [4, 7], swapped: [3, 6] },
+        { kept: [1, 2], swapped: [1, 3] }
+      ]
+    }),
+    advice({
+      cardId: 900103,
+      name: '魔法飛彈',
+      cost: 1,
+      dealt: 30,
+      kept: 27,
+      bands: [
+        { kept: [6, 10], swapped: [1, 1] },
+        { kept: [7, 13], swapped: [0, 1] },
+        { kept: [2, 4], swapped: [0, 1] }
+      ]
+    }),
+    advice({
+      cardId: 900107,
+      name: '禁忌的實驗',
+      cost: 5,
+      dealt: 6,
+      kept: 2,
+      bands: [
+        { kept: [1, 1], swapped: [1, 2] },
+        { kept: [0, 1], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    })
+  ]
+}
+
+const ONE_SIDED_SECOND: MulliganResult = {
+  matches: 38,
+  baseline: statsRate(17, 38),
+  cards: [
+    // Both arms present, estimate positive, interval straddling: the nearest
+    // card to a verdict, and the one the empty state names.
+    advice({
+      cardId: 900101,
+      name: '魔力調節師',
+      cost: 2,
+      dealt: 30,
+      kept: 17,
+      bands: [
+        { kept: [4, 6], swapped: [2, 4] },
+        { kept: [5, 8], swapped: [3, 6] },
+        { kept: [2, 3], swapped: [1, 3] }
+      ]
+    }),
+    // The swapped arm is one short of `show`.
+    advice({
+      cardId: 900102,
+      name: '古老的巨人',
+      cost: 8,
+      dealt: 29,
+      kept: 18,
+      bands: [
+        { kept: [4, 6], swapped: [1, 4] },
+        { kept: [5, 9], swapped: [2, 5] },
+        { kept: [1, 3], swapped: [1, 2] }
+      ]
+    }),
+    advice({
+      cardId: 900106,
+      name: '晶石守衛',
+      cost: 4,
+      dealt: 21,
+      kept: 13,
+      bands: [
+        { kept: [3, 6], swapped: [2, 4] },
+        { kept: [3, 5], swapped: [1, 3] },
+        { kept: [1, 2], swapped: [0, 1] }
+      ]
+    }),
+    advice({
+      cardId: 900103,
+      name: '魔法飛彈',
+      cost: 1,
+      dealt: 22,
+      kept: 20,
+      bands: [
+        { kept: [4, 8], swapped: [0, 1] },
+        { kept: [5, 9], swapped: [0, 1] },
+        { kept: [2, 3], swapped: [0, 0] }
+      ]
+    }),
+    advice({
+      cardId: 900107,
+      name: '禁忌的實驗',
+      cost: 5,
+      dealt: 3,
+      kept: 1,
+      bands: [
+        { kept: [0, 1], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [0, 0] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    })
+  ]
+}
+
+/* ---------------------------------------------------------------- young */
+
 /**
  * The state most real accounts will be in for their first weeks: hands read,
- * keep rates showing, and not one comparison over its line. The page has to
- * be worth opening in this state or it will not be opened in the next.
+ * keep rates showing, and not one comparison over its line in either column.
+ * The page has to be worth opening in this state or it will not be opened in
+ * the next.
  */
-export const DEMO_MULLIGAN_YOUNG: MulliganResult = {
+const YOUNG_FIRST: MulliganResult = {
   matches: 19,
   baseline: statsRate(10, 19),
   cards: [
@@ -966,16 +1276,64 @@ export const DEMO_MULLIGAN_YOUNG: MulliganResult = {
   ]
 }
 
-export const DEMO_MULLIGAN_EMPTY: MulliganResult = { matches: 0, baseline: null, cards: [] }
+const YOUNG_SECOND: MulliganResult = {
+  matches: 11,
+  baseline: statsRate(5, 11),
+  cards: [
+    advice({
+      cardId: 900101,
+      name: '魔力調節師',
+      cost: 2,
+      dealt: 8,
+      kept: 6,
+      bands: [
+        { kept: [2, 3], swapped: [0, 1] },
+        { kept: [1, 2], swapped: [0, 1] },
+        { kept: [1, 1], swapped: [0, 0] }
+      ]
+    }),
+    advice({
+      cardId: 900103,
+      name: '魔法飛彈',
+      cost: 1,
+      dealt: 7,
+      kept: 5,
+      bands: [
+        { kept: [1, 2], swapped: [1, 1] },
+        { kept: [2, 3], swapped: [0, 1] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    }),
+    advice({
+      cardId: 900102,
+      name: '古老的巨人',
+      cost: 8,
+      dealt: 5,
+      kept: 1,
+      bands: [
+        { kept: [0, 1], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [1, 2] },
+        { kept: [0, 0], swapped: [0, 0] }
+      ]
+    })
+  ]
+}
 
-export type DemoMulliganKey = 'full' | 'young' | 'noMatches'
+const EMPTY: MulliganResult = { matches: 0, baseline: null, cards: [] }
+
+export type DemoMulliganKey = 'full' | 'oneSided' | 'young' | 'noMatches'
 
 export const DEMO_MULLIGAN_VARIANTS: ReadonlyArray<{
   key: DemoMulliganKey
   label: string
-  result: MulliganResult
+  result: MulliganPair
 }> = [
-  { key: 'full', label: '完整資料', result: DEMO_MULLIGAN_FULL },
-  { key: 'young', label: '剛開始記錄的帳號', result: DEMO_MULLIGAN_YOUNG },
-  { key: 'noMatches', label: '完全沒有對局', result: DEMO_MULLIGAN_EMPTY }
+  { key: 'full', label: '完整資料', result: { first: FULL_FIRST, second: FULL_SECOND } },
+  {
+    key: 'oneSided',
+    label: '只有先攻有建議',
+    result: { first: ONE_SIDED_FIRST, second: ONE_SIDED_SECOND }
+  },
+  { key: 'young', label: '剛開始記錄的帳號', result: { first: YOUNG_FIRST, second: YOUNG_SECOND } },
+  { key: 'noMatches', label: '完全沒有對局', result: { first: EMPTY, second: EMPTY } }
 ]

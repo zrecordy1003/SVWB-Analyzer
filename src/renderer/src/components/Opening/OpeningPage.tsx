@@ -3,9 +3,10 @@
  *
  * Two views under one nav entry, switched by the segmented control at the top:
  *
- * - 換牌建議 (`MulliganAdvisor`), the default. "Against this opponent, should
- *   I keep this card?" - the question the owner named as the app's core, and
- *   the one the 起手 data was collected to answer.
+ * - 換牌建議 (`MulliganAdvisor`), the default. "Against this opponent, what do
+ *   I want in hand?" - the question the owner named as the app's core, and the
+ *   one the 起手 data was collected to answer. One opponent picker, and 先攻
+ *   and 後攻 side by side as two columns of verdicts.
  * - 手牌總覽, the original page: the hand-level summary (coverage, swap counts,
  *   curve) and the dealt-versus-not-dealt card table with its drill-down.
  *
@@ -20,8 +21,10 @@
  * number in the advisor sends them looking for the clean version.
  *
  * The toolbar (own class, mode, advanced filters) applies to both views; the
- * advisor adds its own two selectors (opponent, turn order) inside its own
- * panel because they are the question, not a filter - see its header.
+ * advisor adds its own selector (the opponent) inside its own panel because it
+ * is the question, not a filter - see its header. The advisor asks the handler
+ * twice, once per turn order, and this page owns both queries so that the demo
+ * switch below can replace both answers in the same place.
  *
  * # Where the explanation went
  *
@@ -315,12 +318,23 @@ export default function OpeningPage(): React.JSX.Element {
     () => (ready && view === 'overview' ? buildOpeningQuery(debounced, deckFamilies) : null),
     [debounced, deckFamilies, ready, view]
   )
-  const mulliganQuery = useMemo(
-    () => (ready && view === 'advisor' ? buildMulliganQuery(debounced, deckFamilies) : null),
+  // Two queries, one per column. Cheap (the handler runs in single-digit ms and
+  // the resource caches per payload), and it keeps the main process out of a
+  // renderer layout decision: a `playOrder: 'both'` mode in the handler would
+  // have been a contract change for the sake of saving one IPC round trip.
+  const mulliganFirst = useMemo(
+    () =>
+      ready && view === 'advisor' ? buildMulliganQuery(debounced, deckFamilies, 'first') : null,
+    [debounced, deckFamilies, ready, view]
+  )
+  const mulliganSecond = useMemo(
+    () =>
+      ready && view === 'advisor' ? buildMulliganQuery(debounced, deckFamilies, 'second') : null,
     [debounced, deckFamilies, ready, view]
   )
   const live = useOpeningStats(query)
-  const liveMulligan = useMulligan(mulliganQuery)
+  const liveFirst = useMulligan(mulliganFirst)
+  const liveSecond = useMulligan(mulliganSecond)
 
   // The swap is here and nowhere else: everything below reads `data` and does
   // not know whether it is real.
@@ -336,9 +350,14 @@ export default function OpeningPage(): React.JSX.Element {
   )
   const data = demo ? demoResult : live.data
   const loading = demo ? false : live.loading
-  const mulliganData = demo ? demoMulligan : liveMulligan.data
-  const mulliganLoading = demo ? false : liveMulligan.loading
-  const error = demo ? null : view === 'advisor' ? liveMulligan.error : live.error
+  const firstData = demo ? demoMulligan.first : liveFirst.data
+  const secondData = demo ? demoMulligan.second : liveSecond.data
+  const mulliganLoading = demo ? false : liveFirst.loading || liveSecond.loading
+  const error = demo
+    ? null
+    : view === 'advisor'
+      ? (liveFirst.error ?? liveSecond.error)
+      : live.error
 
   const allRows = useMemo(() => toOpeningRows(data), [data])
   const rows = useMemo(() => sortOpeningRows(allRows, sort), [allRows, sort])
@@ -553,9 +572,10 @@ export default function OpeningPage(): React.JSX.Element {
 
       {view === 'advisor' && (
         <MulliganAdvisor
-          filters={filters}
-          onPatch={patchFilters}
-          data={mulliganData}
+          oppoClass={filters.oppoClass}
+          onOppoClass={(oppoClass) => patchFilters({ oppoClass })}
+          first={firstData}
+          second={secondData}
           loading={mulliganLoading}
           showImages={live.showImages}
         />

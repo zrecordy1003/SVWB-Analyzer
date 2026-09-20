@@ -1,10 +1,13 @@
 /**
- * One card, opened from the 換牌建議 table.
+ * One card, opened from a 換牌建議 column.
  *
- * The top is the row in full: keep rate, the two arms, the adjusted
- * difference, and the basis pill at title size. The bottom is the thing the
- * table has no room for and the reason the drawer exists: the per-band arms
- * behind a `'stratified'` estimate.
+ * This is where the numbers went. The column says 建議留 and one integer; the
+ * drawer says the verdict again and then everything behind it - the keep
+ * rate, the two arms, the adjusted difference with its interval printed in
+ * full, the basis pill at title size, and the per-band arms behind a
+ * `'stratified'` estimate. A reader who has opened a drawer about one
+ * specific card has asked for exactly that, and the interval that the column
+ * withholds is the first thing they should find.
  *
  * # Why the bands are shown as three separate comparisons
  *
@@ -28,6 +31,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import React from 'react'
 
 import type { KeepAdvice, KeepBand, Rate } from '@shared/openingStats'
+import { verdictFor } from '@shared/openingStats'
 import { cardImageUrl } from '@shared/deckImport'
 import InfoHint from '@renderer/components/Common/InfoHint'
 import { CostBadge } from '@renderer/components/Cards/CardsTable'
@@ -39,7 +43,7 @@ import {
 } from '@renderer/components/Common/surfaces'
 
 import { Hint, IntervalBar, MissingPill, RateCell, SampleOnly } from './cells'
-import { BasisMark, KeepDiffCell } from './MulliganTable'
+import { BasisMark, KeepDiffCell } from './MulliganMarks'
 import {
   armsRemaining,
   armsSample,
@@ -48,7 +52,7 @@ import {
   basisSpec,
   keepRemaining,
   keepSample,
-  type MulliganRow,
+  VERDICT_LABEL,
   type Pins
 } from './mulliganState'
 import { fmtDelta, fmtN, fmtPct, NUMERIC } from './openingFormat'
@@ -215,20 +219,52 @@ function NoBands({ advice, pins }: { advice: KeepAdvice; pins: Pins }): React.JS
   )
 }
 
+/**
+ * The verdict, said once more at the top of the drawer in the same words the
+ * column used, so the reader knows the drawer is about the row they clicked
+ * and not a different computation. Coloured like the column's groups; the two
+ * non-verdicts are plain.
+ */
+function VerdictChip({ advice }: { advice: KeepAdvice }): React.JSX.Element {
+  const verdict = verdictFor(advice)
+  const colour =
+    verdict === 'keep' ? 'success.light' : verdict === 'toss' ? 'error.light' : 'text.secondary'
+  return (
+    <Typography
+      component="span"
+      data-testid="mulligan-verdict"
+      data-verdict={verdict}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        height: 24,
+        px: 1,
+        borderRadius: 12,
+        fontSize: 12,
+        fontWeight: 800,
+        color: colour,
+        border: '1px solid',
+        borderColor: verdict === 'keep' || verdict === 'toss' ? colour : 'divider'
+      }}
+    >
+      {VERDICT_LABEL[verdict]}
+    </Typography>
+  )
+}
+
 export default function MulliganDrilldownDrawer({
-  row,
+  advice,
   pins,
   open,
   onClose
 }: {
-  /** The last selected row stays mounted while the drawer slides out. */
-  row: MulliganRow | null
+  /** The last selected card stays mounted while the drawer slides out. */
+  advice: KeepAdvice | null
+  /** The column the card was opened from; the basis labels are relative to it. */
   pins: Pins
   open: boolean
   onClose: () => void
 }): React.JSX.Element {
-  const advice = row?.advice ?? null
-
   return (
     <Drawer
       anchor="right"
@@ -243,7 +279,7 @@ export default function MulliganDrilldownDrawer({
         }
       }}
     >
-      {advice && row && (
+      {advice && (
         <Box
           data-testid="mulligan-drilldown"
           data-card-id={advice.cardId}
@@ -270,7 +306,8 @@ export default function MulliganDrilldownDrawer({
                   sx={{ mt: 1.25 }}
                   flexWrap="wrap"
                 >
-                  <BasisMark advice={advice} pins={pins} size="title" />
+                  <VerdictChip advice={advice} />
+                  <BasisMark advice={advice} pins={pins} size="pill" />
                   {advice.missing && advice.missing !== 'low-sample' && (
                     <MissingPill kind={advice.missing} />
                   )}
@@ -356,7 +393,21 @@ export default function MulliganDrilldownDrawer({
                   </Box>
                   {advice.confidence !== 'hidden' && advice.diff !== null && (
                     <Box sx={{ mt: 0.75 }}>
-                      <KeepDiffCell advice={advice} sortable={row.sortable} pins={pins} />
+                      <KeepDiffCell advice={advice} pins={pins} />
+                      {/* The interval, in the open. The column decided the
+                          verdict on it and did not print it; here it is the
+                          reader's whole reason for clicking. */}
+                      {advice.diffLo !== null && advice.diffHi !== null && (
+                        <Typography
+                          variant="caption"
+                          component="div"
+                          data-testid="mulligan-interval"
+                          sx={{ ...NUMERIC, mt: 0.5, color: 'text.secondary' }}
+                        >
+                          95% 區間 {fmtDelta(advice.diffLo)} 到 {fmtDelta(advice.diffHi)}
+                          {advice.diffLo < 0 && advice.diffHi > 0 ? '（跨過零，所以不給方向）' : ''}
+                        </Typography>
+                      )}
                     </Box>
                   )}
                 </Box>

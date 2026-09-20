@@ -36,31 +36,15 @@ import type { OpeningHandSlot, OpeningHandView } from '@shared/ipc'
 import React from 'react'
 
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
+import { ART_WINDOW_RATIO, artWindowImageSx } from '@renderer/components/Common/cardArtWindow'
 import { CardTooltipBody, type CardTooltipCard } from '@renderer/components/DeckCards/CardTooltip'
 
 /**
- * 卡圖裡「插畫」佔的那一窗，左、上、右、下四個邊的比例。
+ * 插畫窗與它的算式都在 `Common/cardArtWindow.ts`。
  *
- * 來源是 `tools/engine/src/fingerprint.rs` 的 `PORTAL_ART_FRACTION`：引擎拿卡圖跟
- * 換牌畫面比對時就是裁這一塊，那裡記了它怎麼校出來的。這裡照抄而不是自己挑一個
- * 好看的框，理由有兩個：它已經被驗證過是「去掉卡框、費用、名條與文字框之後剩
- * 下的畫」；而且畫面上的一格和引擎比對用的參考圖是同一個裁法，出了問題對照
- * `engine.log` 裡的比對結果時不用再心算兩種框。**兩邊要一起改**——這裡動了，引擎
- * 沒動，只是畫面跟引擎看的不一樣，不會壞；但反過來引擎重校了這裡沒跟，畫面就
- * 會偷偷帶進一截名條。
+ * 那幾個小數必須和 `tools/engine/src/fingerprint.rs` 的 `PORTAL_ART_FRACTION`
+ * 保持一致，而它一度被抄到三個檔案裡——所以搬進共用檔，這裡只剩引用。
  */
-const ART_WINDOW = { left: 0.14, top: 0.218, right: 0.853, bottom: 0.837 } as const
-
-/** 窗口佔整張卡的寬高比例，把圖放大到「窗口剛好填滿格子」時要用。 */
-const ART_WINDOW_W = ART_WINDOW.right - ART_WINDOW.left
-const ART_WINDOW_H = ART_WINDOW.bottom - ART_WINDOW.top
-
-/** 入口網站卡圖的原尺寸（`DeckCardBoard` 的 `CARD_RATIO` 用的同一組）；只拿來算窗口比例。 */
-const CARD_W = 530
-const CARD_H = 687
-
-/** 窗口自己的寬÷高。約 0.889，接近正方、略高。 */
-const ART_WINDOW_RATIO = (CARD_W * ART_WINDOW_W) / (CARD_H * ART_WINDOW_H)
 
 /**
  * 一格的尺寸。
@@ -208,14 +192,7 @@ const Art: React.FC<{ slot: OpeningHandSlot; width: number; height: number }> = 
             alt=""
             loading="lazy"
             onError={() => setAttempt((n) => n + 1)}
-            sx={{
-              position: 'absolute',
-              display: 'block',
-              width: `${100 / ART_WINDOW_W}%`,
-              height: `${100 / ART_WINDOW_H}%`,
-              left: `-${(ART_WINDOW.left / ART_WINDOW_W) * 100}%`,
-              top: `-${(ART_WINDOW.top / ART_WINDOW_H) * 100}%`
-            }}
+            sx={artWindowImageSx}
           />
         </Box>
       )

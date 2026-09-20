@@ -449,10 +449,10 @@ export function SampleOnly({
   /**
    * `n=7` or `n=41 / 6`, already formatted by `sampleFor`.
    *
-   * Null where the counts have a column of their own: the advisor table's
-   * arms are their own cell, and printing them here as well would read as two
-   * separate facts. The cell then falls back to 「樣本不足」, which is the part
-   * this component is uniquely saying.
+   * Null where the counts are printed elsewhere on the same surface: the
+   * 換牌建議 drawer prints both arms under the keep rate, and printing them
+   * here as well would read as two separate facts. The cell then falls back to
+   * 「樣本不足」, which is the part this component is uniquely saying.
    */
   sample: string | null
   /** What the missing number is - `保留率`, `勝率差`. */

@@ -188,18 +188,16 @@ describe('cards:mulligan the difference', () => {
     expect(stat.basis).toBe('stratified')
     expect(stat.keptWr?.rate).toBeCloseTo(100, 5)
     expect(stat.swappedWr?.rate).toBeCloseTo(0, 5)
-    expect(stat.diff).toBeGreaterThan(0)
-    // Shrunk, so nowhere near the raw 100 points the arms describe.
-    expect(stat.diff!).toBeLessThan(100)
-    // `toBeLessThanOrEqual`, and the slack is not laziness. Every kept game was
-    // won and every swapped one lost, so within each arm there is no variation
-    // at all and the Greenland-Robins variance is exactly zero: the interval
-    // collapses to the point 100..100. That is a real property of the
-    // estimator at the boundary - the same degeneracy `stats.ts` rejects Wald
-    // intervals for - and it is recorded here rather than asserted as desirable.
-    // The fixture two describes below is the realistic one, and there the
-    // interval is 65 points wide.
-    expect(stat.diffLo).toBeLessThanOrEqual(stat.diffHi!)
+    // The estimate now says exactly what the arms say - 100 points - because
+    // it is no longer shrunk. Sixteen games each way really did go that way.
+    expect(stat.diff).toBeCloseTo(100, 5)
+    // And the interval does NOT collapse onto it. Every kept game won and every
+    // swapped one lost, so the uncorrected Greenland-Robins variance would be
+    // exactly zero and this would read as certainty from thirty-two games;
+    // `stats.ts` adds half a count to each cell of a degenerate stratum for
+    // precisely this row. The width is what stops the verdict being a promise.
+    expect(stat.diffHi! - stat.diffLo!).toBeGreaterThan(1)
+    expect(stat.diffLo!).toBeLessThan(100)
   })
 
   it('reads a card kept in losses and swapped in wins as better swapped', async () => {
@@ -302,10 +300,11 @@ describe('cards:mulligan the stratified estimate', () => {
     expect(stat.keptWr?.rate).toBeCloseTo(70.83, 1)
     expect(stat.swappedWr?.total).toBe(24)
     expect(stat.swappedWr?.rate).toBeCloseTo(29.17, 1)
-    // Mantel-Haenszel says five points, and shrinkage takes it to 5·24/64.
-    // The crude gap would have shrunk to about 15.6, so this is not a rounding
-    // difference - it is the whole confounding.
-    expect(stat.diff).toBeCloseTo(1.88, 2)
+    // Mantel-Haenszel says five points against a crude gap of 41.7. The
+    // estimate is no longer shrunk toward zero - the verdict is decided by the
+    // interval, so shrinking the point bought nothing and could put it outside
+    // its own bounds.
+    expect(stat.diff).toBeCloseTo(5.0, 1)
     expect(stat.diff!).toBeLessThan(stat.keptWr!.rate - stat.swappedWr!.rate)
 
     // The interval belongs to the MH estimate, not to the crude gap beside it.

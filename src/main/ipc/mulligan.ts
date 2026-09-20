@@ -87,13 +87,7 @@ import {
   type MulliganResult,
   type Rate
 } from '../../shared/openingStats.js'
-import {
-  confidenceFor,
-  mantelHaenszelDiff,
-  newcombeDiff,
-  rate,
-  shrink
-} from '../../shared/stats.js'
+import { confidenceFor, mantelHaenszelDiff, newcombeDiff, rate } from '../../shared/stats.js'
 import { getDb } from '../data/db/client.js'
 import { filterExpressions, type QueryPayload } from './matches.js'
 import { handleIpc } from './typed.js'
@@ -563,14 +557,25 @@ export function registerMulliganIpc(): void {
                 { wins: cell.kept.wins, total: cell.kept.n },
                 { wins: cell.swapped.wins, total: cell.swapped.n }
               )
-            // `diff` is shrunk and the bounds are not, so the point sits a
-            // little inside its own interval, never centred. That is deliberate
-            // and it is the same relationship the 起手 page already has: the
-            // bounds say what the data pins down, the point says what may be
-            // sorted on, and the renderer draws the dot off-centre in the
-            // whisker so the shrinkage is visible rather than looking like a
-            // rounding fault.
-            diff = +shrink(interval.diff, cell.kept.n, cell.swapped.n).toFixed(2)
+            // `diff` is the estimate itself, no longer shrunk toward zero.
+            //
+            // Shrinkage was here to stop a tiny sample from topping a sortable
+            // table with a huge effect. That table is gone: the advisor gives a
+            // verdict, and the verdict is decided by whether the INTERVAL
+            // clears zero (`verdictFor`), which handles the same danger
+            // properly - a thin arm produces bounds too wide to point anywhere,
+            // whatever the point estimate says.
+            //
+            // So the shrinkage no longer buys anything, and it costs something
+            // real: the point could land outside its own bounds (+17.3 against
+            // [17.8, 64.6] in the demo fixture), which the drawer now prints
+            // side by side as plain text. A number outside its own interval
+            // reads as a bug, and defending it needs a paragraph nobody will
+            // read. One estimate, one interval, and they agree.
+            //
+            // `shrink` stays in `shared/stats.ts` - the 起手 page still sorts
+            // on a shrunk difference, and there the table it protects is real.
+            diff = +interval.diff.toFixed(2)
             diffLo = +interval.lo.toFixed(2)
             diffHi = +interval.hi.toFixed(2)
             bands = chosen.bands

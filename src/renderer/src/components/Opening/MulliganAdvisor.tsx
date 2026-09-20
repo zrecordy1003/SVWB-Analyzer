@@ -1,67 +1,48 @@
 /**
- * 換牌建議 - "against this opponent, should I keep this card?", from the
- * user's own matches.
+ * 換牌建議 - "against this opponent, what do I want in my opening hand?", from
+ * the user's own matches.
  *
- * Three regions, top to bottom: the question (opponent and turn order, with
- * the size of the match set it selects), the one sentence that says what the
- * numbers are and are not, and the table with its drill-down.
+ * One control and two columns. The control is the opponent class; the columns
+ * are 先攻 on the left and 後攻 on the right, each recommending which cards to
+ * keep and which to throw back against that opponent on that turn order.
  *
- * # The question is the header, not a filter
+ * # Why the turn order is a column and not a selector
  *
- * The 起手 page's filters live in a toolbar because they narrow a fixed
- * question. Here the opponent IS the question - the plan's title is 「對上某
- * 職業該留哪幾張」 - so the class picker sits in its own panel, taller than
- * the toolbar controls, with the turn order beside it and the match set it
- * selects printed on the right. Changing it should feel like asking again,
- * and the table re-rendering under a stable header is what makes it feel so.
+ * The first version had a three-way segmented control (先攻 / 後攻 / 不分) next
+ * to the class picker and a single table under both. The owner's redirection
+ * was that the question a player brings to this page is 「對上龍族」, full
+ * stop - they do not choose a turn order, the coin does, and they want both
+ * answers in front of them before the coin lands. So the turn order became the
+ * layout. Two queries instead of one (the handler takes ~7ms; the resource
+ * caches per payload) and the 「不分」 option is gone: a pooled answer is what
+ * the handler falls back to on its own when one order is thin, and the basis
+ * mark says so on the row, which is a better place for it than a selector
+ * nobody would know when to use.
  *
  * # The sentence
  *
  * The plan's 七 is unusually direct: at this scale the honest claim is "a
  * shrunk estimate with a control group", not a causal effect, and that belongs
  * in interface copy more than in the formula. The 起手 page put its equivalent
- * behind an ⓘ. This page does not, because the failure mode is different: a
- * reader who misreads 「發到 vs 沒發到」 as an opening-hand win rate is wrong
- * about a clean number; a reader who takes 「留 vs 換」 as proof that keeping
- * a card wins is wrong about a confounded one, and will change how they play.
- * One line, always visible, in secondary text so it frames the table rather
- * than shouting over it. The three things that can never be fixed (五) are
- * behind the title's ⓘ with the rest of the reasoning.
+ * behind an ⓘ. This page does not, because the failure mode is different and
+ * now sharper: a reader who takes 「建議留」 as proof that keeping a card wins
+ * is wrong about a confounded comparison, and will change how they play. One
+ * line, always visible, in secondary text so it frames the columns rather
+ * than shouting over them. The three things that can never be fixed (五) are
+ * behind the ⓘ with the rest of the reasoning.
  */
 import React, { useCallback, useMemo, useRef, useState } from 'react'
-import { Box, Paper, Skeleton, Stack, Typography } from '@mui/material'
+import { Box, Paper, Typography } from '@mui/material'
 
-import type { MulliganResult } from '@shared/openingStats'
+import type { KeepAdvice, MulliganResult } from '@shared/openingStats'
 import { ClassSelect, type ClassChoiceId } from '@renderer/components/Common/filters/ClassSelect'
 import InfoHint from '@renderer/components/Common/InfoHint'
-import SegmentedControl from '@renderer/components/Common/SegmentedControl'
 
+import MulliganColumn from './MulliganColumn'
 import MulliganDrilldownDrawer from './MulliganDrilldownDrawer'
-import MulliganTable from './MulliganTable'
-import {
-  mulliganUnrankedBoundary,
-  pinsOf,
-  questionLabel,
-  sortMulliganRows,
-  toMulliganRows,
-  type MulliganRow
-} from './mulliganState'
-import {
-  DEFAULT_OPENING_SORT,
-  nextOpeningSort,
-  type OpeningFilters,
-  type OpeningSort,
-  type PlayOrderChoice
-} from './openingFilterState'
-import { fmtRate, NUMERIC } from './openingFormat'
+import { pinsOf, type ColumnOrder, type Pins } from './mulliganState'
 
 const QUESTION_CONTROL_HEIGHT = 40
-
-const ORDER_OPTIONS: { id: PlayOrderChoice; label: string }[] = [
-  { id: 'first', label: '先攻' },
-  { id: 'second', label: '後攻' },
-  { id: 'all', label: '不分' }
-]
 
 /**
  * The one sentence. It names what is compared (your kept hands against your
@@ -72,8 +53,8 @@ const HONEST_LINE =
   '這裡比的是你自己留下這張時、和你自己換掉它時的戰績——它描述你的決定與結果，證明不了另一種選擇會怎樣。'
 
 /**
- * The title's ⓘ: the reasoning the sentence compresses, and the three things
- * the plan's 五 says can never be fixed and must be on the page.
+ * The ⓘ: the reasoning the sentence compresses, and the three things the
+ * plan's 五 says can never be fixed and must be on the page.
  */
 function TitleHint(): React.JSX.Element {
   return (
@@ -82,7 +63,13 @@ function TitleHint(): React.JSX.Element {
         <Box component="span" sx={{ fontWeight: 800 }}>
           留不留是你決定的，所以「留 vs 換」不是公平的比較。
         </Box>
-        你在其餘三張順的時候才敢留貴的，於是「留下時勝率高」反映的常是其餘三張。這頁的做法是只在其餘三張費用差不多的手牌之間比（「其餘三張相近」），再把三段合起來；樣本不夠時往外放寬，並在「比較範圍」欄寫明。
+        你在其餘三張順的時候才敢留貴的，於是「留下時勝率高」反映的常是其餘三張。這頁的做法是只在其餘三張費用差不多的手牌之間比（「其餘三張相近」），再把三段合起來；樣本不夠時往外放寬，並在卡片旁邊標記。
+      </Typography>
+      <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
+        <Box component="span" sx={{ fontWeight: 800 }}>
+          只有整個區間都在零的同一側才給建議。
+        </Box>
+        「建議留」是比印一個數字更強的主張，所以門檻只升不降：算得出差值但區間跨過零的卡，這頁不給方向，只算進「還不能給建議」那一行。
       </Typography>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
@@ -100,52 +87,57 @@ function TitleHint(): React.JSX.Element {
   )
 }
 
+/** The card open in the drawer, with the column it was opened from - the drawer's labels need both. */
+type Selection = { advice: KeepAdvice; order: ColumnOrder }
+
 export default function MulliganAdvisor({
-  filters,
-  onPatch,
-  data,
+  oppoClass,
+  onOppoClass,
+  first,
+  second,
   loading,
   showImages
 }: {
-  filters: OpeningFilters
-  onPatch: (patch: Partial<OpeningFilters>) => void
-  data: MulliganResult | null
+  oppoClass: ClassChoiceId
+  onOppoClass: (next: ClassChoiceId) => void
+  first: MulliganResult | null
+  second: MulliganResult | null
   loading: boolean
   showImages: boolean
 }): React.JSX.Element {
-  const [sort, setSort] = useState<OpeningSort>(DEFAULT_OPENING_SORT)
-  const [selectedKey, setSelectedKey] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Selection | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  const pins = useMemo(() => pinsOf(filters), [filters])
-  const allRows = useMemo(() => toMulliganRows(data), [data])
-  const rows = useMemo(() => sortMulliganRows(allRows, sort), [allRows, sort])
-  const unrankedFrom = useMemo(() => mulliganUnrankedBoundary(rows, sort), [rows, sort])
+  const pins = useMemo<Record<ColumnOrder, Pins>>(
+    () => ({ first: pinsOf(oppoClass, 'first'), second: pinsOf(oppoClass, 'second') }),
+    [oppoClass]
+  )
 
-  const lastSelectedRef = useRef<MulliganRow | null>(null)
-  const selectedRow = useMemo(() => {
-    const found = selectedKey ? allRows.find((r) => r.key === selectedKey) : undefined
-    if (found) lastSelectedRef.current = found
-    return found ?? lastSelectedRef.current
-  }, [allRows, selectedKey])
+  // When the data refreshes under an open drawer, follow the same card into the
+  // new result so the drawer shows the live numbers; when the card is gone,
+  // keep the last one mounted so the drawer can slide out over something.
+  const lastRef = useRef<Selection | null>(null)
+  const current = useMemo(() => {
+    if (!selected) return lastRef.current
+    const source = selected.order === 'first' ? first : second
+    const found = source?.cards.find((c) => c.cardId === selected.advice.cardId)
+    const next = found ? { advice: found, order: selected.order } : selected
+    lastRef.current = next
+    return next
+  }, [selected, first, second])
 
-  const openRow = useCallback((row: MulliganRow): void => {
-    setSelectedKey(row.key)
-    setDrawerOpen(true)
-  }, [])
+  const openFrom = useCallback(
+    (order: ColumnOrder) => (advice: KeepAdvice) => {
+      setSelected({ advice, order })
+      setDrawerOpen(true)
+    },
+    []
+  )
+  const openFirst = useMemo(() => openFrom('first'), [openFrom])
+  const openSecond = useMemo(() => openFrom('second'), [openFrom])
 
-  const emptyText = (() => {
-    if (!data) return ''
-    if (data.matches === 0) {
-      return `${questionLabel(pins)}沒有讀到任何四張全認出的起手。只有 1.3.5 之後、看得到換牌畫面的對局才會進來；${
-        pins.oppo || pins.order ? '換個對手或先後手試試。' : '多打幾場再回來。'
-      }`
-    }
-    if (allRows.length === 0) {
-      return `${data.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`
-    }
-    return ''
-  })()
+  const selectedIn = (order: ColumnOrder): number | null =>
+    drawerOpen && selected?.order === order ? selected.advice.cardId : null
 
   return (
     <>
@@ -157,44 +149,16 @@ export default function MulliganAdvisor({
       >
         <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
           <Typography variant="subtitle1" fontWeight={800} sx={{ whiteSpace: 'nowrap' }}>
-            對手
+            對上
           </Typography>
           <ClassSelect<ClassChoiceId>
             allowAll
-            value={filters.oppoClass}
-            onChange={(oppoClass) => onPatch({ oppoClass })}
+            value={oppoClass}
+            onChange={onOppoClass}
             height={QUESTION_CONTROL_HEIGHT}
           />
-          <SegmentedControl
-            options={ORDER_OPTIONS}
-            value={filters.playOrder}
-            onChange={(playOrder) => onPatch({ playOrder })}
-            height={QUESTION_CONTROL_HEIGHT}
-            minSegmentWidth={64}
-            aria-label="先後手"
-          />
-
-          <Box sx={{ flex: 1, minWidth: 8 }} />
-
-          {/* The match set the question selects, and its own win rate: the
-              baseline every arm below is implicitly read against. */}
-          {data === null ? (
-            <Skeleton variant="text" width={160} />
-          ) : (
-            <Typography
-              variant="caption"
-              data-testid="mulligan-baseline"
-              sx={{ ...NUMERIC, color: 'text.secondary', whiteSpace: 'nowrap' }}
-            >
-              <Box component="span" sx={{ fontWeight: 800, color: 'text.primary' }}>
-                {data.matches}
-              </Box>{' '}
-              場完整起手
-              {data.baseline && data.baseline.total > 0 ? ` · 勝率 ${fmtRate(data.baseline)}` : ''}
-            </Typography>
-          )}
+          <InfoHint label="這一頁在比什麼" title={<TitleHint />} />
         </Box>
-
         <Typography
           variant="caption"
           data-testid="mulligan-honest-line"
@@ -204,58 +168,41 @@ export default function MulliganAdvisor({
         </Typography>
       </Paper>
 
-      {/* ---------- 表 ---------- */}
-      <Paper elevation={0} sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}>
-        <Box
-          sx={{
-            px: { xs: 2, sm: 2.5 },
-            py: 1.5,
-            display: 'flex',
-            gap: { xs: 1.5, sm: 3 },
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            bgcolor: 'action.hover'
-          }}
-        >
-          <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle1" fontWeight={800}>
-              {questionLabel(pins)}
-            </Typography>
-            <InfoHint label="這張表在比什麼" title={<TitleHint />} />
-          </Stack>
-          {data === null ? (
-            <Skeleton variant="text" width={60} sx={{ ml: 'auto' }} />
-          ) : (
-            <Typography
-              variant="caption"
-              data-testid="mulligan-table-count"
-              sx={{ ...NUMERIC, ml: 'auto', color: 'text.secondary' }}
-            >
-              <Box component="span" sx={{ fontWeight: 800, color: 'text.primary' }}>
-                {allRows.length}
-              </Box>{' '}
-              種卡
-            </Typography>
-          )}
-        </Box>
-
-        <MulliganTable
-          rows={rows}
-          pins={pins}
-          sort={sort}
-          onSort={(key) => setSort((prev) => nextOpeningSort(prev, key))}
-          unrankedFrom={unrankedFrom}
+      {/* ---------- 兩欄 ---------- */}
+      {/* Equal columns from the md breakpoint (900px) up, stacked below. Grid rather than flex so
+          the two headings sit on one line at any width the columns share. */}
+      <Box
+        data-testid="mulligan-columns"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'repeat(2, minmax(0, 1fr))' },
+          gap: 1.5,
+          alignItems: 'start'
+        }}
+      >
+        <MulliganColumn
+          order="first"
+          pins={pins.first}
+          data={first}
+          loading={loading}
           showImages={showImages}
-          selectedKey={drawerOpen ? selectedKey : null}
-          onSelect={openRow}
-          loading={loading || data === null}
-          emptyText={emptyText}
+          selectedId={selectedIn('first')}
+          onSelect={openFirst}
         />
-      </Paper>
+        <MulliganColumn
+          order="second"
+          pins={pins.second}
+          data={second}
+          loading={loading}
+          showImages={showImages}
+          selectedId={selectedIn('second')}
+          onSelect={openSecond}
+        />
+      </Box>
 
       <MulliganDrilldownDrawer
-        row={selectedRow}
-        pins={pins}
+        advice={current?.advice ?? null}
+        pins={current ? pins[current.order] : pins.first}
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
       />
