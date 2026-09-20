@@ -20,11 +20,13 @@
  * question people come with, and the overview is one segment away when a
  * number in the advisor sends them looking for the clean version.
  *
- * The toolbar (own class, mode, advanced filters) applies to both views; the
- * advisor adds its own selector (the opponent) inside its own panel because it
- * is the question, not a filter - see its header. The advisor asks the handler
- * twice, once per turn order, and this page owns both queries so that the demo
- * switch below can replace both answers in the same place.
+ * The view switch sits at the right-hand end of the filter bar, not on a line
+ * of its own above it. Both views answer the same toolbar, so the switch is
+ * part of that toolbar; a control floating on its own row read as a page
+ * header and cost a whole line of vertical space to say so. The advisor adds
+ * its own selector (the opponent) inside its own panel because it is the
+ * question, not a filter - see its header. The advisor asks the handler twice,
+ * once per turn order, and this page owns both queries.
  *
  * # Where the explanation went
  *
@@ -42,32 +44,28 @@
  * chip mechanics, the filter components imported verbatim - because a third
  * page that looked a few percent different would read as a different app.
  *
- * # 示範資料
+ * # 示範資料 (gone)
  *
- * The toolbar has a switch that swaps the real result for a hand-written one
- * (`demoData.ts`). It exists because the page has far more states than a young
- * account will show, and the empty ones have to be judged too. It defaults to
- * off, it is labelled in the warning colour on the switch AND with a banner
- * across the content, and it is not persisted: nobody should come back
- * tomorrow to a page of numbers that were never theirs.
+ * There used to be a switch here that swapped the real result for a
+ * hand-written one, so the page's emptier states could be judged before any
+ * account had produced them. It has served that purpose and is removed: the
+ * seeded database (`tools/seed-opening-demo.mjs`) covers the same ground
+ * without putting a control on the page that can show a user numbers that
+ * were never theirs. `demoData.ts` stays for now as the fixture those states
+ * were designed against.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
-  Chip,
-  FormControl,
   FormControlLabel,
-  MenuItem,
   Paper,
-  Select,
   Skeleton,
   Stack,
   Switch,
   Typography
 } from '@mui/material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
-import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
 import type { SvgIconComponent } from '@mui/icons-material'
 
@@ -102,12 +100,6 @@ import MulliganAdvisor from './MulliganAdvisor'
 import OpeningSummaryPanel from './OpeningSummaryPanel'
 import OpeningTable from './OpeningTable'
 import OpeningDrilldownDrawer from './OpeningDrilldownDrawer'
-import {
-  DEMO_MULLIGAN_VARIANTS,
-  DEMO_VARIANTS,
-  type DemoMulliganKey,
-  type DemoVariantKey
-} from './demoData'
 import {
   DEFAULT_OPENING_SORT,
   buildMulliganQuery,
@@ -205,10 +197,6 @@ export default function OpeningPage(): React.JSX.Element {
   const [showArchivedDecks, setShowArchivedDecks] = useState(false)
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
-  /** Off by default and never persisted; see the file header. */
-  const [demo, setDemo] = useState(false)
-  const [demoVariant, setDemoVariant] = useState<DemoVariantKey>('full')
-  const [demoMulliganVariant, setDemoMulliganVariant] = useState<DemoMulliganKey>('full')
 
   const { allDeckVersions, loading: decksLoading, refreshDecks } = useDecksTags()
 
@@ -336,28 +324,12 @@ export default function OpeningPage(): React.JSX.Element {
   const liveFirst = useMulligan(mulliganFirst)
   const liveSecond = useMulligan(mulliganSecond)
 
-  // The swap is here and nowhere else: everything below reads `data` and does
-  // not know whether it is real.
-  const demoResult = useMemo(
-    () => DEMO_VARIANTS.find((v) => v.key === demoVariant)?.result ?? DEMO_VARIANTS[0].result,
-    [demoVariant]
-  )
-  const demoMulligan = useMemo(
-    () =>
-      DEMO_MULLIGAN_VARIANTS.find((v) => v.key === demoMulliganVariant)?.result ??
-      DEMO_MULLIGAN_VARIANTS[0].result,
-    [demoMulliganVariant]
-  )
-  const data = demo ? demoResult : live.data
-  const loading = demo ? false : live.loading
-  const firstData = demo ? demoMulligan.first : liveFirst.data
-  const secondData = demo ? demoMulligan.second : liveSecond.data
-  const mulliganLoading = demo ? false : liveFirst.loading || liveSecond.loading
-  const error = demo
-    ? null
-    : view === 'advisor'
-      ? (liveFirst.error ?? liveSecond.error)
-      : live.error
+  const data = live.data
+  const loading = live.loading
+  const firstData = liveFirst.data
+  const secondData = liveSecond.data
+  const mulliganLoading = liveFirst.loading || liveSecond.loading
+  const error = view === 'advisor' ? (liveFirst.error ?? liveSecond.error) : live.error
 
   const allRows = useMemo(() => toOpeningRows(data), [data])
   const rows = useMemo(() => sortOpeningRows(allRows, sort), [allRows, sort])
@@ -445,80 +417,7 @@ export default function OpeningPage(): React.JSX.Element {
       data-testid="opening-page"
       sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 1.5, pb: 4 }}
     >
-      {/* 第一列：這頁的兩種看法，和示範資料的開關。開關不是篩選條件，所以隔著空白
-          擺到另一邊，而且用警告色 - 它開著的時候畫面上不能有一個數字讓人誤以為是
-          自己的。情境下拉跟著目前的看法換：兩個表各有自己的空狀態要看。 */}
-      <Box display="flex" alignItems="center" gap={1.5} flexWrap="wrap">
-        <SegmentedControl
-          options={VIEW_OPTIONS}
-          value={view}
-          onChange={(next) => patchFilters({ view: next })}
-          height={TOOLBAR_CONTROL_HEIGHT}
-          minSegmentWidth={104}
-          aria-label="起手頁的看法"
-        />
-
-        <Box sx={{ flex: 1, minWidth: 8 }} />
-
-        <Stack direction="row" alignItems="center" spacing={1} data-testid="opening-demo">
-          {demo && view === 'overview' && (
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <Select
-                value={demoVariant}
-                onChange={(event) => setDemoVariant(event.target.value as DemoVariantKey)}
-                inputProps={{ 'aria-label': '示範資料的情境' }}
-                sx={{ height: TOOLBAR_CONTROL_HEIGHT, fontSize: 13 }}
-              >
-                {DEMO_VARIANTS.map((v) => (
-                  <MenuItem key={v.key} value={v.key} sx={{ fontSize: 13 }}>
-                    {v.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          {demo && view === 'advisor' && (
-            <FormControl size="small" sx={{ minWidth: 200 }}>
-              <Select
-                value={demoMulliganVariant}
-                onChange={(event) => setDemoMulliganVariant(event.target.value as DemoMulliganKey)}
-                inputProps={{ 'aria-label': '示範資料的情境' }}
-                sx={{ height: TOOLBAR_CONTROL_HEIGHT, fontSize: 13 }}
-              >
-                {DEMO_MULLIGAN_VARIANTS.map((v) => (
-                  <MenuItem key={v.key} value={v.key} sx={{ fontSize: 13 }}>
-                    {v.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          )}
-          <FormControlLabel
-            control={
-              <Switch
-                size="small"
-                color="warning"
-                checked={demo}
-                onChange={(event) => setDemo(event.target.checked)}
-                inputProps={{ 'aria-label': '顯示示範資料' }}
-              />
-            }
-            label={
-              <Chip
-                icon={<ScienceOutlinedIcon sx={{ fontSize: 15 }} />}
-                label="示範資料"
-                size="small"
-                color="warning"
-                variant={demo ? 'filled' : 'outlined'}
-                sx={{ height: 24, fontWeight: 700, cursor: 'pointer' }}
-              />
-            }
-            sx={{ ml: 0.5, mr: 0 }}
-          />
-        </Stack>
-      </Box>
-
-      {/* 工作列：和 卡片 / 牌組戰績 同一套，兩種看法共用。 */}
+      {/* 工作列：和 卡片 / 牌組戰績 同一套，兩種看法共用；看法本身在最右邊。 */}
       <Paper
         variant="outlined"
         sx={{ borderRadius: 2, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.25 }}
@@ -535,6 +434,19 @@ export default function OpeningPage(): React.JSX.Element {
             onChange={(gameMode) => patchFilters({ gameMode })}
             height={TOOLBAR_CONTROL_HEIGHT}
           />
+
+          {/* 靠右：這是「在看哪一種」，不是「看哪些對局」。放在同一列的另一端，
+              讓它和左邊的篩選條件用距離分開，而不是用另一列。 */}
+          <Box sx={{ flex: 1, minWidth: 8 }} />
+
+          <SegmentedControl
+            options={VIEW_OPTIONS}
+            value={view}
+            onChange={(next) => patchFilters({ view: next })}
+            height={TOOLBAR_CONTROL_HEIGHT}
+            minSegmentWidth={104}
+            aria-label="起手頁的看法"
+          />
         </Box>
 
         <AdvancedFilterBar
@@ -549,20 +461,6 @@ export default function OpeningPage(): React.JSX.Element {
           editorWidth={(key) => (key === 'decks' ? 420 : 372)}
         />
       </Paper>
-
-      {demo && (
-        <Alert
-          severity="warning"
-          icon={<ScienceOutlinedIcon fontSize="inherit" />}
-          data-testid="opening-demo-banner"
-          sx={{ borderRadius: 2, py: 0.5 }}
-        >
-          <Box component="span" sx={{ fontWeight: 800 }}>
-            這一頁顯示的是示範資料，不是你的紀錄。
-          </Box>{' '}
-          篩選對它無效；關掉右上角的開關就回到真的。
-        </Alert>
-      )}
 
       {error && (
         <Alert severity="warning" sx={{ borderRadius: 2 }}>
@@ -653,7 +551,6 @@ export default function OpeningPage(): React.JSX.Element {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         baseQuery={query}
-        demo={demo}
       />
     </Box>
   )

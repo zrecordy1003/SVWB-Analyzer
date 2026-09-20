@@ -1,3 +1,5 @@
+import { app } from 'electron'
+
 /**
  * Where uploads go.
  *
@@ -28,4 +30,35 @@ export function telemetryEndpoint(): string | null {
   } catch {
     return null
   }
+}
+
+/**
+ * Where uploads go — which, on a development build, is nowhere.
+ *
+ * `telemetryEndpoint()` above answers two different questions at once, and
+ * they need different answers off a packaged build:
+ *
+ *   reading  the published meta document (`ipc/meta.ts`) — must keep working,
+ *            otherwise 環境 is a blank page every time the app runs from source
+ *   writing  this machine's own matches — must NOT happen from source
+ *
+ * The reason is not that dev data is private; it is that a development
+ * machine's database is **not a record of games played**. It holds seeded
+ * demo matches, half-migrated rows, whatever the last experiment left behind.
+ * `classifyRow` already refuses anything whose `source` it does not recognise,
+ * so a fabricated row cannot become a bucket — but that is a filter on one
+ * known mistake, and it was itself added *after* 583 seeded matches uploaded
+ * themselves as trustworthy. This is the layer that does not depend on
+ * guessing which mistake comes next: **an unpackaged build has no upload
+ * endpoint at all.**
+ *
+ * The escape hatch is explicit and can only point somewhere deliberate:
+ * setting `SVWB_TELEMETRY_URL` re-enables uploading, because typing a URL is
+ * a statement of intent. Pointing it at `wrangler dev` is the supported way
+ * to exercise the whole path; pointing it at production from a dev build is
+ * possible, and is the one case where you have said so out loud.
+ */
+export function telemetryUploadEndpoint(): string | null {
+  if (!app.isPackaged && !(process.env.SVWB_TELEMETRY_URL ?? '').trim()) return null
+  return telemetryEndpoint()
 }

@@ -42,7 +42,7 @@ import {
   type TelemetryPayload,
   type TelemetryStatus
 } from '../../shared/telemetry.js'
-import { telemetryEndpoint } from './config.js'
+import { telemetryUploadEndpoint } from './config.js'
 import { rollup, windowStartMs, type RollupRow } from './rollup.js'
 import { handleIpc } from '../ipc/typed.js'
 
@@ -75,7 +75,7 @@ type Deps = {
 const productionDeps: Deps = {
   fetch: (url, init) => net.fetch(url, init),
   now: () => Date.now(),
-  endpoint: telemetryEndpoint,
+  endpoint: telemetryUploadEndpoint,
   environment: () => ({
     appVersion: app.getVersion(),
     platform: process.platform,

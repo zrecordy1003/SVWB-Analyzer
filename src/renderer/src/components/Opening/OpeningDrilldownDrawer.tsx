@@ -52,7 +52,6 @@ import {
 } from '@renderer/components/Common/surfaces'
 
 import { IntervalBar, MissingPill, RateCell, SampleOnly } from './cells'
-import { demoOpponentSplit } from './demoData'
 import type { OpeningRow } from './openingFilterState'
 import {
   fmtN,
@@ -243,34 +242,30 @@ function OpponentLine({
   klass,
   label,
   stat,
-  baseQuery,
-  demo
+  baseQuery
 }: {
   klass: ClassName
   label: string
   stat: OpeningCardStat
   baseQuery: OpeningStatsPayload | null
-  demo: boolean
 }): React.JSX.Element {
   const query = React.useMemo<OpeningStatsPayload | null>(
-    () => (demo || !baseQuery ? null : { ...baseQuery, oppoClassIds: [klass] }),
-    [baseQuery, demo, klass]
+    () => (baseQuery ? { ...baseQuery, oppoClassIds: [klass] } : null),
+    [baseQuery, klass]
   )
   const { data, loading } = openingStatsResource.use(query ? [query] : null)
-  const split = demo
-    ? demoOpponentSplit(stat, klass)
-    : (() => {
-        if (!data) return null
-        const row = data.cards.find((c) => c.cardId === stat.cardId)
-        return row ? { dealt: row.dealt, kept: row.kept } : { dealt: 0, kept: 0 }
-      })()
+  const split = (() => {
+    if (!data) return null
+    const row = data.cards.find((c) => c.cardId === stat.cardId)
+    return row ? { dealt: row.dealt, kept: row.kept } : { dealt: 0, kept: 0 }
+  })()
   return (
     <KeepLine
       icon={<ClassIcon id={klass} size={18} />}
       label={label}
       dealt={split?.dealt ?? null}
       kept={split?.kept ?? null}
-      loading={!demo && loading && !data}
+      loading={loading && !data}
     />
   )
 }
@@ -279,8 +274,7 @@ export default function OpeningDrilldownDrawer({
   row,
   open,
   onClose,
-  baseQuery,
-  demo
+  baseQuery
 }: {
   /** The last selected row stays mounted while the drawer slides out. */
   row: OpeningRow | null
@@ -288,8 +282,6 @@ export default function OpeningDrilldownDrawer({
   onClose: () => void
   /** The page's current query; the split adds one opponent class to it. */
   baseQuery: OpeningStatsPayload | null
-  /** 示範資料 is on: the split is derived, not queried. */
-  demo: boolean
 }): React.JSX.Element {
   const stat = row?.stat ?? null
 
@@ -461,7 +453,6 @@ export default function OpeningDrilldownDrawer({
                     label={c.label}
                     stat={stat}
                     baseQuery={baseQuery}
-                    demo={demo}
                   />
                 ))}
               </Box>
