@@ -43,12 +43,8 @@
  * a glance: did this verdict honour my column or not.
  */
 import type { AdviceBasis, KeepAdvice, KeepVerdict, MulliganResult } from '@shared/openingStats'
-import {
-  answersTheChosenMatchup,
-  KEEP_THRESHOLDS,
-  REST_BANDS,
-  verdictFor
-} from '@shared/openingStats'
+import { answersTheChosenMatchup, KEEP_THRESHOLDS, REST_BANDS } from '@shared/openingStats'
+import { verdictsForColumn } from '@shared/stats'
 import { classes } from '@renderer/map/classMap'
 import { playOrders } from '@renderer/map/playOrder'
 
@@ -218,8 +214,12 @@ export function groupByVerdict(
 ): VerdictGroups {
   const groups: VerdictGroups = { keep: [], toss: [], general: [], unclear: [], unknown: [] }
   if (!result) return groups
+  // One pass over the whole column, not a judgement per card: the verdicts are
+  // Benjamini-Hochberg corrected against each other, so a card's answer depends
+  // on how many other cards were examined beside it. See `verdictsForColumn`.
+  const verdicts = verdictsForColumn(result.cards)
   for (const advice of result.cards) {
-    const verdict = verdictFor(advice)
+    const verdict = verdicts.get(advice.cardId) ?? 'unknown'
     // A direction is only filed as advice about THIS matchup when the evidence
     // still concerns it. Otherwise it is true and it is about something else.
     const misattributed =

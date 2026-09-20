@@ -16,6 +16,9 @@ import {
   type Confidence
 } from '../../src/shared/openingStats'
 import {
+  benjaminiHochberg,
+  pValueFromInterval,
+  verdictsForColumn,
   binomialTwoSided,
   confidenceFor,
   hypergeometricAtLeastOne,
@@ -463,5 +466,77 @@ describe('verdictFor minimum effect', () => {
     const near = (lo: number) => verdictFor({ confidence: 'sortable', diffLo: lo, diffHi: 40 })
     expect(near(KEEP_THRESHOLDS.minEffect)).toBe('keep')
     expect(near(KEEP_THRESHOLDS.minEffect - 0.01)).toBe('unclear')
+  })
+})
+
+describe('benjaminiHochberg', () => {
+  it('rejects nothing when every p-value is large', () => {
+    expect(benjaminiHochberg([0.4, 0.6, 0.9])).toEqual([false, false, false])
+  })
+
+  it('is a step-up: a clearing test drags the ones ranked under it through', () => {
+    // 0.04 alone would fail its own step (1/3 × 0.05 = 0.0167), but 0.001
+    // clears the top step, so BH rejects everything ranked at or below the
+    // largest clearing rank. That is what separates it from a flat threshold.
+    expect(benjaminiHochberg([0.001, 0.03, 0.9], 0.05)).toEqual([true, true, false])
+  })
+
+  it('gets stricter as the column gets longer', () => {
+    // The same p-value survives in a short column and not in a long one -
+    // which is the entire point, and why a per-card rule could not do this.
+    expect(benjaminiHochberg([0.02, 0.9])[0]).toBe(true)
+    expect(benjaminiHochberg([0.02, ...Array.from({ length: 19 }, () => 0.9)])[0]).toBe(false)
+  })
+
+  it('returns an empty mask for an empty column', () => {
+    expect(benjaminiHochberg([])).toEqual([])
+  })
+})
+
+describe('pValueFromInterval', () => {
+  it('recovers the p-value the interval implies', () => {
+    // An interval whose lower bound sits exactly on zero is p = 0.05.
+    expect(pValueFromInterval(10, 0, 20)).toBeCloseTo(0.05, 2)
+    // Twice as far from zero for the same width is far smaller.
+    expect(pValueFromInterval(20, 10, 30)).toBeLessThan(0.001)
+  })
+
+  it('says nothing rather than everything when the interval has no width', () => {
+    expect(pValueFromInterval(10, 5, 5)).toBe(1)
+  })
+})
+
+describe('verdictsForColumn', () => {
+  const card = (cardId: number, diff: number, lo: number, hi: number) => ({
+    cardId,
+    confidence: 'sortable' as Confidence,
+    diff,
+    diffLo: lo,
+    diffHi: hi
+  })
+
+  it('keeps a verdict that survives its own column', () => {
+    const v = verdictsForColumn([card(1, 30, 18, 42), card(2, 1, -20, 22)])
+    expect(v.get(1)).toBe('keep')
+    expect(v.get(2)).toBe('unclear')
+  })
+
+  it('withdraws a borderline verdict once the column is long enough', () => {
+    // One card barely clearing, surrounded by fifteen that do not. On its own
+    // it would be a recommendation; among sixteen tests it is the one you
+    // expect to see by luck, and the page must not print it.
+    const lucky = card(1, 21, 2.5, 39.5)
+    const rest = Array.from({ length: 15 }, (_, i) => card(i + 2, 1, -25, 27))
+    expect(verdictsForColumn([lucky]).get(1)).toBe('keep')
+    expect(verdictsForColumn([lucky, ...rest]).get(1)).toBe('unclear')
+  })
+
+  it('leaves the cards that never had an estimate alone', () => {
+    const v = verdictsForColumn([
+      { cardId: 9, confidence: 'hidden', diff: null, diffLo: null, diffHi: null },
+      card(1, 30, 18, 42)
+    ])
+    expect(v.get(9)).toBe('unknown')
+    expect(v.get(1)).toBe('keep')
   })
 })

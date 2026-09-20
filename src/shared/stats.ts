@@ -25,7 +25,9 @@ import {
   DECK_SIZE,
   HAND_SIZE,
   OPENING_THRESHOLDS,
+  verdictFor,
   type Confidence,
+  type KeepVerdict,
   type Rate
 } from './openingStats.js'
 
@@ -445,4 +447,136 @@ export function mean(xs: number[]): number | null {
     count++
   }
   return count === 0 ? null : sum / count
+}
+
+/**
+ * A two-sided p-value read back off an estimate and its interval.
+ *
+ * The advisor never computes a p-value directly - it has a Mantel-Haenszel
+ * difference and a Greenland-Robins interval - but the interval's half-width
+ * IS `z * SE`, so the standard error can be recovered and the test rebuilt.
+ * That avoids a second variance calculation that would have to be kept in step
+ * with the first one.
+ *
+ * Returns 1 (no evidence) when the interval has no width, which happens only
+ * at the degenerate boundary the Haldane-Anscombe correction already softens.
+ */
+export function pValueFromInterval(diff: number, lo: number, hi: number): number {
+  const se = (hi - lo) / (2 * Z_95)
+  if (!Number.isFinite(se) || se <= 0) return 1
+  const z = Math.abs(diff) / se
+  // Two-sided normal tail, via the same erf-free approximation used elsewhere
+  // for a standard normal: Abramowitz & Stegun 26.2.17, good to 7.5e-8.
+  const t = 1 / (1 + 0.2316419 * z)
+  const d = 0.3989422804014327 * Math.exp((-z * z) / 2)
+  const upper =
+    d *
+    t *
+    (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+  return Math.min(1, Math.max(0, 2 * upper))
+}
+
+/**
+ * Benjamini-Hochberg: which of these tests may be called discoveries.
+ *
+ * A page that shows sixteen cards and tests each at 95% expects to be wrong
+ * about one of them, and this app draws fourteen such columns. Measured on the
+ * seeded fixture that is five or six confident recommendations for cards with
+ * nothing planted in them - and, crucially, MORE data does not fix it: the
+ * false-positive rate is a property of the test, not of the sample.
+ *
+ * BH changes the promise from "each test is 95% sure" to "at most `q` of the
+ * cards we recommend are noise", which is the promise a reader actually cares
+ * about when they are handed a list. Bonferroni was the alternative and was
+ * rejected: it controls the chance of ANY error, which at this sample size
+ * would leave the page empty in every column, and the reader is choosing among
+ * the recommendations rather than betting the game on all of them.
+ *
+ * Returns a mask in the caller's order.
+ */
+export function benjaminiHochberg(pValues: readonly number[], q = 0.05): boolean[] {
+  const n = pValues.length
+  if (n === 0) return []
+  const order = pValues.map((p, i) => ({ p: Number.isFinite(p) ? p : 1, i }))
+  order.sort((a, b) => a.p - b.p)
+  // The largest k whose p clears its own step of the ramp; everything ranked
+  // at or below it is rejected too, which is what makes BH a step-UP procedure
+  // rather than a per-test threshold.
+  let cutoff = -1
+  for (let k = 0; k < n; k++) {
+    if (order[k].p <= ((k + 1) / n) * q) cutoff = k
+  }
+  const mask = new Array<boolean>(n).fill(false)
+  for (let k = 0; k <= cutoff; k++) mask[order[k].i] = true
+  return mask
+}
+
+/**
+ * Verdicts for a whole column at once, with the multiplicity taken out.
+ *
+ * Lives here rather than beside `verdictFor` in `openingStats.ts` for one
+ * mechanical reason: this module already imports that one, so putting it there
+ * would have made the dependency circular. A cycle between two modules that
+ * both export runtime constants is a class of bug that typechecks perfectly
+ * and then hands somebody `undefined` at import time.
+ *
+ * `verdictFor` judges one card against one 95% interval, and that is the right
+ * test for one card. A column is not one card: it shows sixteen of them, and
+ * the page draws fourteen columns. At a nominal 5% each, roughly one card per
+ * column earns a recommendation for no reason - measured on the seeded fixture
+ * that is five or six spurious rows across the grid, in cards with nothing
+ * planted in them.
+ *
+ * The important part: **more data does not fix that.** The false-positive rate
+ * belongs to the test, not to the sample, so the page would go on inventing a
+ * recommendation every other column forever. A verdict page cannot ship with
+ * that; a number page could, because a number invites judgement and a
+ * recommendation asks for trust.
+ *
+ * So the direction still comes from the interval, the size still has to clear
+ * `minEffect`, and on top of both the card has to survive Benjamini-Hochberg
+ * against the other cards in its own column. The promise changes from "this
+ * one test is 95% sure" to "at most one in twenty of the cards recommended
+ * here is noise", which is the promise the reader is actually relying on.
+ *
+ * Returns a verdict per card, keyed by `cardId`, in one pass.
+ */
+export function verdictsForColumn(
+  cards: readonly {
+    cardId: number
+    confidence: Confidence
+    diff: number | null
+    diffLo: number | null
+    diffHi: number | null
+  }[],
+  q = 0.05
+): Map<number, KeepVerdict> {
+  const out = new Map<number, KeepVerdict>()
+  // Every card that HAS an estimate enters the correction, not just the ones
+  // that already cleared the per-card bar.
+  //
+  // The first version filtered to the latter and it was wrong: the price of
+  // multiplicity is paid for the hypotheses you EXAMINED, not the ones that
+  // happened to pass. Correcting only among the survivors makes `n` small
+  // exactly when the column is full of near-misses - which is precisely the
+  // situation where one of them cleared by luck. Cards with no estimate at all
+  // are excluded, because no test was run on them.
+  const testable = cards.filter((c) => c.diffLo !== null && c.diffHi !== null && c.diff !== null)
+  const survives = benjaminiHochberg(
+    testable.map((c) => pValueFromInterval(c.diff ?? 0, c.diffLo ?? 0, c.diffHi ?? 0)),
+    q
+  )
+  const kept = new Set<number>()
+  testable.forEach((c, i) => {
+    if (survives[i]) kept.add(c.cardId)
+  })
+  for (const c of cards) {
+    const own = verdictFor(c)
+    if (own !== 'keep' && own !== 'toss') {
+      out.set(c.cardId, own)
+      continue
+    }
+    out.set(c.cardId, kept.has(c.cardId) ? own : 'unclear')
+  }
+  return out
 }
