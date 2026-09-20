@@ -527,7 +527,7 @@ export default function MulliganColumn({
   onSelect: (advice: KeepAdvice) => void
 }): React.JSX.Element {
   const tone = playOrders[order]
-  const groups = useMemo(() => groupByVerdict(data), [data])
+  const groups = useMemo(() => groupByVerdict(data, pins.oppo !== null), [data, pins.oppo])
   const hasVerdicts = groups.keep.length + groups.toss.length > 0
 
   return (
@@ -640,6 +640,53 @@ export default function MulliganColumn({
               unclear={groups.unclear}
               unknown={groups.unknown}
             />
+          )}
+          {groups.general.length > 0 && (
+            <Box sx={{ pb: 0.5 }}>
+              {/*
+                Own heading, deliberately not 建議留. These rows have a
+                direction and the direction is real; what they do not have is
+                anything to do with the opponent in the column title. Filing
+                them among the recommendations is how a column headed
+                「對上精靈」 ends up showing five confident cards, none of which
+                is about 精靈 - and the same five in every other column too.
+              */}
+              <Stack
+                direction="row"
+                alignItems="baseline"
+                spacing={0.75}
+                sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}
+              >
+                <Typography sx={{ fontSize: 13, fontWeight: 700, color: 'text.secondary' }}>
+                  不分對手的傾向
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: 'text.disabled' }}>
+                  {groups.general.length}
+                </Typography>
+                <InfoHint
+                  label="說明：為什麼這些不算對這個對手的建議"
+                  title={
+                    <Hint>
+                      這幾張{pins.oppo ? `對上${pins.oppo}` : ''}
+                      的場數還不夠比，所以數字是把所有對手合起來算的。它們是關於你這副牌的傾向，**不是**關於這個對手——同一批卡會出現在每一欄，數字也一樣。等這個對位的場次夠了，站得住的那些會自己移到上面去。
+                    </Hint>
+                  }
+                />
+              </Stack>
+              <Box sx={{ px: 0.5, opacity: 0.85 }}>
+                {groups.general.map((advice) => (
+                  <VerdictRow
+                    key={advice.cardId}
+                    advice={advice}
+                    verdict={advice.diff !== null && advice.diff >= 0 ? 'keep' : 'toss'}
+                    pins={pins}
+                    showImages={showImages}
+                    selected={advice.cardId === selectedId}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </Box>
+            </Box>
           )}
           <RestLine
             unclear={groups.unclear}

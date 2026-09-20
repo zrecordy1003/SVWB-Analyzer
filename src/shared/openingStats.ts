@@ -489,3 +489,30 @@ export function verdictFor(advice: {
   if (advice.diffHi < 0) return 'toss'
   return 'unclear'
 }
+
+/**
+ * Does this row's evidence actually concern the opponent the reader picked?
+ *
+ * The fallback ladder exists so a thin matchup gets an answer instead of a
+ * blank, and that is right for a NUMBER. It is not right for a VERDICT. With
+ * thirty matches against elf every recommendation comes from the rung that
+ * pooled the opponents away, so a column headed 「對上精靈」 fills with
+ * confident-looking advice, none of it about elf - and the same five cards,
+ * with the same numbers, appear in all seven columns.
+ *
+ * The mark saying which rung answered is already on every row, but a reader
+ * scanning green recommendations reads the recommendation first. So the rule
+ * is structural rather than typographic: **evidence that pooled away the thing
+ * you asked about cannot be presented as an answer about it.** Those cards are
+ * still shown, under their own heading, described as what they are.
+ *
+ * Only the opponent is treated this way. `'opponent'` pools the turn orders,
+ * which weakens a column heading but still concerns the matchup the reader
+ * chose; the mark carries that, and forbidding it as well would empty the page
+ * for a distinction most readers would accept. With no opponent picked, the
+ * pooled rung IS the question asked, and everything answers.
+ */
+export function answersTheChosenMatchup(basis: AdviceBasis, oppoPinned: boolean): boolean {
+  if (!oppoPinned) return true
+  return basis !== 'all-opponents'
+}

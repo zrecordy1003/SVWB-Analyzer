@@ -43,7 +43,12 @@
  * a glance: did this verdict honour my column or not.
  */
 import type { AdviceBasis, KeepAdvice, KeepVerdict, MulliganResult } from '@shared/openingStats'
-import { KEEP_THRESHOLDS, REST_BANDS, verdictFor } from '@shared/openingStats'
+import {
+  answersTheChosenMatchup,
+  KEEP_THRESHOLDS,
+  REST_BANDS,
+  verdictFor
+} from '@shared/openingStats'
 import { classes } from '@renderer/map/classMap'
 import { playOrders } from '@renderer/map/playOrder'
 
@@ -157,6 +162,16 @@ export const BAND_LABEL: readonly string[] = Array.from({ length: REST_BANDS }, 
 export type VerdictGroups = {
   keep: KeepAdvice[]
   toss: KeepAdvice[]
+  /**
+   * Rows with a direction whose evidence pooled the chosen opponent away.
+   *
+   * They are real advice about the player's deck in general and they are NOT
+   * advice about this matchup, so they get their own heading rather than
+   * sitting among the recommendations under a column titled 「對上精靈」.
+   * Empty whenever no opponent is chosen, because then there is nothing the
+   * pooling took away. See `answersTheChosenMatchup`.
+   */
+  general: KeepAdvice[]
   unclear: KeepAdvice[]
   unknown: KeepAdvice[]
 }
@@ -196,12 +211,25 @@ function distanceToVerdict(advice: KeepAdvice): number {
   return Math.min(-advice.diffLo, advice.diffHi)
 }
 
-export function groupByVerdict(result: MulliganResult | null): VerdictGroups {
-  const groups: VerdictGroups = { keep: [], toss: [], unclear: [], unknown: [] }
+export function groupByVerdict(
+  result: MulliganResult | null,
+  /** Whether the reader actually chose an opponent, or is looking at all of them. */
+  oppoPinned: boolean
+): VerdictGroups {
+  const groups: VerdictGroups = { keep: [], toss: [], general: [], unclear: [], unknown: [] }
   if (!result) return groups
-  for (const advice of result.cards) groups[verdictFor(advice)].push(advice)
+  for (const advice of result.cards) {
+    const verdict = verdictFor(advice)
+    // A direction is only filed as advice about THIS matchup when the evidence
+    // still concerns it. Otherwise it is true and it is about something else.
+    const misattributed =
+      (verdict === 'keep' || verdict === 'toss') &&
+      !answersTheChosenMatchup(advice.basis, oppoPinned)
+    groups[misattributed ? 'general' : verdict].push(advice)
+  }
   groups.keep.sort(byStrength)
   groups.toss.sort(byStrength)
+  groups.general.sort(byStrength)
   groups.unclear.sort(byNearest)
   groups.unknown.sort(
     (a, b) => armsRemaining(a) - armsRemaining(b) || b.dealt - a.dealt || byId(a, b)

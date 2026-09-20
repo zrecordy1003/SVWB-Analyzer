@@ -7,7 +7,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DECK_SIZE, HAND_SIZE, OPENING_THRESHOLDS } from '../../src/shared/openingStats'
-import { verdictFor, type Confidence } from '../../src/shared/openingStats'
+import { answersTheChosenMatchup, verdictFor, type Confidence } from '../../src/shared/openingStats'
 import {
   binomialTwoSided,
   confidenceFor,
@@ -409,5 +409,25 @@ describe('verdictFor', () => {
     // interval that thin cannot clear zero at any plausible effect size - so
     // there is no second number here to fall out of step with KEEP_THRESHOLDS.
     expect(verdictFor(at(-31, 39, 'shown'))).toBe('unclear')
+  })
+})
+
+describe('answersTheChosenMatchup', () => {
+  it('refuses a row whose evidence pooled the chosen opponent away', () => {
+    expect(answersTheChosenMatchup('all-opponents', true)).toBe(false)
+  })
+
+  it('accepts the rungs that still concern that opponent', () => {
+    expect(answersTheChosenMatchup('stratified', true)).toBe(true)
+    expect(answersTheChosenMatchup('turn-order', true)).toBe(true)
+    // Turn orders pooled weakens the column heading but not the matchup.
+    expect(answersTheChosenMatchup('opponent', true)).toBe(true)
+  })
+
+  it('accepts everything when no opponent was chosen', () => {
+    // There, pooling the opponents IS the question the reader asked.
+    for (const basis of ['stratified', 'turn-order', 'opponent', 'all-opponents'] as const) {
+      expect(answersTheChosenMatchup(basis, false)).toBe(true)
+    }
   })
 })
