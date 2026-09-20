@@ -24,16 +24,32 @@
  * the column heading asks, and now that the row gives a verdict instead of a
  * number that matters more, not less.
  *
- * # The empty state is the common state
+ * # Saying nothing firm is the common state, and it is not the same as
+ * # having nothing to show
  *
- * At one player's sample size most matchups will recommend nothing at all,
- * and against the seeded 1200-match fixture only the main matchup produces
- * more than a handful. So the block a column shows when it has no verdicts is
- * the block the owner will see most often, and it is written to read as "not
- * yet" rather than as a failure: it names the match count, says how many
- * cards are close and in which way, and names the nearest one with what it is
- * short by. The alternative - a centred 「沒有資料」 - was rejected because it
- * is indistinguishable from a bug.
+ * At one player's sample size most matchups will earn no verdict at all. The
+ * first design answered that by replacing the entire list with a paragraph -
+ * 「還沒有可以建議的卡」 plus a count and the nearest card. It was accurate and
+ * it was the wrong thing to put on screen: a reader who opens this page four
+ * times and sees the same paragraph each time concludes the feature does not
+ * work, because a page with no cards on it looks like a page with no data
+ * behind it.
+ *
+ * So the column always shows cards, in four tiers, and the tier is the
+ * strength of the claim:
+ *
+ *   建議留 / 建議換   the interval clears zero by `minEffect`, BH-corrected
+ *   偏留 / 偏換       a real comparison whose interval still straddles zero
+ *   留下比例          too thin to compare; shows what the player DID, not
+ *                     what it implies
+ *
+ * The middle tier is the one that needs defending. Its order is largely noise
+ * at one player's n, and a reader who treats its top row as a recommendation
+ * is reading noise. Three things are done about that rather than hiding it:
+ * the direction is stated weakly (偏, not 建議), every row draws its interval
+ * so the crossing of zero is visible rather than described, and the row says
+ * how far it is from a verdict. The tier is a waiting room with the door
+ * open, not a weaker recommendation.
  */
 import {
   Box,
@@ -58,15 +74,15 @@ import { playOrders } from '@renderer/map/playOrder'
 import { Hint, MissingPill } from './cells'
 import { BasisMark } from './MulliganMarks'
 import {
-  armsRemaining,
+  distanceToVerdict,
   groupByVerdict,
+  keepRateOf,
   questionLabel,
-  thinnerArmLabel,
   type ColumnOrder,
   type Pins
 } from './mulliganState'
 import { ART_WINDOW_RATIO, artWindowImageSx } from '@renderer/components/Common/cardArtWindow'
-import { fmtDelta, fmtRate, NUMERIC } from './openingFormat'
+import { fmtDelta, fmtPct, fmtRate, NUMERIC } from './openingFormat'
 
 /* ------------------------------------------------------------------- art */
 
@@ -263,25 +279,180 @@ function VerdictRow({
 }
 
 /**
- * A row inside the disclosure: name, and on the right the one fact that says
- * why it has no verdict - the straddling difference for `unclear`, the two
- * arms for `unknown`. Greyed throughout; these are the cards the column is
- * explicitly not recommending, and they must not read as a third group.
+ * The interval, drawn, on a fixed ±30-point scale with zero in the middle.
+ *
+ * Only the leaning tier gets one, and that is the whole reason the tier can
+ * exist. A leaning printed as a bare number (「+6」) is indistinguishable from
+ * a verdict printed as a bare number, and the difference between them is
+ * exactly the thing the number cannot show. Drawn, it is immediate: the bar
+ * lies across the zero line, so the estimate is on one side and the evidence
+ * is on both.
+ *
+ * The scale is fixed rather than fitted to the data so that two rows can be
+ * compared by eye, and clamped rather than expanded so that one card with a
+ * four-observation interval three hundred points wide does not flatten every
+ * other row into a dot. A clamped end is drawn flush to the edge; the reader
+ * who needs the endpoints has them in the drawer.
+ *
+ * ±30 because that is roughly the range a real opening-hand effect can
+ * occupy before it stops being believable - the seeded fixture's planted
+ * effects are 30 points and they are four to ten times anything a genuine
+ * mulligan decision is worth.
  */
-function RestRow({
+const WHISKER_DOMAIN = 30
+const WHISKER_W = 58
+
+function DiffWhisker({ advice }: { advice: KeepAdvice }): React.JSX.Element | null {
+  const { diff, diffLo, diffHi } = advice
+  if (diff === null || diffLo === null || diffHi === null) return null
+  const pos = (v: number): number =>
+    ((Math.max(-WHISKER_DOMAIN, Math.min(WHISKER_DOMAIN, v)) + WHISKER_DOMAIN) /
+      (2 * WHISKER_DOMAIN)) *
+    100
+  const lo = pos(diffLo)
+  const hi = pos(diffHi)
+  return (
+    <Box aria-hidden sx={{ position: 'relative', width: WHISKER_W, height: 14, flexShrink: 0 }}>
+      {/* zero */}
+      <Box
+        sx={{
+          position: 'absolute',
+          left: '50%',
+          top: 0,
+          bottom: 0,
+          width: '1px',
+          bgcolor: 'divider'
+        }}
+      />
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '50%',
+          left: `${lo}%`,
+          width: `${Math.max(hi - lo, 1.5)}%`,
+          height: 3,
+          transform: 'translateY(-50%)',
+          borderRadius: 2,
+          bgcolor: 'text.disabled',
+          opacity: 0.55
+        }}
+      />
+      <Box
+        sx={{
+          position: 'absolute',
+          top: '50%',
+          left: `${pos(diff)}%`,
+          width: 5,
+          height: 5,
+          transform: 'translate(-50%, -50%)',
+          borderRadius: '50%',
+          bgcolor: diff >= 0 ? 'success.light' : 'error.light'
+        }}
+      />
+    </Box>
+  )
+}
+
+/**
+ * A card the evidence leans on without settling: the estimate, its interval
+ * drawn, and how far it is from earning a verdict.
+ *
+ * Deliberately built on the same shell and the same layout as a verdict row
+ * but at the disclosure's weight - 偏留 rather than 建議留, no large coloured
+ * number, the direction carried by a small word and the dot's colour. The
+ * reader should be able to tell the two tiers apart at a glance while
+ * scrolling, without reading either label.
+ */
+function LeaningRow({
   advice,
-  verdict,
+  pins,
+  showImages,
   selected,
   onSelect
 }: {
   advice: KeepAdvice
-  verdict: 'unclear' | 'unknown'
+  pins: Pins
+  showImages: boolean
   selected: boolean
   onSelect: (advice: KeepAdvice) => void
 }): React.JSX.Element {
-  const swapped = advice.dealt - advice.kept
+  const up = (advice.diff ?? 0) >= 0
+  const gap = distanceToVerdict(advice)
   return (
-    <RowShell advice={advice} verdict={verdict} selected={selected} onSelect={onSelect} dense>
+    <RowShell advice={advice} verdict="unclear" selected={selected} onSelect={onSelect}>
+      {showImages && <RowArt advice={advice} />}
+      <CostBadge cost={advice.cost} />
+      <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Typography variant="body2" fontWeight={600} noWrap title={advice.name}>
+          {advice.name}
+        </Typography>
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.25, minWidth: 0 }}>
+          <Typography
+            variant="caption"
+            noWrap
+            sx={{ ...NUMERIC, color: 'text.disabled', minWidth: 0 }}
+          >
+            留 {advice.kept} · 換 {advice.dealt - advice.kept}
+          </Typography>
+          <BasisMark advice={advice} pins={pins} size="dot" />
+        </Stack>
+      </Box>
+      <Tooltip
+        title={`估計 ${fmtDelta(advice.diff, 0)} 點，但區間仍跨過零：往${up ? '下' : '上'}還有 ${Math.round(gap)} 點在另一側。要成為建議，整個區間都得落在同一側。`}
+        placement="top"
+        disableInteractive
+      >
+        <Stack direction="row" alignItems="center" spacing={0.75} sx={{ flexShrink: 0, pl: 0.5 }}>
+          <DiffWhisker advice={advice} />
+          <Typography
+            component="span"
+            data-testid="mulligan-leaning-effect"
+            sx={{
+              ...NUMERIC,
+              fontSize: 13,
+              fontWeight: 700,
+              lineHeight: 1,
+              width: 34,
+              textAlign: 'right',
+              color: up ? 'success.light' : 'error.light',
+              opacity: 0.75
+            }}
+          >
+            {fmtDelta(advice.diff, 0)}
+          </Typography>
+        </Stack>
+      </Tooltip>
+    </RowShell>
+  )
+}
+
+/**
+ * A card too thin to compare: name, and the keep rate.
+ *
+ * The keep rate is here because it is the only thing on this page that is not
+ * an inference. It does not say the card wins; it says the player kept it,
+ * which is a count, and a count is true at n=4 in a way no comparison is. It
+ * also happens to be the number that reveals the problem these rows have:
+ * a card kept 95% of the time has almost no swapped arm, so it will not earn
+ * a verdict from this player's own games however long they keep playing, and
+ * seeing 「留 95%（20 張）」 explains that better than 「樣本不足」 does.
+ *
+ * A thin bar rather than only the percentage, because a column of bare
+ * percentages is a table again, and the bar makes 「almost always kept」 and
+ * 「about half」 separable without reading.
+ */
+function RestRow({
+  advice,
+  selected,
+  onSelect
+}: {
+  advice: KeepAdvice
+  selected: boolean
+  onSelect: (advice: KeepAdvice) => void
+}): React.JSX.Element {
+  const rate = keepRateOf(advice)
+  return (
+    <RowShell advice={advice} verdict="unknown" selected={selected} onSelect={onSelect} dense>
       <CostBadge cost={advice.cost} size={20} />
       <Typography
         variant="body2"
@@ -291,18 +462,42 @@ function RestRow({
       >
         {advice.name}
       </Typography>
-      {advice.dealt === 0 ? (
+      {advice.dealt === 0 || rate === null ? (
         <MissingPill kind={advice.missing ?? 'unidentified'} />
       ) : (
-        <Typography
-          variant="caption"
-          noWrap
-          sx={{ ...NUMERIC, color: 'text.disabled', flexShrink: 0 }}
+        <Tooltip
+          title={`換前手牌裡出現 ${advice.dealt} 張，留下 ${advice.kept} 張。這是你的選擇紀錄，不是勝率——這張卡兩側其中一側不到 ${KEEP_THRESHOLDS.show} 張，還不能比勝率。`}
+          placement="top"
+          disableInteractive
         >
-          {verdict === 'unclear'
-            ? `${fmtDelta(advice.diff, 0)} · 區間跨零`
-            : `留 ${advice.kept} · 換 ${swapped}`}
-        </Typography>
+          <Stack
+            direction="row"
+            alignItems="center"
+            spacing={0.75}
+            sx={{ flexShrink: 0, cursor: 'help' }}
+          >
+            <Box
+              aria-hidden
+              sx={{
+                width: 34,
+                height: 3,
+                borderRadius: 2,
+                bgcolor: 'action.selected',
+                overflow: 'hidden'
+              }}
+            >
+              <Box sx={{ width: `${rate}%`, height: '100%', bgcolor: 'text.disabled' }} />
+            </Box>
+            <Typography
+              variant="caption"
+              noWrap
+              data-testid="mulligan-keep-rate"
+              sx={{ ...NUMERIC, color: 'text.disabled', width: 62, textAlign: 'right' }}
+            >
+              留 {fmtPct(rate, 0)} · {advice.dealt}
+            </Typography>
+          </Stack>
+        </Tooltip>
       )}
     </RowShell>
   )
@@ -310,8 +505,20 @@ function RestRow({
 
 /* ---------------------------------------------------------------- groups */
 
-function GroupHeading({ verdict, count }: { verdict: 'keep' | 'toss'; count: number }) {
-  const style = GROUP_STYLE[verdict]
+function GroupHeading({
+  verdict,
+  count,
+  title,
+  colour,
+  info
+}: {
+  verdict: string
+  count: number
+  title?: string
+  colour?: string
+  info?: React.ReactNode
+}) {
+  const style = GROUP_STYLE[verdict as 'keep' | 'toss'] as (typeof GROUP_STYLE)['keep'] | undefined
   return (
     <Stack
       direction="row"
@@ -325,44 +532,43 @@ function GroupHeading({ verdict, count }: { verdict: 'keep' | 'toss'; count: num
         sx={{
           fontWeight: 800,
           letterSpacing: 0.5,
-          color: verdict === 'keep' ? style.colour : 'text.secondary'
+          color: colour ?? (verdict === 'keep' ? style?.colour : 'text.secondary')
         }}
       >
-        {style.title}
+        {title ?? style?.title}
       </Typography>
       <Typography variant="caption" sx={{ ...NUMERIC, color: 'text.disabled' }}>
         {count} 張
       </Typography>
+      {info}
     </Stack>
   )
 }
 
 /**
- * The sentence for the cards without a verdict, and the disclosure under it.
+ * The sample-starved cards: one line, and the rows under it.
  *
- * The count of each kind is in the sentence rather than behind the
- * disclosure, because "twelve cards have a number and no direction" is
- * itself information about how far the column is from saying more. The
- * disclosure is for the reader who wants to know WHICH twelve.
+ * Still a disclosure, because most of a deck lives here and thirty rows that
+ * each say 「留 60%（5 張）」 is not a column anybody reads twice. But it opens
+ * by default when there is nothing above it, which is the case this whole
+ * redesign is about: a column with no verdicts and no leanings must still put
+ * cards on screen, not a closed grey line under a paragraph.
  */
 function RestLine({
-  unclear,
   unknown,
+  defaultOpen,
   selectedId,
   onSelect
 }: {
-  unclear: KeepAdvice[]
   unknown: KeepAdvice[]
+  /** Nothing above this line, so it is the column's content and starts open. */
+  defaultOpen: boolean
   selectedId: number | null
   onSelect: (advice: KeepAdvice) => void
 }): React.JSX.Element | null {
-  const [open, setOpen] = useState(false)
-  const total = unclear.length + unknown.length
-  if (total === 0) return null
-  const parts = [
-    unclear.length ? `${unclear.length} 張有數字但方向未定` : null,
-    unknown.length ? `${unknown.length} 張樣本不足` : null
-  ].filter(Boolean)
+  const [open, setOpen] = useState(defaultOpen)
+  if (unknown.length === 0) return null
+  const withData = unknown.filter((a) => a.dealt > 0).length
   return (
     <Box data-testid="mulligan-rest" sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
       <ButtonBase
@@ -379,11 +585,11 @@ function RestLine({
         }}
       >
         <Typography variant="caption" sx={{ flex: 1, color: 'text.secondary', lineHeight: 1.5 }}>
-          另外{' '}
           <Box component="span" sx={{ ...NUMERIC, fontWeight: 800 }}>
-            {total}
+            {unknown.length}
           </Box>{' '}
-          張還不能給建議：{parts.join('、')}
+          張還不能比勝率
+          {withData > 0 && '，只看留下的比例'}
         </Typography>
         <ExpandMoreRoundedIcon
           sx={{
@@ -396,20 +602,10 @@ function RestLine({
       </ButtonBase>
       <Collapse in={open} unmountOnExit>
         <Box sx={{ px: 0.5, pb: 1 }}>
-          {unclear.map((advice) => (
-            <RestRow
-              key={advice.cardId}
-              advice={advice}
-              verdict="unclear"
-              selected={advice.cardId === selectedId}
-              onSelect={onSelect}
-            />
-          ))}
           {unknown.map((advice) => (
             <RestRow
               key={advice.cardId}
               advice={advice}
-              verdict="unknown"
               selected={advice.cardId === selectedId}
               onSelect={onSelect}
             />
@@ -423,66 +619,51 @@ function RestLine({
 /* ----------------------------------------------------------------- empty */
 
 /**
- * The block a column shows when it has cards and no verdicts.
+ * One line above the list when the column has cards but nothing firm.
  *
- * Three sentences at most. The first is the fact (how many matches). The
- * second is where the cards stand, in the two ways they can fall short. The
- * third names the nearest one and what it is short by - an `unclear` card by
- * its straddling estimate, an `unknown` card by how many more of its thinner
- * arm the threshold wants, in the handler's unit (copies, called 次 here
- * because that is what a player counts). Match counts are not converted from
- * copies: a 3-of shows up in ~0.3 hands per match and is kept about half the
- * time, so "4 more swaps" is around 25 more matches, and a number that rough
- * printed as a match count would be read as a promise.
+ * What used to be here was a three-sentence block that replaced the list.
+ * This replaces nothing: it sits above the leanings (or above the keep-rate
+ * rows when there are not even leanings) and says, in one line, that the
+ * column has no verdict yet and what the rows below it therefore are. The
+ * facts the old block carried that are worth keeping - the match count - are
+ * already in the column heading, and the rest was describing cards the reader
+ * can now simply look at.
  */
-function NoVerdict({
+function SoftHeader({
   result,
   pins,
-  unclear,
-  unknown
+  hasLeaning
 }: {
   result: MulliganResult
   pins: Pins
-  unclear: KeepAdvice[]
-  unknown: KeepAdvice[]
+  hasLeaning: boolean
 }): React.JSX.Element {
-  const standing = [
-    unclear.length ? `${unclear.length} 張算得出差值，但區間都跨過零` : null,
-    unknown.length ? `${unknown.length} 張有一側不到 ${KEEP_THRESHOLDS.show} 次` : null
-  ].filter(Boolean)
-
-  const nearestUnclear = unclear[0]
-  const nearestUnknown = unknown.find((a) => a.dealt > 0)
-  const nearest = nearestUnclear
-    ? `最接近的是《${nearestUnclear.name}》：差 ${fmtDelta(nearestUnclear.diff, 0)}，但區間還跨過零，方向沒定。`
-    : nearestUnknown
-      ? `最接近的是《${nearestUnknown.name}》：${thinnerArmLabel(nearestUnknown)}那一側再 ${armsRemaining(nearestUnknown)} 次就能比。`
-      : null
-
   return (
-    <Box data-testid="mulligan-no-verdict" sx={{ px: 2, pt: 2.5, pb: 2 }}>
-      <Typography variant="body2" fontWeight={800} sx={{ mb: 0.75 }}>
-        還沒有可以建議的卡
-      </Typography>
-      <Typography
-        variant="caption"
-        component="p"
-        sx={{ color: 'text.secondary', lineHeight: 1.7, m: 0 }}
-      >
-        {questionLabel(pins)}目前{' '}
+    <Stack
+      direction="row"
+      alignItems="center"
+      spacing={0.75}
+      data-testid="mulligan-no-verdict"
+      sx={{ px: 1.5, pt: 1.5, pb: 0.25 }}
+    >
+      <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.5 }}>
+        {questionLabel(pins)}{' '}
         <Box component="span" sx={{ ...NUMERIC, fontWeight: 800, color: 'text.primary' }}>
           {result.matches}
         </Box>{' '}
-        場。{standing.join('；')}。{nearest ? ` ${nearest}` : ''}
+        場，還沒有一張站得住的建議。
+        {hasLeaning ? '以下是目前的傾向：' : '以下是你留牌的紀錄：'}
       </Typography>
-      <Typography
-        variant="caption"
-        component="p"
-        sx={{ color: 'text.disabled', lineHeight: 1.7, mt: 0.75, mb: 0 }}
-      >
-        建議只在整個區間都落在零的同一側時才出現。多打幾場，區間會收窄。
-      </Typography>
-    </Box>
+      <InfoHint
+        label="為什麼還沒有建議"
+        title={
+          <Hint>
+            建議只在整個區間都落在零的同一側、而且差距超過 {KEEP_THRESHOLDS.minEffect}{' '}
+            個百分點時才出現。在那之前，下面這些數字是真的，但它們和「沒有差別」還分不開——把它們當成排序，不要當成結論。多打幾場，區間會收窄。
+          </Hint>
+        }
+      />
+    </Stack>
   )
 }
 
@@ -634,12 +815,45 @@ export default function MulliganColumn({
             </Box>
           )}
           {!hasVerdicts && (
-            <NoVerdict
-              result={data}
-              pins={pins}
-              unclear={groups.unclear}
-              unknown={groups.unknown}
-            />
+            <SoftHeader result={data} pins={pins} hasLeaning={groups.leaning.length > 0} />
+          )}
+          {groups.leaning.length > 0 && (
+            <Box sx={{ pb: 0.5 }}>
+              {/*
+                Only headed when something firmer is above it. On its own the
+                SoftHeader line already says what these rows are, and two
+                headings in a row for one list reads as two lists.
+              */}
+              {hasVerdicts && (
+                <GroupHeading
+                  verdict="leaning"
+                  title="傾向"
+                  count={groups.leaning.length}
+                  info={
+                    <InfoHint
+                      label="「傾向」是什麼"
+                      title={
+                        <Hint>
+                          有數字、但區間還跨過零：方向是目前資料偏的那一邊，還沒到能當建議的程度。右邊那條線畫的就是區間，中間那道是零——線跨過它，就表示「沒有差別」還在可能範圍內。
+                        </Hint>
+                      }
+                    />
+                  }
+                />
+              )}
+              <Box sx={{ px: 0.5 }}>
+                {groups.leaning.map((advice) => (
+                  <LeaningRow
+                    key={advice.cardId}
+                    advice={advice}
+                    pins={pins}
+                    showImages={showImages}
+                    selected={advice.cardId === selectedId}
+                    onSelect={onSelect}
+                  />
+                ))}
+              </Box>
+            </Box>
           )}
           {groups.general.length > 0 && (
             <Box sx={{ pb: 0.5 }}>
@@ -705,8 +919,8 @@ export default function MulliganColumn({
             </Box>
           )}
           <RestLine
-            unclear={groups.unclear}
             unknown={groups.unknown}
+            defaultOpen={!hasVerdicts && groups.leaning.length === 0}
             selectedId={selectedId}
             onSelect={onSelect}
           />

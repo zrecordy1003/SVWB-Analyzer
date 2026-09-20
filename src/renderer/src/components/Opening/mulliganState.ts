@@ -149,11 +149,18 @@ export const BAND_LABEL: readonly string[] = Array.from({ length: REST_BANDS }, 
 /**
  * One column's cards, sorted into what the column says about them.
  *
- * `keep` and `toss` are the two groups that get a card row each, strongest
- * effect first. `unclear` and `unknown` are summarised in one line and are
- * kept as lists only so that line can be opened; their order is by how close
- * they are to earning a verdict (see `byNearest`), because a reader who opens
- * that line is asking "which of these is nearest to telling me something".
+ * Four tiers, and the tier IS the strength of the claim: `keep`/`toss` are
+ * verdicts, `leaning` is a direction the evidence prefers without settling,
+ * `unknown` is too thin to compare at all. The first three get card rows,
+ * strongest effect first; `unknown` gets rows too, but showing only the keep
+ * rate, which is a count of what the player did rather than a claim about
+ * what works.
+ *
+ * Nothing is hidden behind a sentence any more. A column that can say nothing
+ * firm still shows its cards and what is known about each — the previous
+ * design replaced the whole list with 「還沒有可以建議的卡」, which is the
+ * state most matchups sit in for months and reads as a broken page rather
+ * than as a young one.
  */
 export type VerdictGroups = {
   keep: KeepAdvice[]
@@ -168,7 +175,27 @@ export type VerdictGroups = {
    * pooling took away. See `answersTheChosenMatchup`.
    */
   general: KeepAdvice[]
-  unclear: KeepAdvice[]
+  /**
+   * A real estimate whose interval still straddles zero — a leaning, not a
+   * verdict.
+   *
+   * These used to be folded into the disclosure with the sample-starved
+   * cards, which put two very different states behind the same grey line: a
+   * card compared over sixty copies and a card seen four times both read as
+   * "nothing to say". They are not the same. The first has an answer with the
+   * wrong error bar; the second has no answer. So the leanings come out and
+   * get rows, sorted strongest first like the verdicts — with the direction
+   * stated weakly (偏留 / 偏換) and the interval drawn, because the whole
+   * point of the tier is that the reader can SEE it crossing zero.
+   *
+   * What this costs is honest to name: at one player's sample size the order
+   * of this list is mostly noise, and a reader who treats the top of it as a
+   * recommendation is reading noise. The alternative was a column that says
+   * 「還沒有可以建議的卡」 and nothing else for months, which teaches the
+   * reader the page is broken. Showing the estimate with its uncertainty
+   * visible is the lesser error, and it is the one the reader can check.
+   */
+  leaning: KeepAdvice[]
   unknown: KeepAdvice[]
 }
 
@@ -190,20 +217,16 @@ export const thinnerArm = (advice: KeepAdvice): number =>
   Math.min(advice.kept, advice.dealt - advice.kept)
 
 /**
- * Nearest-to-a-verdict first. For an `unclear` card the interval's distance
- * to zero is what stands between it and a verdict; for an `unknown` card it is
- * how many more of the thinner arm the threshold wants. Neither is comparable
- * to the other, so the two lists are sorted separately and concatenated with
- * `unclear` ahead: it has more data by definition.
+ * How far a leaning interval reaches past zero on its wrong side, in points —
+ * how much of a pullback would turn it into a verdict.
+ *
+ * Not a sort key any more (the leaning list ranks by effect), but the row
+ * prints it: 「還差 3 點」 is the one number that says how close this card is,
+ * and it is the number that makes the tier legible as a waiting room rather
+ * than as a weaker recommendation.
  */
-const byNearest = (a: KeepAdvice, b: KeepAdvice): number =>
-  distanceToVerdict(a) - distanceToVerdict(b) || b.dealt - a.dealt || byId(a, b)
-
-/** How far an `unclear` interval reaches past zero on its wrong side, in points. */
-function distanceToVerdict(advice: KeepAdvice): number {
+export function distanceToVerdict(advice: KeepAdvice): number {
   if (advice.diffLo === null || advice.diffHi === null) return Number.POSITIVE_INFINITY
-  // The interval straddles zero; the smaller overhang is the side it would
-  // need to pull back to become a verdict.
   return Math.min(-advice.diffLo, advice.diffHi)
 }
 
@@ -212,7 +235,7 @@ export function groupByVerdict(
   /** Whether the reader actually chose an opponent, or is looking at all of them. */
   oppoPinned: boolean
 ): VerdictGroups {
-  const groups: VerdictGroups = { keep: [], toss: [], general: [], unclear: [], unknown: [] }
+  const groups: VerdictGroups = { keep: [], toss: [], general: [], leaning: [], unknown: [] }
   if (!result) return groups
   // One pass over the whole column, not a judgement per card: the verdicts are
   // Benjamini-Hochberg corrected against each other, so a card's answer depends
@@ -225,12 +248,18 @@ export function groupByVerdict(
     const misattributed =
       (verdict === 'keep' || verdict === 'toss') &&
       !answersTheChosenMatchup(advice.basis, oppoPinned)
-    groups[misattributed ? 'general' : verdict].push(advice)
+    const bucket = misattributed ? 'general' : verdict === 'unclear' ? 'leaning' : verdict
+    groups[bucket].push(advice)
   }
   groups.keep.sort(byStrength)
   groups.toss.sort(byStrength)
   groups.general.sort(byStrength)
-  groups.unclear.sort(byNearest)
+  // Strongest first, like the verdict groups — this list is now read as a
+  // ranking, so it has to be ranked by the thing it claims to rank. It used to
+  // be sorted by nearness to a verdict (`byNearest`), which is the right order
+  // for "which of these will tell me something first" and the wrong one for
+  // "which of these looks best".
+  groups.leaning.sort(byStrength)
   groups.unknown.sort(
     (a, b) => armsRemaining(a) - armsRemaining(b) || b.dealt - a.dealt || byId(a, b)
   )
@@ -243,6 +272,19 @@ export const VERDICT_LABEL: Record<KeepVerdict, string> = {
   toss: '建議換',
   unclear: '方向未定',
   unknown: '樣本不足'
+}
+
+/**
+ * The keep rate — how often this player kept the card when it showed up.
+ *
+ * This is the one number that exists no matter how thin the data is, because
+ * it is not an inference: it is a count of what the player did. A card seen
+ * six times and kept six times says 「留 100%（6 張）」 honestly, where any
+ * win-rate comparison at that n says nothing at all. It is what the
+ * sample-starved rows show instead of a blank.
+ */
+export function keepRateOf(advice: KeepAdvice): number | null {
+  return advice.dealt > 0 ? (advice.kept / advice.dealt) * 100 : null
 }
 
 /* --------------------------------------------------------------- samples */
