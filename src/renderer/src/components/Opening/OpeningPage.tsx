@@ -402,7 +402,7 @@ export default function OpeningPage(): React.JSX.Element {
   const emptyText = (() => {
     if (!data) return ''
     if (data.summary.matches === 0) {
-      return '這個範圍內沒有讀到任何起手。只有 1.3.5 之後、看得到換牌畫面的對局才會進來。'
+      return '這個範圍內沒有讀到任何起手。只有 1.4.0 之後、看得到換牌畫面的對局才會進來。'
     }
     if (allRows.length === 0) {
       return `${data.summary.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`

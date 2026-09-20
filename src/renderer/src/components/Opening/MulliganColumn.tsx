@@ -671,7 +671,7 @@ function SoftHeader({
 function NoCards({ result, pins }: { result: MulliganResult; pins: Pins }): React.JSX.Element {
   const text =
     result.matches === 0
-      ? `${questionLabel(pins)}還沒有讀到四張全認出的起手。只有 1.3.5 之後、看得到換牌畫面的對局才會進來${
+      ? `${questionLabel(pins)}還沒有讀到四張全認出的起手。只有 1.4.0 之後、看得到換牌畫面的對局才會進來${
           pins.oppo ? '；換個對手看看，或多打幾場再回來。' : '；多打幾場再回來。'
         }`
       : `${questionLabel(pins)} ${result.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`

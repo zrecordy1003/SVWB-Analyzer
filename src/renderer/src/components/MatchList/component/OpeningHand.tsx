@@ -147,7 +147,7 @@ const OpeningHand: React.FC<OpeningHandProps> = ({ matchId }) => {
   if (!hand) {
     return (
       <Typography variant="caption" color="text.disabled">
-        沒有起手手牌紀錄——這一場的換牌畫面沒有被讀到（1.3.5 之前的紀錄都是這樣）。
+        沒有起手手牌紀錄——這一場的換牌畫面沒有被讀到（1.4.0 之前的紀錄都是這樣）。
       </Typography>
     )
   }
