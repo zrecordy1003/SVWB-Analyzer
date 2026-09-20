@@ -443,3 +443,49 @@ export const KEEP_THRESHOLDS = {
   /** Per arm before the table may be sorted on it. */
   sort: 30
 } as const
+
+/**
+ * What the page tells the reader to do with a card.
+ *
+ * This is where the confidence interval went. The advisor used to print
+ * `+16.0 [9.5, 29.3]` and leave the reader to judge; it now says 建議留 and
+ * says nothing about the arithmetic. That is a STRONGER claim, not a weaker
+ * one, so the bar had to go up rather than down: a recommendation is only made
+ * when the whole interval sits on one side of zero. A card whose interval
+ * straddles zero has a point estimate and no direction, and printing a
+ * direction for it would be inventing one.
+ *
+ * So the interval is still doing all the work it ever did - it just decides
+ * what appears instead of appearing itself.
+ */
+export type KeepVerdict =
+  /** The evidence points at keeping it, and does not cross over. */
+  | 'keep'
+  /** The evidence points at throwing it back. */
+  | 'toss'
+  /** Enough data to estimate, not enough to point anywhere. */
+  | 'unclear'
+  /** Not enough of one arm to estimate at all. */
+  | 'unknown'
+
+/**
+ * Read a verdict off one card's record.
+ *
+ * Deliberately has no threshold of its own beyond the ones already in
+ * `confidence`. A card with twelve observations in its smaller arm produces an
+ * interval so wide that it cannot clear zero, so the width regulates this
+ * without a second number to keep in step - and two thresholds that must agree
+ * are two thresholds that will eventually disagree.
+ */
+export function verdictFor(advice: {
+  confidence: Confidence
+  diffLo: number | null
+  diffHi: number | null
+}): KeepVerdict {
+  if (advice.confidence === 'hidden' || advice.diffLo === null || advice.diffHi === null) {
+    return 'unknown'
+  }
+  if (advice.diffLo > 0) return 'keep'
+  if (advice.diffHi < 0) return 'toss'
+  return 'unclear'
+}

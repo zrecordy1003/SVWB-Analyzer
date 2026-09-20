@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { DECK_SIZE, HAND_SIZE, OPENING_THRESHOLDS } from '../../src/shared/openingStats'
+import { verdictFor, type Confidence } from '../../src/shared/openingStats'
 import {
   binomialTwoSided,
   confidenceFor,
@@ -373,5 +374,40 @@ describe('mantelHaenszelDiff', () => {
     // The correction touches the variance only, so a risk of one stays one.
     const mh = mantelHaenszelDiff([{ aWins: 10, aTotal: 10, bWins: 0, bTotal: 10 }])
     expect(mh?.diff).toBeCloseTo(100, 5)
+  })
+})
+
+describe('verdictFor', () => {
+  const at = (lo: number | null, hi: number | null, confidence: Confidence = 'sortable') => ({
+    confidence,
+    diffLo: lo,
+    diffHi: hi
+  })
+
+  it('recommends only when the whole interval is on one side of zero', () => {
+    expect(verdictFor(at(9.5, 29.3))).toBe('keep')
+    expect(verdictFor(at(-28.4, -6.1))).toBe('toss')
+  })
+
+  it('refuses a direction when the interval crosses over', () => {
+    // A healthy-looking +16 whose interval reaches below zero is a card the
+    // page must not point at. This is the whole reason the interval survived
+    // being taken off the screen.
+    expect(verdictFor(at(-5.8, 17.1))).toBe('unclear')
+    expect(verdictFor(at(0, 22))).toBe('unclear')
+    expect(verdictFor(at(-14, 0))).toBe('unclear')
+  })
+
+  it('separates "no direction" from "no estimate"', () => {
+    expect(verdictFor(at(null, null, 'hidden'))).toBe('unknown')
+    expect(verdictFor(at(4, 20, 'hidden'))).toBe('unknown')
+    expect(verdictFor(at(null, null))).toBe('unknown')
+  })
+
+  it('needs no threshold of its own, because width already carries one', () => {
+    // Twelve per arm is the lowest `confidence` that is not hidden, and an
+    // interval that thin cannot clear zero at any plausible effect size - so
+    // there is no second number here to fall out of step with KEEP_THRESHOLDS.
+    expect(verdictFor(at(-31, 39, 'shown'))).toBe('unclear')
   })
 })
