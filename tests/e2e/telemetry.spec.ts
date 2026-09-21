@@ -89,7 +89,13 @@ test('Settings offers the switch, and no longer the payload view', async ({ wind
 type Preview = {
   schema: number
   installId: unknown
-  days: { date: string; abandoned: number; manual: number; buckets: unknown[] }[]
+  days: {
+    date: string
+    abandoned: number
+    manual: number
+    buckets: unknown[]
+    openingBuckets: unknown[]
+  }[]
 }
 
 /**
@@ -122,7 +128,12 @@ test('the payload is still only counts, whether or not anything renders it', asy
   // 14 UTC days, every one of them, empty ones included.
   expect(parsed.days).toHaveLength(14)
   for (const day of parsed.days) {
-    expect(Object.keys(day).sort()).toEqual(['abandoned', 'buckets', 'date', 'manual'].sort())
+    // `openingBuckets` joined this list at schema 3. It is here because this
+    // assertion caught it: a new field in the payload has to be a decision
+    // somebody wrote down, not something that appeared.
+    expect(Object.keys(day).sort()).toEqual(
+      ['abandoned', 'buckets', 'date', 'manual', 'openingBuckets'].sort()
+    )
     expect(day.date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   }
 
@@ -130,5 +141,10 @@ test('the payload is still only counts, whether or not anything renders it', asy
   // install id, because previewing must not mint one for someone who then
   // decides against it.
   expect(parsed.days.every((d) => d.buckets.length === 0)).toBe(true)
+  // Present and empty on every day, which is the schema-3 contract: the field
+  // says "this client carries opening data", the emptiness says "this day had
+  // none". The server reads the two differently and so must this.
+  expect(parsed.days.every((d) => Array.isArray(d.openingBuckets))).toBe(true)
+  expect(parsed.days.every((d) => d.openingBuckets.length === 0)).toBe(true)
   expect(String(parsed.installId)).toContain('尚未產生')
 })

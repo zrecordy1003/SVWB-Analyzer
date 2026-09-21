@@ -150,6 +150,49 @@ describe('openingBucketsByDate', () => {
   })
 })
 
+describe('the shape of what leaves the machine', () => {
+  /**
+   * The privacy assertion, at the level where a populated bucket exists.
+   *
+   * The e2e has the matching one for the envelope, but it runs on a fresh
+   * profile and therefore only ever sees empty arrays - it can prove the field
+   * is there and cannot prove what is in a row. This can. If a match id, a
+   * timestamp, a deck id or a note ever reaches a bucket, it fails here.
+   */
+  it('a bucket carries exactly these ten fields and nothing else', () => {
+    const rows = buckets([match()], FOUR_ONES())
+    expect(rows.length).toBeGreaterThan(0)
+    for (const row of rows) {
+      expect(Object.keys(row).sort()).toEqual(
+        [
+          'cardId',
+          'count',
+          'kept',
+          'mode',
+          'myClass',
+          'oppoClass',
+          'playOrder',
+          'restBand',
+          'result',
+          'tier'
+        ].sort()
+      )
+    }
+  })
+
+  it('carries no match id, even though the rollup joins on one', () => {
+    const json = JSON.stringify(buckets([match({ id: 987654 })], FOUR_ONES()))
+    expect(json).not.toContain('987654')
+    expect(json).not.toContain('matchId')
+  })
+
+  it('carries no timestamp: the date is the day, and the day is the finest unit', () => {
+    const json = JSON.stringify(buckets([match()], FOUR_ONES()))
+    expect(json).not.toContain(String(PLAYED))
+    expect(json.toLowerCase()).not.toContain('playedat')
+  })
+})
+
 describe('rollup, with and without hands', () => {
   it('omits the field entirely when no opening data was passed', () => {
     for (const day of rollup([match()], NOW)) {
