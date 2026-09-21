@@ -121,7 +121,19 @@ const META_MIN_INSTALLS_PER_CELL = 5
 const RETAIN_MATCH_DAYS = 120
 const RETAIN_ACTIVITY_DAYS = 400
 
-const MAX_BODY_BYTES = 256 * 1024
+/**
+ * 1 MiB, raised from 256 KiB when the opening buckets landed.
+ *
+ * A day of matches used to be ~15 rows; with the hands it is up to four per
+ * match, so a fourteen-day window went from a few kilobytes to a few hundred.
+ * At 256 KiB a player around a hundred matches a day would have crossed it and
+ * then never uploaded again - a 413 on every attempt, forever, with nothing on
+ * their screen to say so. The client trims rather than let that happen (see
+ * `buildPayload`), and this is the other half of the same fix: the ceiling is
+ * now far enough above any real window that trimming is the unreachable case
+ * rather than the common one.
+ */
+const MAX_BODY_BYTES = 1024 * 1024
 /**
  * D1 binds at most 100 parameters per statement; a bucket row takes 10.
  *
@@ -132,6 +144,9 @@ const MAX_BODY_BYTES = 256 * 1024
  */
 const BUCKET_COLUMNS = 10
 const BUCKET_ROWS_PER_STATEMENT = Math.floor(100 / BUCKET_COLUMNS)
+/** Same arithmetic for the wider opening row: 12 columns, so 8 rows a statement. */
+const OPENING_COLUMNS = 12
+const OPENING_ROWS_PER_STATEMENT = Math.floor(100 / OPENING_COLUMNS)
 
 const DAY_MS = 86_400_000
 
@@ -225,6 +240,7 @@ export default {
 
     const prunes: Array<[string, string, string]> = [
       ['buckets', 'DELETE FROM buckets WHERE date < ?1', matchCutoff],
+      ['opening_buckets', 'DELETE FROM opening_buckets WHERE date < ?1', matchCutoff],
       ['match_days', 'DELETE FROM match_days WHERE date < ?1', matchCutoff],
       ['activity', 'DELETE FROM activity WHERE date < ?1', activityCutoff]
     ]
@@ -402,7 +418,40 @@ async function dayContentHash(day: ValidDay): Promise<string> {
   // `\n` as the separator, and the bucket fields already use `|`, so no field
   // value can forge a boundary: both characters are outside every whitelisted
   // enum and `count` is an integer.
-  const canonical = [`${day.abandoned}|${day.manual}`, ...buckets].join('\n')
+  /**
+   * The opening rows join the hash, and their ABSENCE has to be
+   * distinguishable from their emptiness.
+   *
+   * A day that carries no opening data leaves the stored rows untouched, so
+   * its hash must not equal the hash of the same day carrying zero rows -
+   * otherwise a client that trimmed once would match the stored hash of a day
+   * that really had no hands, and the real rows would never be rewritten
+   * again. `-` versus `0:0` is that whole distinction, which is why this is a
+   * marker line rather than simply nothing.
+   */
+  const opening =
+    day.openingBuckets === null
+      ? ['-']
+      : [
+          `0:${day.openingBuckets.length}`,
+          ...day.openingBuckets
+            .map((b) =>
+              [
+                b.tier,
+                b.mode,
+                b.myClass,
+                b.oppoClass,
+                b.playOrder,
+                b.cardId,
+                b.kept ? 'k' : 's',
+                b.restBand ?? 'x',
+                b.result,
+                b.count
+              ].join('|')
+            )
+            .sort()
+        ]
+  const canonical = [`${day.abandoned}|${day.manual}`, ...buckets, ...opening].join('\n')
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical))
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
@@ -448,6 +497,49 @@ function dayStatements(
       ).bind(...values)
     )
   }
+  /**
+   * Only touched when the day carries a statement about its hands.
+   *
+   * Null means the client sent none - every schema-1 and schema-2 install, and
+   * any day a schema-3 client trimmed. Deleting on those would wipe real rows
+   * because an old client cannot mention them, turning "one user has not
+   * updated yet" into "that user's opening history disappears".
+   */
+  if (day.openingBuckets !== null) {
+    out.push(
+      env.DB.prepare(`DELETE FROM opening_buckets WHERE install_id = ?1 AND date = ?2`).bind(
+        installId,
+        day.date
+      )
+    )
+    for (let i = 0; i < day.openingBuckets.length; i += OPENING_ROWS_PER_STATEMENT) {
+      const chunk = day.openingBuckets.slice(i, i + OPENING_ROWS_PER_STATEMENT)
+      const placeholders = chunk
+        .map(() => `(${Array(OPENING_COLUMNS).fill('?').join(', ')})`)
+        .join(', ')
+      const values = chunk.flatMap((b) => [
+        installId,
+        day.date,
+        b.tier,
+        b.mode,
+        b.myClass,
+        b.oppoClass,
+        b.playOrder,
+        b.cardId,
+        b.kept ? 1 : 0,
+        b.restBand,
+        b.result,
+        b.count
+      ])
+      out.push(
+        env.DB.prepare(
+          `INSERT INTO opening_buckets (install_id, date, tier, mode, my_class, oppo_class, play_order, card_id, kept, rest_band, result, count)
+           VALUES ${placeholders}`
+        ).bind(...values)
+      )
+    }
+  }
+
   out.push(
     env.DB.prepare(
       `INSERT INTO match_days (install_id, date, matches, abandoned, manual, received_at, content_hash)

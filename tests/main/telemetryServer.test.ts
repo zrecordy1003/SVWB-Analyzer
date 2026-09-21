@@ -6,7 +6,10 @@ import { describe, expect, it } from 'vitest'
 import { buildMeta, buildOverview, lastDates } from '../../server/telemetry/src/aggregate'
 import { validatePayload } from '../../server/telemetry/src/validate'
 import { rollup, type RollupRow } from '../../src/main/telemetry/rollup'
-import { TELEMETRY_MAX_MATCHES_PER_DAY } from '../../src/shared/telemetry'
+import {
+  TELEMETRY_ACCEPTED_SCHEMAS,
+  TELEMETRY_MAX_MATCHES_PER_DAY
+} from '../../src/shared/telemetry'
 
 const NOW = new Date('2026-09-02T10:00:00Z')
 const INSTALL = '6f0d1a2b-3c4d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -84,10 +87,11 @@ describe('validatePayload', () => {
     for (const bad of [
       null,
       [],
-      // 2 is the current schema; 3 does not exist yet. The accepted set only
-      // ever grows, so this case has to name a FUTURE schema to stay a test of
-      // "unsupported" rather than of "not the newest".
-      payload({ schema: 3 }),
+      // A schema that does not exist yet, DERIVED. The accepted set only ever
+      // grows, so a literal here stops testing "unsupported" the moment that
+      // number ships - which is exactly what happened when 3 landed and this
+      // line still said 3.
+      payload({ schema: Math.max(...TELEMETRY_ACCEPTED_SCHEMAS) + 1 }),
       payload({ schema: '2' }),
       payload({ installId: 'not-a-uuid' }),
       payload({ appVersion: '1.3' }),

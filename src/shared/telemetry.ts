@@ -43,10 +43,20 @@ import { CR_BAND_KEYS } from './crBands.js'
  * the two are indistinguishable downstream, and that is correct. Neither says
  * anything about the rank it was played at.
  */
-export const TELEMETRY_SCHEMA = 2 as const
+/**
+ * 3 added `openingBuckets` to every day.
+ *
+ * The version is bumped rather than the field simply appearing, because the
+ * server has to be able to tell "this client sends no opening data" from "this
+ * client sent none today". The first is every install that has not updated;
+ * the second is a day somebody did not play. Conflating them would make the
+ * cross-player estimate silently under-count its denominator by however many
+ * old installs are still out there.
+ */
+export const TELEMETRY_SCHEMA = 3 as const
 
 /** Schemas the server still ingests. Dropping one silently discards uploads. */
-export const TELEMETRY_ACCEPTED_SCHEMAS = [1, 2] as const
+export const TELEMETRY_ACCEPTED_SCHEMAS = [1, 2, 3] as const
 
 /** How many UTC days, today included, each upload covers. */
 export const TELEMETRY_WINDOW_DAYS = 14
@@ -108,6 +118,68 @@ export type TelemetryBucket = {
   count: number
 }
 
+/**
+ * One (card, decision, outcome) count from the pre-mulligan hands of one day.
+ *
+ * The unit is a COPY, not a match: a hand holding two of a card contributes
+ * two observations, which is what `mulligan.ts` counts locally and therefore
+ * what the server has to count for the two to be comparable.
+ *
+ * # Why `restBand` is in the key, and why leaving it out would have been
+ * # unrecoverable
+ *
+ * `docs/meta-stats-plan.md` originally specified
+ * `(date, my_class, oppo_class, card_id, kept, result)`. That bucket cannot
+ * answer the question this data exists for. Whether a player kept a card is
+ * strongly predicted by what the other three cards were, and so is whether
+ * they won; comparing kept against swapped without conditioning on the rest of
+ * the hand compares two different populations wearing one card's name. On the
+ * seeded fixture the crude gap is ~31 points where the adjusted one is ~4.
+ *
+ * The part that makes it worth a paragraph: this is not a mistake that can be
+ * fixed later. The band is computed from the hand, the hand is not uploaded,
+ * and a bucket that arrived without it can never have it added. Two years of
+ * data would be two years of a number nobody should act on.
+ *
+ * # Why not one row per hand
+ *
+ * Four card ids, four kept flags and a result, on a date, is 20 rows a day
+ * instead of 80 and strictly more information. It was rejected because it is
+ * close to a fingerprint: a bucket is a count and reconstructs no single game,
+ * a whole-hand row reconstructs exactly one. Privacy wins the trade even
+ * though it is also the more expensive side.
+ */
+export type TelemetryOpeningBucket = {
+  tier: TelemetryTier
+  mode: string
+  myClass: string
+  oppoClass: string
+  playOrder: string
+  /** Portal card id. Not identifying: it names a card, not a person. */
+  cardId: number
+  /** Whether this copy survived the mulligan. */
+  kept: boolean
+  /**
+   * Which band the OTHER three slots' mean cost fell in, `0..REST_BANDS-1`,
+   * or null when one of those three has no known cost.
+   *
+   * Null rather than dropped, and that is deliberate. `restBand` returns null
+   * when the `Card` cache is missing a companion's cost, and the local advisor
+   * does NOT throw such an observation away — it keeps it for the pooled rungs
+   * and excludes it only from the stratified one, because a band computed from
+   * two of three companions is not a noisier band, it is the wrong one.
+   *
+   * Uploading only banded copies would make the cloud estimate quietly
+   * different from the local one on exactly the cards whose costs are missing,
+   * which tend to be the newest cards — the ones people most want an answer
+   * about. The server applies the same rule: null is usable at the pooled
+   * rungs and invisible at the stratified one.
+   */
+  restBand: number | null
+  result: TelemetryResult
+  count: number
+}
+
 export type TelemetryDay = {
   /** UTC calendar date, `YYYY-MM-DD`. */
   date: string
@@ -119,6 +191,18 @@ export type TelemetryDay = {
    */
   manual: number
   buckets: TelemetryBucket[]
+  /**
+   * The opening-hand counts for this day. Schema 3 and later.
+   *
+   * Absent on schemas 1 and 2, and an empty array on a day with no complete
+   * hands — the server must not read those as the same thing, so the schema
+   * number is what distinguishes them, not this field's emptiness.
+   *
+   * Bounded by observations, not by the key's width: a day of twenty matches
+   * is eighty copies, so at most eighty rows however many dimensions the key
+   * has. Widening the key merges fewer of them; it cannot create more.
+   */
+  openingBuckets?: TelemetryOpeningBucket[]
 }
 
 export type TelemetryPayload = {

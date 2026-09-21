@@ -201,7 +201,18 @@ describe('telemetry upload', () => {
           result: 'win',
           count: 1
         }
-      ]
+      ],
+      /**
+       * Present and empty, not absent.
+       *
+       * This match has no `MatchOpeningCard` rows, so there is nothing to
+       * count - and saying so is different from saying nothing. An absent
+       * field means "this client does not carry opening data"; every
+       * schema-3 client carries it, so every day it sends has the array even
+       * when the array is empty. The server reads the two differently: one
+       * replaces what is stored, the other leaves it alone.
+       */
+      openingBuckets: []
     })
     expect(body.days.reduce((n, d) => n + d.buckets.length, 0)).toBe(1)
 

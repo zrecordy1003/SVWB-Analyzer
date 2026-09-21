@@ -27,8 +27,10 @@ import {
   TELEMETRY_WINDOW_DAYS,
   type TelemetryBucket,
   type TelemetryDay,
+  type TelemetryOpeningBucket,
   type TelemetryTier
 } from '../../shared/telemetry.js'
+import { restBand } from '../../shared/openingStats.js'
 
 /** The columns this module reads. Everything else on a row never gets here. */
 export type RollupRow = Pick<
@@ -44,6 +46,29 @@ export type RollupRow = Pick<
   | 'edited_fields'
   | 'recog_flags'
 >
+
+/**
+ * One slot of one pre-mulligan hand, as the opening rollup needs it.
+ *
+ * Joined to its match by `matchId` only - everything else about the match
+ * (class, opponent, result) comes from the `RollupRow` this is matched
+ * against, so the two queries cannot disagree about what a match was.
+ */
+/** Four. A pre hand that is not this is not a hand this can read. */
+const HAND_SIZE = 4
+
+export type OpeningSlotRow = {
+  matchId: number
+  /** Null when the engine saw a card it could not name. Costs the whole hand. */
+  cardId: number | null
+  /** The card's mana cost, from `Card`. Null when the cache has no row. */
+  cost: number | null
+  /** True when this copy was thrown back. */
+  swapped: number | boolean | null
+}
+
+/** A match, as the opening rollup needs to key its slots. */
+export type OpeningMatchRow = { id: number } & RollupRow
 
 /**
  * Flags that move a row out of `clean`.
@@ -159,7 +184,21 @@ type MutableDay = {
  * Buckets within a day are sorted by key so the same rows always produce the
  * same bytes; the tests rely on that and so does anyone diffing two payloads.
  */
-export function rollup(rows: readonly RollupRow[], now: number): TelemetryDay[] {
+export function rollup(
+  rows: readonly RollupRow[],
+  now: number,
+  /**
+   * The opening buckets for the same window, from `openingBucketsByDate`.
+   *
+   * Optional, and its absence is NOT the same as an empty map. Omitted means
+   * this caller does not carry opening data at all and every day comes back
+   * without the field; an empty map means it does, and the days it has nothing
+   * for get an empty array. Only the second is a statement about what was
+   * played. The schema number is what tells the server which kind of client it
+   * is talking to; this argument is what makes the payload match.
+   */
+  openingByDate?: Map<string, TelemetryOpeningBucket[]>
+): TelemetryDay[] {
   const days = new Map<string, MutableDay>()
   for (const date of windowDates(now)) {
     days.set(date, { date, abandoned: 0, manual: 0, buckets: new Map() })
@@ -209,6 +248,103 @@ export function rollup(rows: readonly RollupRow[], now: number): TelemetryDay[] 
     manual: day.manual,
     buckets: [...day.buckets.entries()]
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([, bucket]) => bucket)
+      .map(([, bucket]) => bucket),
+    ...(openingByDate ? { openingBuckets: openingByDate.get(day.date) ?? [] } : {})
   }))
+}
+
+/**
+ * The pre-mulligan hands of the window, as one bucket list per UTC date.
+ *
+ * Separate from `rollup` rather than folded into it, because the two read
+ * different tables and a caller that cannot supply the hands (a test, an old
+ * code path) should not have to pretend it can. `rollup` takes the result of
+ * this as an optional argument and merges it into the days it already built.
+ *
+ * # What is dropped, and why each one
+ *
+ * - **A match whose tier is not a tier.** `classifyRow` decides, exactly as it
+ *   does for the match buckets, so the two halves of a day can never disagree
+ *   about whether a match counted. `manual` and `abandoned` are dropped rather
+ *   than counted: nothing observed a hand-typed match, and a match with no
+ *   result has no outcome to key on.
+ * - **A hand that is not four named cards.** The band of a copy is the mean
+ *   cost of the three beside it, so one unnamed slot does not cost one
+ *   observation, it costs all four — there is no "other three" to speak of.
+ *   This is the same rule `mulligan.ts` applies locally.
+ * - **Nothing else.** A copy whose companions include an unknown cost keeps
+ *   its row with `restBand: null`; see the field's comment.
+ *
+ * The unit is a COPY. A hand with two of a card sends two observations, which
+ * is what the local advisor counts and therefore what makes the two
+ * comparable.
+ */
+export function openingBucketsByDate(
+  matches: readonly OpeningMatchRow[],
+  slots: readonly OpeningSlotRow[],
+  now: number
+): Map<string, TelemetryOpeningBucket[]> {
+  const window = new Set(windowDates(now))
+  const byMatch = new Map<number, OpeningSlotRow[]>()
+  for (const slot of slots) {
+    const held = byMatch.get(slot.matchId)
+    if (held) held.push(slot)
+    else byMatch.set(slot.matchId, [slot])
+  }
+
+  const days = new Map<string, Map<string, TelemetryOpeningBucket>>()
+  for (const match of matches) {
+    const date = utcDate(match.playedAt)
+    if (!window.has(date)) continue
+    const tier = classifyRow(match)
+    if (tier !== 'clean' && tier !== 'edited' && tier !== 'flagged' && tier !== 'legacy') continue
+    const hand = byMatch.get(match.id)
+    if (!hand || hand.length !== HAND_SIZE) continue
+    if (hand.some((slot) => slot.cardId === null)) continue
+
+    const bucketsForDay = days.get(date) ?? new Map<string, TelemetryOpeningBucket>()
+    days.set(date, bucketsForDay)
+
+    for (let i = 0; i < hand.length; i++) {
+      const slot = hand[i]
+      const others = hand.filter((_, j) => j !== i).map((other) => other.cost ?? null)
+      const bucket: Omit<TelemetryOpeningBucket, 'count'> = {
+        tier,
+        mode: match.mode ?? 'unknown',
+        myClass: match.my_class,
+        oppoClass: match.oppo_class,
+        playOrder: match.play_order,
+        cardId: slot.cardId as number,
+        kept: slot.swapped !== true && slot.swapped !== 1,
+        restBand: restBand(others),
+        result: match.result === 1 ? 'win' : 'loss'
+      }
+      const key = [
+        bucket.tier,
+        bucket.mode,
+        bucket.myClass,
+        bucket.oppoClass,
+        bucket.playOrder,
+        bucket.cardId,
+        bucket.kept ? 'k' : 's',
+        bucket.restBand ?? 'x',
+        bucket.result
+      ].join('|')
+      const held = bucketsForDay.get(key)
+      if (held) held.count += 1
+      else bucketsForDay.set(key, { ...bucket, count: 1 })
+    }
+  }
+
+  // Sorted by key, for the same reason the match buckets are: the same hands
+  // must produce the same bytes, or `content_hash` never matches and every
+  // upload rewrites the whole window.
+  return new Map(
+    [...days.entries()].map(([date, buckets]) => [
+      date,
+      [...buckets.entries()]
+        .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+        .map(([, bucket]) => bucket)
+    ])
+  )
 }

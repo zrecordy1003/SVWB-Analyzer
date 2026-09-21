@@ -78,6 +78,7 @@
 import {
   KEEP_THRESHOLDS,
   REST_BANDS,
+  restBand,
   type AdviceBasis,
   type Confidence,
   type KeepAdvice,
@@ -95,34 +96,6 @@ import { wrapRes as wrap, type Res } from '../../shared/ipc.js'
 
 export type { MulliganPayload } from '../../shared/openingStats.js'
 
-/**
- * Where the rest-of-hand bands are cut, as the mean cost of the other three
- * cards. `REST_BANDS - 1` boundaries, low to high.
- *
- * **Fixed cut-points, not quantiles, and that is the choice worth defending.**
- * Quantiles would adapt to the player - each of us would get three equally
- * populated bands whatever our deck looks like - and they were rejected because
- * they make two queries incomparable. Under quantiles, "band 1" means a
- * different hand in the dragon matchup than in the pooled view, a different
- * hand this month than last, and a different hand for a ramp deck than for an
- * aggro one; a reader comparing two rows of this page would be comparing two
- * definitions. Every number on this page is already fragile enough without the
- * axis moving underneath it.
- *
- * The numbers themselves come from what a 40-card constructed hand actually
- * looks like. These lists curve out at one to three mana, so three cards
- * averaging under 2.5 are three things you can cast in the first three turns -
- * the hand you keep an expensive card alongside. Three cards averaging four or
- * more cannot be played before turn four between them, which is the hand where
- * even a good five-drop has to go back. The middle band is everything else, and
- * it is deliberately the widest: it is the ordinary hand, and the confounding
- * this band exists to remove lives at the two ends.
- *
- * A boundary that a mean can land on exactly (4.0, from three four-drops) goes
- * to the HIGHER band, which is the comparison written below (`< cut`).
- */
-const REST_BAND_CUTS = [2.5, 4] as const
-
 /** Same coercion `cardStats.ts` and `openingStats.ts` apply, so "most recent N" means one thing. */
 const normaliseLimit = (value: unknown): number | undefined => {
   if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
@@ -131,31 +104,6 @@ const normaliseLimit = (value: unknown): number | undefined => {
 }
 
 const num = (v: unknown): number => Number(v ?? 0)
-
-/**
- * Which band the other three cards fall in, or null when one of them has no
- * known cost.
- *
- * Null rather than a guess. `Card` is a cache of the portal's data and can be
- * missing a row, and a band computed from two of three companions is not a
- * noisier band, it is the wrong one - dropping the most expensive companion is
- * exactly what would move a hand out of the band that explains the decision.
- * The caller keeps such an observation in the pooled rungs, where the band is
- * not used, and drops it only from the stratified one.
- */
-function restBand(costs: (number | null)[]): number | null {
-  if (costs.length === 0) return null
-  let sum = 0
-  for (const cost of costs) {
-    if (cost == null || !Number.isFinite(cost)) return null
-    sum += cost
-  }
-  const avg = sum / costs.length
-  for (let band = 0; band < REST_BAND_CUTS.length; band++) {
-    if (avg < REST_BAND_CUTS[band]) return band
-  }
-  return REST_BANDS - 1
-}
 
 /** One side of the comparison: how many observations, and how many were wins. */
 type Arm = { n: number; wins: number }

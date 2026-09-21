@@ -39,11 +39,18 @@ import { store } from '../store.js'
 import {
   TELEMETRY_SCHEMA,
   type TelemetryIngestResponse,
+  type TelemetryDay,
   type TelemetryPayload,
   type TelemetryStatus
 } from '../../shared/telemetry.js'
 import { telemetryUploadEndpoint } from './config.js'
-import { rollup, windowStartMs, type RollupRow } from './rollup.js'
+import {
+  openingBucketsByDate,
+  rollup,
+  windowStartMs,
+  type OpeningMatchRow,
+  type OpeningSlotRow
+} from './rollup.js'
 import { handleIpc } from '../ipc/typed.js'
 
 /** Let startup finish first: splash, engine, card pool bootstrap. */
@@ -57,6 +64,16 @@ const ENABLE_DELAY_MS = 3_000
 /** Two uploads closer than this are one upload; the second is dropped. */
 const MIN_GAP_MS = 60_000
 const REQUEST_TIMEOUT_MS = 15_000
+/**
+ * The client's own ceiling, under the server's 1 MiB.
+ *
+ * Under rather than equal, and the gap is not superstition: the server
+ * measures the encoded body while this measures a JS string, and a payload is
+ * all ASCII except the locale tag. Leaving room means the decision about what
+ * to send is made here, where there is a sensible fallback, rather than there,
+ * where the only answer is 413.
+ */
+const MAX_PAYLOAD_BYTES = 768 * 1024
 
 const KEY_INSTALL_ID = 'installId'
 const KEY_LAST_UPLOAD_AT = 'lastUploadAt'
@@ -153,10 +170,14 @@ function noticeShown(): boolean {
 
 // ----------------------------------------------------------------- payload
 
-async function readWindowRows(now: number): Promise<RollupRow[]> {
+async function readWindowRows(now: number): Promise<OpeningMatchRow[]> {
   return getDb()
     .selectFrom('Match')
     .select([
+      // The id is read for one reason: it is what joins a match to its hand.
+      // It is never sent - `rollup` and `openingBucketsByDate` both key on the
+      // UTC date, and neither puts an id anywhere near a bucket.
+      'id',
       'result',
       'play_order',
       'my_class',
@@ -176,6 +197,33 @@ async function readWindowRows(now: number): Promise<RollupRow[]> {
 }
 
 /**
+ * The pre-mulligan slots of the same window.
+ *
+ * A second query rather than a join, because a join would return the match
+ * columns four times over and this runs on every upload. Scoped by the same
+ * `playedAt` bound so the two reads cannot cover different windows.
+ *
+ * `cost` comes from `Card`, which is a cache of the portal's data and may be
+ * missing a row; that is a null cost, not a missing slot, and
+ * `openingBucketsByDate` knows the difference.
+ */
+async function readWindowOpeningSlots(now: number): Promise<OpeningSlotRow[]> {
+  return getDb()
+    .selectFrom('MatchOpeningCard as o')
+    .innerJoin('Match as m', 'm.id', 'o.matchId')
+    .leftJoin('Card as c', 'c.cardId', 'o.cardId')
+    .select([
+      'o.matchId as matchId',
+      'o.cardId as cardId',
+      'o.swapped as swapped',
+      'c.cost as cost'
+    ])
+    .where('o.stage', '=', 'pre')
+    .where('m.playedAt', '>=', windowStartMs(now))
+    .execute() as Promise<OpeningSlotRow[]>
+}
+
+/**
  * What an upload would send right now.
  *
  * `installId` is the real one when it exists and a placeholder otherwise, so
@@ -187,13 +235,63 @@ export async function buildPayload(opts: { mintInstallId: boolean }): Promise<Te
     ? await ensureInstallId()
     : ((await readState(KEY_INSTALL_ID)) ?? '(尚未產生：開啟後才會建立)')
   const rows = await readWindowRows(now)
-  return {
+  const slots = await readWindowOpeningSlots(now)
+  const envelope = {
     schema: TELEMETRY_SCHEMA,
     installId,
     ...deps.environment(),
-    sentAt: new Date(now).toISOString(),
-    days: rollup(rows, now)
+    sentAt: new Date(now).toISOString()
   }
+
+  const days = rollup(rows, now, openingBucketsByDate(rows, slots, now))
+  return { ...envelope, days: trimToBudget(days) }
+}
+
+/**
+ * Drop opening buckets, oldest day first, until the payload fits.
+ *
+ * The server refuses an oversized body outright, so a client that keeps
+ * producing one never uploads again - a 413 every time, with nothing on the
+ * user's screen to say so. Something has to give, and the hands are it: they
+ * are the part that grows with play (four rows per match against about fifteen
+ * for a whole day of match buckets), and the heartbeat, the install record and
+ * the metagame aggregate all come from the match buckets, which are never
+ * dropped.
+ *
+ * OLDEST FIRST, and that is what makes this nearly free rather than a real
+ * loss. The window is fourteen days and it is re-sent on every upload, so a
+ * day that is old today was recent - and uploaded whole - two weeks ago. The
+ * server leaves stored rows alone for a day that carries no statement about
+ * its hands (`openingBuckets` absent, not `[]`), so trimming an old day
+ * preserves exactly what was already stored for it.
+ *
+ * The first version of this dropped every day's hands at once. That is the
+ * wrong shape: it would silence the players with the most matches, who are
+ * precisely the ones whose hands the cross-player estimate needs. At 160 bytes
+ * a row the budget holds about 4,900 rows, which is a fortnight at roughly
+ * ninety matches a day - so this is reached by a grinder, and a grinder is who
+ * it must not exclude.
+ */
+export function trimToBudget(
+  days: TelemetryDay[],
+  /** The budget, injectable so a test does not have to build a megabyte. */
+  budget: number = MAX_PAYLOAD_BYTES
+): TelemetryDay[] {
+  const size = (): number => JSON.stringify(days).length
+  if (size() <= budget) return days
+
+  // `days` runs oldest to newest (`windowDates`), so this walks forward.
+  let trimmed = 0
+  for (const day of days) {
+    if (size() <= budget) break
+    if (day.openingBuckets === undefined || day.openingBuckets.length === 0) continue
+    delete day.openingBuckets
+    trimmed += 1
+  }
+  console.warn(
+    `[Telemetry] payload over budget; sent ${trimmed} day(s) without their opening hands`
+  )
+  return days
 }
 
 // ------------------------------------------------------------------ upload

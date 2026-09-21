@@ -17,6 +17,7 @@
  * the same run.
  */
 import { CR_BAND_UNKNOWN } from '../../../src/shared/crBands'
+import { REST_BANDS } from '../../../src/shared/openingStats'
 import {
   TELEMETRY_ACCEPTED_SCHEMAS,
   TELEMETRY_CLASSES,
@@ -41,11 +42,37 @@ export type ValidBucket = {
   count: number
 }
 
+export type ValidOpeningBucket = {
+  tier: string
+  mode: string
+  myClass: string
+  oppoClass: string
+  playOrder: string
+  cardId: number
+  kept: boolean
+  /** 0..REST_BANDS-1, or null when the client could not price a companion. */
+  restBand: number | null
+  result: string
+  count: number
+}
+
 export type ValidDay = {
   date: string
   abandoned: number
   manual: number
   buckets: ValidBucket[]
+  /**
+   * The day's opening-hand counts, or null when the client did not carry any
+   * for this day.
+   *
+   * Null and `[]` are different and the ingest path treats them differently.
+   * `[]` says "this day had no complete hands", which is a fact about what was
+   * played and replaces whatever is stored. Null says "no statement", which is
+   * every schema-1 and schema-2 client and any day a schema-3 client trimmed
+   * to stay under the body limit - and must leave the stored rows alone. A
+   * client that got quieter is not a player who stopped.
+   */
+  openingBuckets: ValidOpeningBucket[] | null
   /** Sum of bucket counts, precomputed for the `match_days` row. */
   matches: number
 }
@@ -77,6 +104,17 @@ const MAX_BUCKETS_PER_DAY =
   TELEMETRY_PLAY_ORDERS.length *
   TELEMETRY_CR_BANDS.length *
   TELEMETRY_RESULTS.length
+
+/**
+ * A day's ceiling on opening rows.
+ *
+ * Four copies per match at the day's own match ceiling. Not a guess about
+ * behaviour: a hand is four cards, so the observation count IS four times the
+ * match count, and `TELEMETRY_MAX_MATCHES_PER_DAY` has already decided what
+ * number of matches stops being a person. Deduplication can only bring this
+ * down, never up, so anything above it is a client that is not counting copies.
+ */
+const MAX_OPENING_BUCKETS_PER_DAY = 4 * TELEMETRY_MAX_MATCHES_PER_DAY
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}(-[0-9A-Za-z.-]{1,32})?$/
@@ -147,6 +185,50 @@ function validateBucket(raw: unknown, schema: number): ValidBucket | string {
   return { tier, mode, myClass, oppoClass, playOrder, crBand: band, result, count }
 }
 
+function validateOpeningBucket(raw: unknown): ValidOpeningBucket | string {
+  if (!isRecord(raw)) return 'opening bucket is not an object'
+  const { tier, mode, myClass, oppoClass, playOrder, cardId, kept, restBand, result, count } = raw
+  if (typeof tier !== 'string' || !(TELEMETRY_TIERS as readonly string[]).includes(tier)) {
+    return `unknown tier ${String(tier)}`
+  }
+  if (typeof mode !== 'string' || !TELEMETRY_MODES.includes(mode)) {
+    return `unknown mode ${String(mode)}`
+  }
+  if (typeof myClass !== 'string' || !TELEMETRY_CLASSES.includes(myClass)) {
+    return `unknown class ${String(myClass)}`
+  }
+  if (typeof oppoClass !== 'string' || !TELEMETRY_CLASSES.includes(oppoClass)) {
+    return `unknown class ${String(oppoClass)}`
+  }
+  if (typeof playOrder !== 'string' || !TELEMETRY_PLAY_ORDERS.includes(playOrder)) {
+    return `unknown play order ${String(playOrder)}`
+  }
+  if (typeof result !== 'string' || !(TELEMETRY_RESULTS as readonly string[]).includes(result)) {
+    return `unknown result ${String(result)}`
+  }
+  /**
+   * A card id is whitelisted by SHAPE, not against a list.
+   *
+   * Every other dimension here is a closed enum the client and server share,
+   * and this one cannot be: the card master changes when Cygames publishes a
+   * set, and a server that only accepted ids it had heard of would silently
+   * drop every new card - for as long as it took someone to notice, which for
+   * a statistic nobody has yet is forever. A positive integer inside the
+   * portal's range is the most that can be checked here without making the
+   * server a release dependency of the game.
+   */
+  if (!isCount(cardId, 1) || cardId > 999_999_999) return `bad cardId ${String(cardId)}`
+  if (typeof kept !== 'boolean') return `bad kept ${String(kept)}`
+  let band: number | null
+  if (restBand === null) band = null
+  else if (isCount(restBand, 0) && restBand < REST_BANDS) band = restBand
+  else return `bad restBand ${String(restBand)}`
+  if (!isCount(count, 1) || count > MAX_OPENING_BUCKETS_PER_DAY) {
+    return `bad count ${String(count)}`
+  }
+  return { tier, mode, myClass, oppoClass, playOrder, cardId, kept, restBand: band, result, count }
+}
+
 function validateDay(
   raw: unknown,
   now: Date,
@@ -194,7 +276,54 @@ function validateDay(
   if (matches + raw.abandoned + raw.manual > TELEMETRY_MAX_MATCHES_PER_DAY) {
     return fail('too many matches for one day')
   }
-  return { date, abandoned: raw.abandoned, manual: raw.manual, buckets, matches }
+
+  /**
+   * Absent is allowed at every schema, and means "no statement about this
+   * day's hands" rather than "no hands".
+   *
+   * Unlike `crBand`, absence is not a client bug at schema 3: the uploader
+   * drops opening data wholesale rather than fail a payload that would exceed
+   * the body limit, because the heartbeat and the match counts matter more
+   * than the hands do. So there is no version at which this field is
+   * mandatory, and the day simply carries null.
+   */
+  let openingBuckets: ValidOpeningBucket[] | null = null
+  if (typeof raw.openingBuckets !== 'undefined' && raw.openingBuckets !== null) {
+    if (!Array.isArray(raw.openingBuckets)) return fail('openingBuckets is not an array')
+    if (raw.openingBuckets.length > MAX_OPENING_BUCKETS_PER_DAY) {
+      return fail('too many opening buckets')
+    }
+    const opening: ValidOpeningBucket[] = []
+    const seenOpening = new Set<string>()
+    let copies = 0
+    for (const entry of raw.openingBuckets) {
+      const bucket = validateOpeningBucket(entry)
+      if (typeof bucket === 'string') return fail(bucket)
+      const key = [
+        bucket.tier,
+        bucket.mode,
+        bucket.myClass,
+        bucket.oppoClass,
+        bucket.playOrder,
+        bucket.cardId,
+        bucket.kept ? 'k' : 's',
+        bucket.restBand ?? 'x',
+        bucket.result
+      ].join('|')
+      if (seenOpening.has(key)) return fail('duplicate opening bucket')
+      seenOpening.add(key)
+      opening.push(bucket)
+      copies += bucket.count
+    }
+    // Four copies per match, and the matches are already bounded. A day
+    // claiming more copies than its own matches can hold is not a day.
+    if (copies > 4 * (matches + raw.abandoned + raw.manual)) {
+      return fail('more opening copies than the day has matches for')
+    }
+    openingBuckets = opening
+  }
+
+  return { date, abandoned: raw.abandoned, manual: raw.manual, buckets, openingBuckets, matches }
 }
 
 export function validatePayload(body: unknown, now: Date): Verdict {
