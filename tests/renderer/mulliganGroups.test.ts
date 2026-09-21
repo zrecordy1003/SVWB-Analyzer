@@ -58,7 +58,9 @@ describe('groupByVerdict', () => {
 
   it('keeps a card with no estimate in `unknown`', () => {
     const g = groupByVerdict(
-      result([advice({ dealt: 6, kept: 5, diff: null, diffLo: null, diffHi: null, confidence: 'hidden' })]),
+      result([
+        advice({ dealt: 6, kept: 5, diff: null, diffLo: null, diffHi: null, confidence: 'hidden' })
+      ]),
       true
     )
     expect(g.unknown).toHaveLength(1)
@@ -118,7 +120,8 @@ describe('groupByVerdict', () => {
       advice({ dealt: 4, kept: 4, diff: null, diffLo: null, diffHi: null, confidence: 'hidden' })
     ]
     const g = groupByVerdict(result(cards), true)
-    const total = g.keep.length + g.toss.length + g.general.length + g.leaning.length + g.unknown.length
+    const total =
+      g.keep.length + g.toss.length + g.general.length + g.leaning.length + g.unknown.length
     expect(total).toBe(cards.length)
   })
 })

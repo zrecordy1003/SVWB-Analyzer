@@ -87,9 +87,19 @@ const TelemetrySettings: React.FC = () => {
               title={
                 <Box display="flex" flexDirection="column" gap={0.75}>
                   <span>開啟後定期上傳，內容只有這些，而且是整天合併過的計數：</span>
+                  {/*
+                    起手那一行拿掉了，因為 1.4.0 沒有在上傳它。
+
+                    它是照著計畫先寫的，而計畫的那一步（schema 3）還沒做——
+                    `rollup.ts` 產出的 bucket 裡一個起手欄位都沒有。留著會是
+                    隱私說明在講一件沒發生的事：方向剛好和一般的錯誤相反
+                    （說得比做得多），但一份會誇大自己收了什麼的說明，
+                    和一份低報的一樣不能信。
+
+                    上傳真的做了再加回來，連同 TELEMETRY_SCHEMA 的 bump。
+                  */}
                   <Box component="ul" sx={{ m: 0, pl: 2.25 }}>
                     <li>職業、對手職業、先攻或後攻、模式、分數段、勝負</li>
-                    <li>起手四張的卡號，以及各自有沒有被換掉</li>
                   </Box>
                   <span>
                     不含帳號、暱稱、牌組名稱、對手名字或任何可以認出你的東西，也不會上傳

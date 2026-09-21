@@ -16,7 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 const electronMock = vi.hoisted(() => ({ isPackaged: true }))
 vi.mock('electron', () => ({ app: electronMock }))
 
-const { telemetryEndpoint, telemetryUploadEndpoint } = await import('../../src/main/telemetry/config')
+const { telemetryEndpoint, telemetryUploadEndpoint } = await import(
+  '../../src/main/telemetry/config'
+)
 
 const PROD = 'https://telemetry.svwb-analyzer.workers.dev'
 

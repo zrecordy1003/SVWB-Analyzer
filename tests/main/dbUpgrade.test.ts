@@ -21,7 +21,7 @@
  * cannot take.
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import fsSync, { existsSync } from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -34,8 +34,21 @@ const ROOT = process.cwd()
 const ENGINE = path.join(ROOT, 'tools', 'target', 'release', ENGINE_BINARY)
 const MIGRATIONS = path.join(ROOT, 'resources', 'migrations')
 
-/** The release this upgrade path starts from. */
-const FROM_TAG = 'v1.2.0'
+/**
+ * The releases this upgrade path starts from.
+ *
+ * Two, because they are different risks. `v1.2.0` is the widest jump anyone
+ * still on an old install will take (7 migrations to 17), and is the case that
+ * has always been covered. `v1.3.4` is the one almost every user actually
+ * takes next — and the one carrying the migrations that have never shipped:
+ * 013-017, including both tables the opening-hand recorder writes to. A path
+ * being the common one is not a reason to leave it to the wide case by
+ * inference.
+ *
+ * Adding a release here after it ships costs one line, and the constant is a
+ * list so that stays true.
+ */
+const FROM_TAGS = ['v1.2.0', 'v1.3.4'] as const
 
 let dir: string
 let dbPath: string
@@ -68,7 +81,7 @@ const versionOf = (name: string): number => Number(name.slice(0, name.indexOf('_
  * fails, and this is the only check standing between an existing user and an
  * app that will not start.
  */
-function migrationsAtTag(): { name: string; sql: string }[] {
+function migrationsAtTag(FROM_TAG: string): { name: string; sql: string }[] {
   try {
     execFileSync('git', ['rev-parse', '--verify', `${FROM_TAG}^{commit}`], {
       cwd: ROOT,
@@ -101,6 +114,25 @@ function migrationsAtTag(): { name: string; sql: string }[] {
     }))
 }
 
+/** Whether the tag's migrations already included this version. */
+function hadMigration(old: { name: string }[], version: number): boolean {
+  return old.some((m) => versionOf(m.name) === version)
+}
+
+/**
+ * How many migrations this release adds on top of the ones that tag shipped.
+ *
+ * Counted off the files rather than off the highest version, so a gap in the
+ * numbering does not quietly change what is expected.
+ */
+function expectedApplied(old: { name: string }[]): number {
+  const had = new Set(old.map((m) => versionOf(m.name)))
+  return fsSync
+    .readdirSync(MIGRATIONS)
+    .filter((f) => f.endsWith('.sql'))
+    .filter((f) => !had.has(versionOf(f))).length
+}
+
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'svtool-upgrade-'))
   dbPath = path.join(dir, 'app.db')
@@ -129,13 +161,13 @@ afterEach(async () => {
  */
 const SPAWNS_THE_ENGINE = { timeout: 60_000 }
 
-describe(`upgrading from ${FROM_TAG}`, () => {
+describe.each(FROM_TAGS)('upgrading from %s', (FROM_TAG) => {
   it('keeps every row, and adds the new columns as nullable', SPAWNS_THE_ENGINE, () => {
     if (!existsSync(ENGINE)) {
       throw new Error(`svwb-engine is not built at ${ENGINE}\nRun: pnpm engine:build`)
     }
 
-    const old = migrationsAtTag()
+    const old = migrationsAtTag(FROM_TAG)
     expect(old.length, `no migrations found at ${FROM_TAG}`).toBeGreaterThan(0)
 
     // ---- build the v1.2.0 database, schema and bookkeeping both
@@ -167,6 +199,14 @@ describe(`upgrading from ${FROM_TAG}`, () => {
       `INSERT INTO Deck (id, name, class, createdAt, updatedAt, isDefault, categoryId)
        VALUES (1, '妖精速攻', 'elf', ?, ?, 1, 'cat-1')`
     ).run(now, now)
+    // A deck created AFTER 011 gets its family from the insert path, not from
+    // the backfill - `decks.ts` writes `familyId = id` immediately after the
+    // insert. Without this the fixture would be a shape no user has: a row
+    // that 011 could not reach and that no code path ever filled in, which
+    // would then be asserted about as if it were what a real upgrade produces.
+    if (hadMigration(old, 11)) {
+      db.prepare('UPDATE Deck SET familyId = id WHERE id = 1').run()
+    }
     db.prepare('INSERT INTO Tag (id, name, createdAt, updatedAt) VALUES (1, ?, ?, ?)').run(
       '練習',
       now,
@@ -224,8 +264,11 @@ describe(`upgrading from ${FROM_TAG}`, () => {
       encoding: 'utf8',
       windowsHide: true
     })
-    // Only the new ones ran: 017 - 007 = 10.
-    expect(JSON.parse(out.trim())).toEqual({ applied: 10 })
+    // Only the ones this release added ran. Derived from the tag rather than
+    // written down: a literal has to be edited on every release, and the edit
+    // that gets forgotten is the one that makes the test agree with whatever
+    // happened instead of with what should have.
+    expect(JSON.parse(out.trim())).toEqual({ applied: expectedApplied(old) })
 
     // ---- and nothing was lost
     const after = new SQLite(dbPath, { readonly: true })
@@ -275,6 +318,11 @@ describe(`upgrading from ${FROM_TAG}`, () => {
      *
      * (This case first asserted null, which was my assumption and not the
      * migration's. The migration was right.)
+     *
+     * From v1.3.4 the backfill has already happened at the tag, so what is
+     * checked here is the other half of the same invariant: whatever route a
+     * deck took, it arrives with a family. The fixture fills it the way the
+     * app does - see the insert.
      */
     const deck = after.prepare('SELECT familyId, archivedAt FROM Deck WHERE id = 1').get()
     expect(deck).toEqual({ familyId: 1, archivedAt: null })
@@ -291,7 +339,7 @@ describe(`upgrading from ${FROM_TAG}`, () => {
   })
 
   it('is idempotent: running the upgrade twice changes nothing', SPAWNS_THE_ENGINE, () => {
-    const old = migrationsAtTag()
+    const old = migrationsAtTag(FROM_TAG)
     const db = new SQLite(dbPath)
     db.exec(SCHEMA_MIGRATIONS_DDL)
     for (const migration of old) {
@@ -305,7 +353,7 @@ describe(`upgrading from ${FROM_TAG}`, () => {
 
     const args = ['migrate', '--db', dbPath, '--migrations', MIGRATIONS]
     expect(JSON.parse(execFileSync(ENGINE, args, { encoding: 'utf8' }).trim())).toEqual({
-      applied: 10
+      applied: expectedApplied(old)
     })
     // Which is what a second launch does, and what a crash mid-upgrade leaves
     // behind for the next one.

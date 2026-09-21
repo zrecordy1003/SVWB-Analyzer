@@ -217,20 +217,12 @@ check('and changes nothing', afterResend.matches === afterFirst.matches, {
  * `unchanged` must be 0; an identical re-send must skip every day.
  */
 check('the first upload of a window skips nothing', a1.body.unchanged === 0, a1.body)
-check(
-  'an identical re-send rewrites no day at all',
-  a2.body.unchanged === WINDOW,
-  a2.body
-)
+check('an identical re-send rewrites no day at all', a2.body.unchanged === WINDOW, a2.body)
 
 // The user deletes four of the five: the day is replaced, not added to.
 const a3 = await post(payload(A, '1.3.0', (p) => (p.days[0].buckets = [bucket()])))
 check('a corrected day is accepted', a3.status === 200 && a3.body.accepted === WINDOW, a3)
-check(
-  'the corrected day is the ONLY one rewritten',
-  a3.body.unchanged === WINDOW - 1,
-  a3.body
-)
+check('the corrected day is the ONLY one rewritten', a3.body.unchanged === WINDOW - 1, a3.body)
 const afterCorrection = await today()
 check('the day is replaced wholesale', afterCorrection.matches === base.matches + 2, {
   base,
@@ -497,7 +489,11 @@ const replaced = await post(
     p.days[0].buckets = [bucket({ crBand: 'gte2000', count: 1 })]
   })
 )
-check('a re-post replaces the banded rows rather than adding to them', replaced.status === 200, replaced)
+check(
+  'a re-post replaces the banded rows rather than adding to them',
+  replaced.status === 200,
+  replaced
+)
 
 const rank = (await get('/v1/admin/overview', TOKEN)).body?.rank
 check('the admin document carries the rank split', Array.isArray(rank?.bands), rank)
@@ -544,8 +540,7 @@ check(
 
 check(
   'summing the bands reproduces the unsplit total',
-  rank.bands.reduce((n, b) => n + b.total, 0) ===
-    rank.cells.reduce((n, c) => n + c.total, 0),
+  rank.bands.reduce((n, b) => n + b.total, 0) === rank.cells.reduce((n, c) => n + c.total, 0),
   { bands: rank.bands, cells: rank.cells.length }
 )
 const notAUuid = await post(payload('install-1', '1.3.0'))

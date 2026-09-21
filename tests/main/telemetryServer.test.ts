@@ -626,10 +626,7 @@ describe('CR band over the wire', () => {
         recog_flags: null
       }
     ]
-    const verdict = validatePayload(
-      payload({ schema: 2, days: rollup(rows, NOW.getTime()) }),
-      NOW
-    )
+    const verdict = validatePayload(payload({ schema: 2, days: rollup(rows, NOW.getTime()) }), NOW)
     expect(verdict.ok).toBe(true)
     if (verdict.ok) {
       const bands = verdict.value.days.flatMap((d) => d.buckets.map((b) => b.crBand))
