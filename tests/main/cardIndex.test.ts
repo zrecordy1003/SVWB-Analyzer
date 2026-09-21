@@ -9,8 +9,29 @@
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sql } from 'kysely'
+
+/**
+ * `cardIndex.ts` reaches `main/paths.ts`, which imports `app` from electron at
+ * module scope. Outside an Electron runtime that import runs the electron
+ * package's own index.js, which reads the downloaded binary's path and throws
+ * if it is not there.
+ *
+ * On a dev machine it always is, so this file loaded fine locally and failed
+ * the moment it reached CI, where the rust job installs no electron binary —
+ * as a SUITE error rather than a test failure, which is why 660 tests could
+ * pass with a red build. Mocking the module means the real one is never
+ * evaluated, which is what every other test in `tests/main` already does.
+ *
+ * `getPath` answers with a temp directory because the paths module makes one
+ * on call; nothing here asserts on it.
+ */
+vi.mock('electron', () => ({
+  app: { getPath: () => path.join(os.tmpdir(), 'svtool-cardindex-userdata') },
+  ipcMain: { handle: vi.fn() },
+  BrowserWindow: { getAllWindows: vi.fn(() => []) }
+}))
 
 import { setCardImageFetchForTests } from '../../src/main/data/cardImages'
 import {
