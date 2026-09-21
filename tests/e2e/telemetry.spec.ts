@@ -22,9 +22,17 @@
  * send through the same `rollup.ts`; it just has no button any more. Asking it
  * over IPC is therefore the same assertion as before, minus the click.
  *
- * Nothing here uploads. Every test gets a fresh profile, `SVWB_TELEMETRY_URL`
- * is not set for it, and the notice is never marked shown by this file - so
- * the upload gate in `performUpload` stays shut regardless.
+ * Nothing here uploads, and the reason is not the one this comment used to
+ * give. It said `SVWB_TELEMETRY_URL` was "not set", as though that meant no
+ * endpoint - but an unset override falls back to the BUILT-IN production URL,
+ * so the app under test was pointed at the live Worker the whole time. What
+ * actually held was the other half: the notice is never marked shown by this
+ * file, so the gate in `performUpload` stays shut.
+ *
+ * That was one gate away from a CI run writing into the real aggregate. The
+ * fixture now sets `SVWB_TELEMETRY_URL` to a port that refuses connections
+ * (see `app.ts`), so the endpoint is real enough to exercise the path and
+ * cannot reach anything. Every test still gets a fresh profile.
  */
 import { test, expect } from './app'
 import { TELEMETRY_SCHEMA } from '../../src/shared/telemetry'

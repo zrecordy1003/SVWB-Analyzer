@@ -102,6 +102,30 @@ export const test = base.extend<SvwbFixtures>({
     else delete env.SVWB_UPDATE_SIM
 
     /**
+     * A telemetry endpoint that exists and cannot be reached.
+     *
+     * Two things need this and they pull in the same direction.
+     *
+     * It has to EXIST because an unpackaged build has no upload endpoint at
+     * all (`telemetryUploadEndpoint`), and several things key off that: the
+     * one-time notice is not due on a build with nowhere to send, which is
+     * correct — announcing 「已為你開啟」 on a build that sends nothing would be
+     * a lie, and marking the notice shown there would let a LATER packaged
+     * build upload without ever having announced anything. The e2e drives an
+     * unpackaged app, so without this the notice path cannot be tested at all.
+     *
+     * It has to be UNREACHABLE because the alternative is what these tests
+     * used to do. Before the dev gate existed, the built-in production URL was
+     * compiled into the app under test, so an e2e run that got as far as
+     * marking the notice shown had a live endpoint and a scheduled upload
+     * three seconds later — from CI, into the real aggregate. Nothing was
+     * observed to have arrived, and that is not the same as nothing having
+     * been sent. Port 1 refuses immediately on every platform, so the upload
+     * path runs end to end and dies at the socket.
+     */
+    env.SVWB_TELEMETRY_URL = 'http://127.0.0.1:1'
+
+    /**
      * Point this at an installed or `--dir`-unpacked executable to run the
      * suite against a real package instead of `out/`.
      *
