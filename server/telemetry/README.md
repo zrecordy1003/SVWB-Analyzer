@@ -18,6 +18,7 @@ app 端的對應程式在 `src/main/telemetry/`；wire format 在 `src/shared/te
 | POST | `/v1/ingest`         | app 上傳。以 `(installId, date)` 為鍵整批**覆寫**，重送冪等。       | 無認證；每 IP 60/分、每 installId 6/分 |
 | GET  | `/v1/meta`           | 公開彙總：ranked、`clean` tier、預設最近 14 天（`?days=1..90`）。   | 無認證；每 IP 120/分；邊緣快取 15 分   |
 | GET  | `/v1/admin/overview` | 維護者數字：活躍安裝數（今日／7 天／30 天）、各版本人數、每日序列、**CR 段位切分**。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
+| GET  | `/v1/admin/opening`  | 起手手牌的計數：每張卡的留牌／換掉 × `rest_band` × 勝負。預設 30 天、ranked ＋ `clean`（`?days=1..90`、`?mode=all`、`?tiers=all`）。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
 | GET  | `/health`            | 存活檢查                                                            | 無                                     |
 
 `/v1/ingest` 沒有認證，因為 client 是開源的，任何金鑰都等於公開（`docs/meta-stats-plan.md` R-5）。
@@ -47,6 +48,23 @@ crBand`），因為 `unknown` 本來就是多數，一個悄悄不送這個欄�
 它仍然按 tier 分組（而不是全部混起來），這樣讀的人可以自己決定要信哪些；而且每格照樣回報
 `installs`，因為門檻拿掉之後，誠實的替代做法是**把集中度顯示出來**，不是把它藏起來。
 模式仍然固定在 `META_MODE`：把 2Pick 混進構築矩陣是在比較兩種賽制，那不是抑制而是可比性。
+
+### `/v1/admin/opening` 能回答與不能回答的事
+
+`opening_buckets` 只存**被發到的**卡，所以這條路徑上沒有「沒發到」那一臂，
+也就**沒有** Dealt WR。`docs/opening-hand-plan.md` 階段 4 那個乾淨的 ITT 比較需要牌組列表，
+只有 client 有，永遠在本機算。
+
+跨使用者這邊能回答的是另一個問題：**在「其餘三張牌相近」的前提下，留著它與換掉它的勝率差**
+——也就是本機換牌建議的跨玩家版本（M3）。這正是 `rest_band` 必須是鍵欄位的原因：把三個 band
+加總之後再比留／換，比較的是兩群不同的人，不是同一張卡的兩種選擇。
+
+伺服器只送計數，不送勝率、區間或建議。門檻與統計在儀表板那一端（`svwb-telemetry-dashboard`），
+理由跟 `/v1/meta` 一樣（`docs/meta-stats-plan.md` D-8）：「幾筆算夠」是呈現端的決定，
+改它不該需要重新部署 Worker。
+
+`rest_band` 為 null 的列（同伴費用查不到）照收、照送，並在 `coverage.unbanded` 單獨報出來：
+它們在合併層可用、在分層比較不可用，跟本機建議的處理方式一致。
 
 ### 為什麼 CR 段位不在 `/v1/meta`
 

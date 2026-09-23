@@ -344,8 +344,19 @@ prediction interval 而不是 posterior CI。
   而他們正是跨玩家估計最需要的人。
 - 設定頁那行「起手四張的卡號，以及各自有沒有被換掉」加回來了（1.4.0 因為當時沒在傳而拿掉）。
 
-**還沒做：M3**（`/v1/mulligan`、k-匿名、per-install 上限、退階）與 **M4**。
-伺服器現在只是**收下並存著**，沒有任何對外的讀取端點。
+**還沒做：M3**（`/v1/mulligan`、k-匿名、per-install 上限、退階）與 **M4**——也就是
+**app 會讀到的**那條路。
+
+**2026-09-22 補上的是「維護者讀得到」而不是 M3**：Worker 多了
+`GET /v1/admin/opening`（bearer，預設 30 天、ranked ＋ `clean`），把 `opening_buckets`
+彙總成「每張卡 × 留／換 × `rest_band` × 勝負」的計數；隔壁的 `svwb-telemetry-dashboard`
+多了一頁「起手」，用**從 `src/shared/stats.ts` 原樣抄過去的** Mantel-Haenszel 與
+Greenland-Robins 區間算調整後的留／換差，並對整張表做一次 Benjamini-Hochberg。
+
+那一條路徑與 M3 的差別是刻意的，不是抄捷徑：它有 bearer 認證、只有一個讀者，所以
+**沒有** k-匿名門檻、**沒有** per-install 上限、**沒有**退階——這三樣正是 `/v1/mulligan`
+這個公開端點非有不可的東西。先做維護者這一頁的理由是：在決定要不要把雲端層端給使用者之前，
+得先看得到這些桶裡到底有什麼、無 `rest_band` 的比例有多高、每個對位實際上多稀疏。
 
 ## 修訂紀錄
 

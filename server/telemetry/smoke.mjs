@@ -543,6 +543,120 @@ check(
   rank.bands.reduce((n, b) => n + b.total, 0) === rank.cells.reduce((n, c) => n + c.total, 0),
   { bands: rank.bands, cells: rank.cells.length }
 )
+// ---------------------------------------------------------- opening buckets
+//
+// The read path for the opening hand. What a unit test cannot reach here is
+// the same thing it cannot reach anywhere else in this file: the SQL. In
+// particular that `rest_band` survives as NULL rather than becoming 0 (the
+// table has no primary key precisely because SQLite would not have enforced
+// one over a nullable column), and that a day carrying no `openingBuckets`
+// leaves the stored rows alone while an empty array replaces them.
+
+const opener = (over = {}) => ({
+  tier: 'clean',
+  mode: 'ranked',
+  myClass: 'witch',
+  oppoClass: 'dragon',
+  playOrder: 'first',
+  cardId: 10001110,
+  kept: true,
+  restBand: 1,
+  result: 'win',
+  count: 2,
+  ...over
+})
+
+const openingInstall = crypto.randomUUID()
+const openingPayload = (fill) => {
+  const p = payload(openingInstall, '1.5.0')
+  p.schema = 3
+  fill(p)
+  return p
+}
+
+const withHands = await post(
+  openingPayload((p) => {
+    p.days[0].buckets = [bucket({ crBand: 'unknown', count: 6 })]
+    p.days[0].openingBuckets = [
+      opener(),
+      opener({ kept: false, result: 'loss', count: 3 }),
+      // The band that cannot be computed. This is the row that turns into a
+      // zero if anything on the way down treats null as a missing number.
+      opener({ restBand: null, count: 1 })
+    ]
+  })
+)
+check(
+  'a schema-3 upload carrying hands is accepted whole',
+  withHands.status === 200 && withHands.body.rejected.length === 0,
+  withHands
+)
+
+check('the opening route is closed without a token', (await get('/v1/admin/opening')).status === 401)
+check(
+  'and to the wrong token',
+  (await get('/v1/admin/opening', `${TOKEN}x`)).status === 401
+)
+
+const openingDoc = (await get('/v1/admin/opening', TOKEN)).body
+check(
+  'the opening document states the scope it counted',
+  openingDoc?.scope?.mode === 'ranked' && openingDoc?.scope?.tiers?.[0] === 'clean',
+  openingDoc?.scope
+)
+const card = openingDoc?.cards?.find((c) => c.cardId === 10001110)
+check('the card appears with its copies counted', card?.dealt >= 6, card)
+check(
+  'a null band survives as null rather than as band 0',
+  card?.bands?.some((b) => b.band === null),
+  card?.bands
+)
+check(
+  'the unbanded copies are reported separately',
+  openingDoc?.coverage?.unbanded >= 1,
+  openingDoc?.coverage
+)
+
+// Absence versus emptiness - the distinction the ingest path is built around,
+// asserted from the outside because it is the one that silently deletes a
+// user's history if it is ever collapsed.
+const dealtBefore = card.dealt
+await post(
+  openingPayload((p) => {
+    p.days[0].buckets = [bucket({ crBand: 'unknown', count: 6 })]
+    delete p.days[0].openingBuckets
+  })
+)
+const afterSilence = (await get('/v1/admin/opening', TOKEN)).body?.cards?.find(
+  (c) => c.cardId === 10001110
+)
+check(
+  'a day that says nothing about hands leaves the stored ones alone',
+  afterSilence?.dealt === dealtBefore,
+  { before: dealtBefore, after: afterSilence?.dealt }
+)
+
+await post(
+  openingPayload((p) => {
+    p.days[0].buckets = [bucket({ crBand: 'unknown', count: 6 })]
+    p.days[0].openingBuckets = []
+  })
+)
+const afterEmpty = (await get('/v1/admin/opening', TOKEN)).body?.cards?.find(
+  (c) => c.cardId === 10001110
+)
+check(
+  'an empty array replaces the day wholesale',
+  (afterEmpty?.dealt ?? 0) < dealtBefore,
+  { before: dealtBefore, after: afterEmpty?.dealt ?? 0 }
+)
+
+check(
+  'the whole-window tier split is not narrowed by the scope',
+  typeof openingDoc?.coverage?.byTier === 'object' && openingDoc.coverage.byTier !== null,
+  openingDoc?.coverage?.byTier
+)
+
 const notAUuid = await post(payload('install-1', '1.3.0'))
 check('an install id that is not a UUID is refused', notAUuid.status === 400, notAUuid)
 

@@ -466,3 +466,200 @@ export function buildOverview(input: {
     }
   }
 }
+
+// --------------------------------------------------------- /v1/admin/opening
+
+/**
+ * One grouped row of `opening_buckets`: a card, a mulligan decision, the band
+ * the rest of the hand fell in, and how that went.
+ *
+ * The grouping is deliberately NOT folded down to one row per card in SQL. The
+ * whole reason `rest_band` is in the table (see `0004_opening_buckets.sql`) is
+ * that kept-versus-swapped compared without it compares two different
+ * populations; a query that summed the bands away here would hand the
+ * dashboard exactly the confounded number the column exists to prevent.
+ */
+export type OpeningCellRow = {
+  card_id: number
+  /** SQLite has no boolean: 1 = survived the mulligan, 0 = thrown back. */
+  kept: number
+  rest_band: number | null
+  result: string
+  n: number
+}
+
+/** Per card, the two things a per-(card, kept, band, result) grouping cannot give. */
+export type OpeningCardRow = {
+  card_id: number
+  /** Distinct installs. Not derivable by summing the grouped rows - the same
+   *  install appears in several of them. */
+  installs: number
+  n: number
+}
+
+export type OpeningDayRow = { date: string; installs: number; n: number }
+
+/** One stratum of one card's keep comparison. `band: null` is a real band. */
+export type OpeningBand = {
+  /** 0 = the other three cards were cheapest, 2 = most expensive, null = a
+   *  companion's cost was unknown to the client. */
+  band: number | null
+  keptWins: number
+  keptTotal: number
+  swappedWins: number
+  swappedTotal: number
+}
+
+export type OpeningCard = {
+  cardId: number
+  /** Distinct installs that ever had this card in a pre-mulligan hand. */
+  installs: number
+  /** COPIES dealt, not matches: a hand holding two of something counts twice,
+   *  which is the unit the client's own advisor counts in. */
+  dealt: number
+  kept: number
+  bands: OpeningBand[]
+}
+
+export type OpeningDocument = {
+  generatedAt: string
+  window: { since: string; days: number }
+  /** What was counted, so the page can state it rather than imply it. */
+  scope: { mode: string; tiers: string[] }
+  coverage: {
+    observations: number
+    installs: number
+    cards: number
+    /**
+     * Observations whose `rest_band` is null, i.e. the client could not price
+     * one of the other three cards.
+     *
+     * Reported rather than quietly dropped because it is the one number that
+     * says how much of the pile the stratified comparison may use. Those rows
+     * are usable pooled and unusable stratified, exactly as the in-app advisor
+     * treats them, so a large share here means the adjusted differences below
+     * rest on much less data than `observations` suggests.
+     */
+    unbanded: number
+    /** Cards omitted from `cards` by `maxCards`, so truncation is visible. */
+    truncatedCards: number
+    /**
+     * The whole window's observations by tier and by mode, INCLUDING the ones
+     * `scope` filters out.
+     *
+     * The point is to show what the scope dropped. A tier split computed after
+     * filtering to `clean` would be a bar chart with one bar, which answers
+     * nothing about whether the filter is throwing away half the data.
+     */
+    byTier: Record<string, number>
+    byMode: Record<string, number>
+  }
+  /** One row per day, oldest first, zero-filled. */
+  series: Array<{ date: string; observations: number; installs: number }>
+  /** Sorted by `dealt`, descending, capped at `maxCards`. */
+  cards: OpeningCard[]
+}
+
+/**
+ * Shape the opening-hand pile into the document above.
+ *
+ * Counts only, no rates, no intervals, no verdicts - the same division of
+ * labour as `/v1/meta` (`docs/meta-stats-plan.md` D-8). Whether a card has
+ * enough observations to say anything about, and what "enough" means, is a
+ * presentation decision that the dashboard makes and can change without
+ * touching a deployed Worker.
+ *
+ * No k-anonymity floor: this route is bearer-authenticated and serves its
+ * owner. `installs` is reported per card for the same reason it is on the raw
+ * matrix - with no floor, the honest replacement for suppression is showing
+ * the concentration rather than hiding it.
+ */
+export function buildOpening(input: {
+  now: Date
+  since: string
+  days: number
+  mode: string
+  tiers: string[]
+  cells: readonly OpeningCellRow[]
+  cardTotals: readonly OpeningCardRow[]
+  dayRows: readonly OpeningDayRow[]
+  tierSplit: readonly TierRow[]
+  modeSplit: readonly ModeRow[]
+  installs: number
+  maxCards: number
+}): OpeningDocument {
+  const byCard = new Map<number, OpeningCard>()
+  let observations = 0
+  let unbanded = 0
+
+  for (const row of input.cells) {
+    const cardId = Number(row.card_id)
+    const n = Number(row.n) || 0
+    if (!Number.isFinite(cardId) || n <= 0) continue
+
+    const card = byCard.get(cardId) ?? { cardId, installs: 0, dealt: 0, kept: 0, bands: [] }
+    const band = row.rest_band === null ? null : Number(row.rest_band)
+    let stratum = card.bands.find((entry) => entry.band === band)
+    if (!stratum) {
+      stratum = { band, keptWins: 0, keptTotal: 0, swappedWins: 0, swappedTotal: 0 }
+      card.bands.push(stratum)
+    }
+
+    const won = row.result === 'win'
+    if (Number(row.kept) === 1) {
+      stratum.keptTotal += n
+      if (won) stratum.keptWins += n
+      card.kept += n
+    } else {
+      stratum.swappedTotal += n
+      if (won) stratum.swappedWins += n
+    }
+    card.dealt += n
+    observations += n
+    if (band === null) unbanded += n
+    byCard.set(cardId, card)
+  }
+
+  for (const row of input.cardTotals) {
+    const card = byCard.get(Number(row.card_id))
+    if (card) card.installs = Number(row.installs) || 0
+  }
+
+  // `null` last: it is the band that cannot enter the stratified comparison,
+  // and a reader scanning the drill-down should meet 0/1/2 in order first.
+  const ordered = [...byCard.values()].sort((a, b) => b.dealt - a.dealt || a.cardId - b.cardId)
+  for (const card of ordered) {
+    card.bands.sort((a, b) =>
+      a.band === null ? 1 : b.band === null ? -1 : a.band - b.band
+    )
+  }
+
+  const byTier: Record<string, number> = {}
+  for (const row of input.tierSplit) byTier[row.tier] = Number(row.n) || 0
+  const byMode: Record<string, number> = {}
+  for (const row of input.modeSplit) byMode[row.mode] = Number(row.n) || 0
+
+  const days = new Map(input.dayRows.map((row) => [row.date, row]))
+  const series = lastDates(input.now, input.days).map((date) => ({
+    date,
+    observations: Number(days.get(date)?.n) || 0,
+    installs: Number(days.get(date)?.installs) || 0
+  }))
+
+  return {
+    generatedAt: input.now.toISOString(),
+    window: { since: input.since, days: input.days },
+    scope: { mode: input.mode, tiers: [...input.tiers] },
+    coverage: {
+      observations,
+      installs: input.installs,
+      cards: ordered.length,
+      unbanded,
+      truncatedCards: Math.max(0, ordered.length - input.maxCards),
+      byTier,
+      byMode
+    },
+    series,
+    cards: ordered.slice(0, input.maxCards)
+  }
+}

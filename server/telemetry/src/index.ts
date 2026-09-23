@@ -5,6 +5,7 @@
  *   GET  /v1/meta            public aggregate - what the in-app page and the
  *                            web version will read. Cached at the edge.
  *   GET  /v1/admin/overview  the maintainer's numbers; bearer token
+ *   GET  /v1/admin/opening   the opening-hand pile, as counts; bearer token
  *
  * Storage is four tables (see migrations/0001_init.sql). `installs` and
  * `activity` answer "who is running what"; `match_days` and `buckets` answer
@@ -20,6 +21,7 @@
  */
 import {
   buildMeta,
+  buildOpening,
   buildOverview,
   type ActivityRow,
   type NewInstallRow,
@@ -29,6 +31,9 @@ import {
   type BandMatrixRow,
   type CrBandRow,
   type ModeRow,
+  type OpeningCardRow,
+  type OpeningCellRow,
+  type OpeningDayRow,
   type PlatformRow,
   type RawMatrixRow,
   type TierRow,
@@ -92,6 +97,29 @@ const META_MAX_PER_INSTALL_CELL = 10
  * mean anything anyway.
  */
 const META_MIN_INSTALLS_PER_CELL = 5
+
+/**
+ * The opening-hand view's window and its ceiling on cards.
+ *
+ * The cap is on the RESPONSE, not the query: every card is counted and
+ * `coverage.truncatedCards` says how many were left out, so a truncated
+ * document still reports its own totals honestly. Two hundred is well past the
+ * number of distinct cards a dashboard reader will scroll, and far enough
+ * below the size of a full card pool that the payload stays small when the
+ * install base grows.
+ */
+const OPENING_DEFAULT_DAYS = 30
+const OPENING_MAX_DAYS = 90
+const OPENING_MAX_CARDS = 200
+/**
+ * A ceiling on the grouped rows read for the card table.
+ *
+ * The grouping is (card, kept, band, result), so a card occupies at most
+ * sixteen rows and this is roughly three thousand cards' worth - an order of
+ * magnitude past the pool. It exists so that a bug upstream (a client sending
+ * nonsense card ids, say) cannot turn this route into an unbounded read.
+ */
+const OPENING_MAX_ROWS = 50_000
 /** Bigger than any honest payload by an order of magnitude. */
 /**
  * Retention. Nothing here was ever deleted before this: `ingest` only ever
@@ -204,6 +232,9 @@ export default {
       }
       if (url.pathname === '/v1/admin/overview' && request.method === 'GET') {
         return await overview(request, env)
+      }
+      if (url.pathname === '/v1/admin/opening' && request.method === 'GET') {
+        return await opening(request, env)
       }
       if (url.pathname === '/' || url.pathname === '/health') {
         return json({ ok: true, service: 'svwb-telemetry' })
@@ -669,12 +700,8 @@ async function meta(request: Request, env: Env, ctx: ExecutionContext): Promise<
 // ----------------------------------------------------------------- overview
 
 async function overview(request: Request, env: Env): Promise<Response> {
-  if (!env.ADMIN_TOKEN) return json({ ok: false, error: 'admin token not configured' }, 503)
-  const header = request.headers.get('authorization') ?? ''
-  const presented = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
-  if (!presented || !timingSafeEqual(presented, env.ADMIN_TOKEN)) {
-    return json({ ok: false, error: 'unauthorized' }, 401)
-  }
+  const refused = refuseUnlessAdmin(request, env)
+  if (refused) return refused
 
   const now = new Date()
   const today = utcDate(now.getTime())
@@ -847,6 +874,157 @@ async function overview(request: Request, env: Env): Promise<Response> {
     200,
     { 'cache-control': 'no-store' }
   )
+}
+
+// ------------------------------------------------------------------ opening
+
+/**
+ * The opening-hand pile, as counts.
+ *
+ * What this route can and cannot answer is worth stating, because the obvious
+ * reading of it is wrong. `opening_buckets` holds only cards that WERE dealt,
+ * so there is no not-dealt arm here and therefore no dealt-versus-not-dealt
+ * win rate - the clean intent-to-treat comparison described in
+ * `docs/opening-hand-plan.md` stage 4 lives in the client, which knows the
+ * deck list. What crosses the wire is the mulligan decision and its outcome,
+ * conditioned on the rest of the hand: the cross-player version of the local
+ * advisor (M3), and the reason `rest_band` is a key column.
+ *
+ * Scope defaults to the same population the public matrix uses (ranked,
+ * `clean`) so the numbers are comparable to it, and both halves can be widened
+ * per request: `?mode=all`, `?tiers=all`. The scope is echoed in the document
+ * rather than assumed, because a widened one changes what every number below
+ * means and the page has to be able to say which it is looking at.
+ */
+async function opening(request: Request, env: Env): Promise<Response> {
+  const refused = refuseUnlessAdmin(request, env)
+  if (refused) return refused
+
+  const url = new URL(request.url)
+  const requested = Number.parseInt(url.searchParams.get('days') ?? '', 10)
+  const days = Number.isFinite(requested)
+    ? Math.min(Math.max(requested, 1), OPENING_MAX_DAYS)
+    : OPENING_DEFAULT_DAYS
+  const allModes = url.searchParams.get('mode') === 'all'
+  const allTiers = url.searchParams.get('tiers') === 'all'
+  const mode = allModes ? 'all' : META_MODE
+  const tiers = allTiers ? [] : META_TIERS
+
+  const now = new Date()
+  const since = daysAgo(now, days - 1)
+
+  /**
+   * The scope clause, built once and bound the same way everywhere.
+   *
+   * `tiers` empty means every tier, which is why this is assembled rather than
+   * written out: an `IN ()` with no members is a syntax error in SQLite, and
+   * the alternative - a `tier IN (...)` listing all four - would silently stop
+   * matching the day a fifth appears.
+   */
+  const where = [`date >= ?1`]
+  const binds: unknown[] = [since]
+  if (!allModes) {
+    binds.push(META_MODE)
+    where.push(`mode = ?${binds.length}`)
+  }
+  if (!allTiers) {
+    const start = binds.length + 1
+    binds.push(...META_TIERS)
+    where.push(`tier IN (${META_TIERS.map((_, i) => `?${start + i}`).join(', ')})`)
+  }
+  const scope = where.join(' AND ')
+
+  const [cells, cardTotals, dayRows, tierSplit, modeSplit, installs] = await Promise.all([
+    /**
+     * The card table, grouped down to the smallest unit the comparison needs.
+     *
+     * Ordered by nothing: the shaper sorts by observations and caps the list,
+     * and an ORDER BY here would only be a sort D1 has to do over rows that
+     * are about to be regrouped anyway.
+     */
+    env.DB.prepare(
+      `SELECT card_id, kept, rest_band, result, SUM(count) AS n
+       FROM opening_buckets
+       WHERE ${scope}
+       GROUP BY card_id, kept, rest_band, result
+       LIMIT ${OPENING_MAX_ROWS}`
+    )
+      .bind(...binds)
+      .all<OpeningCellRow>(),
+    // Distinct installs per card. A separate statement because COUNT(DISTINCT)
+    // does not survive being summed across the grouping above.
+    env.DB.prepare(
+      `SELECT card_id, COUNT(DISTINCT install_id) AS installs, SUM(count) AS n
+       FROM opening_buckets
+       WHERE ${scope}
+       GROUP BY card_id`
+    )
+      .bind(...binds)
+      .all<OpeningCardRow>(),
+    env.DB.prepare(
+      `SELECT date, COUNT(DISTINCT install_id) AS installs, SUM(count) AS n
+       FROM opening_buckets
+       WHERE ${scope}
+       GROUP BY date`
+    )
+      .bind(...binds)
+      .all<OpeningDayRow>(),
+    // The two splits are deliberately NOT scoped: they exist to show what the
+    // scope filtered out, and a tier split computed after filtering to `clean`
+    // would be one bar tall and answer nothing.
+    env.DB.prepare(
+      `SELECT tier, SUM(count) AS n FROM opening_buckets WHERE date >= ?1 GROUP BY tier`
+    )
+      .bind(since)
+      .all<TierRow>(),
+    env.DB.prepare(
+      `SELECT mode, SUM(count) AS n FROM opening_buckets WHERE date >= ?1 GROUP BY mode`
+    )
+      .bind(since)
+      .all<ModeRow>(),
+    env.DB.prepare(
+      `SELECT COUNT(DISTINCT install_id) AS n FROM opening_buckets WHERE ${scope}`
+    )
+      .bind(...binds)
+      .first<{ n: number }>()
+  ])
+
+  return json(
+    buildOpening({
+      now,
+      since,
+      days,
+      mode,
+      tiers: [...tiers],
+      cells: cells.results,
+      cardTotals: cardTotals.results,
+      dayRows: dayRows.results,
+      tierSplit: tierSplit.results,
+      modeSplit: modeSplit.results,
+      installs: Number(installs?.n) || 0,
+      maxCards: OPENING_MAX_CARDS
+    }),
+    200,
+    { 'cache-control': 'no-store' }
+  )
+}
+
+/**
+ * The gate in front of every `/v1/admin/*` route.
+ *
+ * Returns the refusal, or null to carry on. A missing secret is a 503 rather
+ * than a 401 on purpose: "this Worker has no admin token configured" and "your
+ * token is wrong" are different problems with different fixes, and the
+ * dashboard turns each into its own message.
+ */
+function refuseUnlessAdmin(request: Request, env: Env): Response | null {
+  if (!env.ADMIN_TOKEN) return json({ ok: false, error: 'admin token not configured' }, 503)
+  const header = request.headers.get('authorization') ?? ''
+  const presented = header.startsWith('Bearer ') ? header.slice(7).trim() : ''
+  if (!presented || !timingSafeEqual(presented, env.ADMIN_TOKEN)) {
+    return json({ ok: false, error: 'unauthorized' }, 401)
+  }
+  return null
 }
 
 /** Constant-time string comparison, so the token cannot be guessed a byte at a time. */
