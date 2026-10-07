@@ -5,6 +5,7 @@ import {
   deckFromRow,
   getDb,
   matchFromRow,
+  newUid,
   nowMs,
   tagFromRow,
   toMs,
@@ -560,7 +561,7 @@ export function registerMatchesIpc(): void {
       for (const name of names) {
         await tx
           .insertInto('Tag')
-          .values({ name, createdAt: nowMs(), updatedAt: nowMs() })
+          .values({ name, createdAt: nowMs(), updatedAt: nowMs(), uid: newUid() })
           .onConflict((oc) => oc.column('name').doNothing())
           .execute()
         const tag = await tx
@@ -775,7 +776,8 @@ export function registerMatchesIpc(): void {
           month: playedAt.getMonth() + 1,
           day: playedAt.getDate(),
           updatedAt: nowMs(),
-          source: 'manual'
+          source: 'manual',
+          uid: newUid()
         })
         .returningAll()
         .executeTakeFirstOrThrow()

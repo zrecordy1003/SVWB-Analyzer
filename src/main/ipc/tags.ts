@@ -1,4 +1,4 @@
-import { getDb, nowMs, tagFromRow } from '../data/db/client.js'
+import { getDb, newUid, nowMs, tagFromRow } from '../data/db/client.js'
 import { broadcast } from '../utils/broadcast.js'
 import { handleIpc } from './typed.js'
 
@@ -16,7 +16,7 @@ export function registerTagsIpc(): void {
     const now = nowMs()
     const row = await db
       .insertInto('Tag')
-      .values({ name: n, createdAt: now, updatedAt: now })
+      .values({ name: n, createdAt: now, updatedAt: now, uid: newUid() })
       .returningAll()
       .executeTakeFirstOrThrow()
     broadcast('reference-data:changed', { scope: 'tags' })

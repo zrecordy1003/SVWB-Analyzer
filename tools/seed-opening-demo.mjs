@@ -1854,8 +1854,8 @@ function insertDemoDecks(db, plan, now) {
     if (!entry.created) continue
     const info = db
       .prepare(
-        `INSERT INTO Deck (name, class, createdAt, updatedAt, isDefault, sourceKind, sourceRef, familyId)
-         VALUES (?, ?, ?, ?, 0, 'local', ?, NULL)`
+        `INSERT INTO Deck (name, class, createdAt, updatedAt, isDefault, sourceKind, sourceRef, familyId, uid)
+         VALUES (?, ?, ?, ?, 0, 'local', ?, NULL, lower(hex(randomblob(16))))`
       )
       .run(`[demo] ${className} 示範牌組`, className, now, now, DEMO_DECK_REF)
     const deckId = Number(info.lastInsertRowid)
@@ -1873,9 +1873,10 @@ function insertSets(db, sets) {
   const insMatch = db.prepare(
     `INSERT INTO Match
        (result, play_order, my_class, oppo_class, my_deckId, mode,
-        playedAt, endedAt, durationTime, year, month, day, updatedAt, source)
+        playedAt, endedAt, durationTime, year, month, day, updatedAt, source, uid)
      VALUES (@result, @play_order, @my_class, @oppo_class, @my_deckId, @mode,
-             @playedAt, @endedAt, @durationTime, @year, @month, @day, @playedAt, @source)`
+             @playedAt, @endedAt, @durationTime, @year, @month, @day, @playedAt, @source,
+             lower(hex(randomblob(16))))`
   )
   const insCard = db.prepare(
     `INSERT INTO MatchOpeningCard

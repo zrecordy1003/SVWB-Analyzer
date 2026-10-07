@@ -319,7 +319,17 @@ meta 文件（2026-09-17，已修並已對帳清除）。第二次不該再用�
 
 **階段 0：前提（沒有使用者可見變化）**
 
-- `015` uid 欄位 + 回填；引擎 `store.rs` INSERT 時填 uid；`ipc/decks.ts`、`ipc/tags.ts` 建立時填 uid。
+> **2026-10-07 進度：uid 這一半已落地（未 commit）。** 實際編號是 `018_add_sync_ids.sql`
+>（015～017 已被卡圖指紋佔用，本文其他處的 `015`/`016` 仍是提案編號，同步帳本之後順延為 019+）。
+> uid 用 SQLite 的 `lower(hex(randomblob(16)))`，所以引擎**不需要新增 uuid crate**；TS 端是
+> `newUid()`（`client.ts`）。三個列型別的 `uid` 刻意不出現在 domain 物件與 IPC（`*FromRow` 剝掉）。
+> 寫入點：引擎 `insert_match`、`matches:create`、`matches:setTags`（建 Tag）、`tags:create`、
+> `decks:create`、`upsertDeckWithCards`（建立與 fork 兩支）、`tools/seed-opening-demo.mjs`。
+> 測試：`tests/main/syncIds.test.ts`、Rust `every_match_gets_a_uid`、`dbUpgrade.test.ts` 的回填斷言。
+> **還沒做：** 隱私權政策／服務條款頁面、Google Cloud 專案與 OAuth client、「本機測試資料會跟著同步
+> 上去」的擋法（seed 資料現在有 uid 了，所以階段 2 之前必須能用 `source = 'demo-seed'` 排除）。
+
+- ~~`015` uid 欄位 + 回填~~ → `018`，已完成；引擎 `store.rs` INSERT 時填 uid；`ipc/decks.ts`、`ipc/tags.ts` 建立時填 uid。
 - 隱私權政策與服務條款頁面上線（Google 同意畫面的必填欄位）。
 - Google Cloud 專案、OAuth client、同意畫面設定。
 - 驗收：既有測試全綠；`SELECT count(*) FROM Match WHERE uid IS NULL` 為 0；

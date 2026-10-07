@@ -327,6 +327,28 @@ describe.each(FROM_TAGS)('upgrading from %s', (FROM_TAG) => {
     const deck = after.prepare('SELECT familyId, archivedAt FROM Deck WHERE id = 1').get()
     expect(deck).toEqual({ familyId: 1, archivedAt: null })
 
+    /**
+     * 018 gives every existing row a uid, and touches nothing else.
+     *
+     * Backfilled in the migration rather than lazily, while the table is small
+     * and before any second machine exists to disagree about it. `updatedAt` is
+     * checked because it is the UI's optimistic-lock token: an UPDATE that
+     * bumped it on every row would make every open edit form stale at once.
+     */
+    for (const [table, expected] of [
+      ['Match', 2],
+      ['Deck', 1],
+      ['Tag', 1]
+    ] as const) {
+      const rows = after.prepare(`SELECT uid FROM ${table}`).all() as { uid: string | null }[]
+      expect(rows, table).toHaveLength(expected)
+      for (const row of rows) expect(row.uid, `${table} uid`).toMatch(/^[0-9a-f]{32}$/)
+      expect(new Set(rows.map((r) => r.uid)).size, `${table} uids are distinct`).toBe(expected)
+    }
+    expect(after.prepare('SELECT updatedAt FROM Match WHERE id = 1').get()).toEqual({
+      updatedAt: now
+    })
+
     // 009/010/012's tables exist and are empty, which is what a user who has
     // never imported a deck or sent a statistic should have.
     for (const table of ['DeckCard', 'Card', 'CardPool', 'CardPoolSync', 'TelemetryState']) {

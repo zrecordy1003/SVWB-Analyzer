@@ -16,6 +16,7 @@
  * `resources/migrations/*.sql`, which remains the schema's single source of
  * truth - this file declares no schema, it only describes the existing one.
  */
+import { randomBytes } from 'node:crypto'
 import SQLite from 'better-sqlite3'
 import { Kysely, SqliteDialect, type Dialect, type Generated, type Selectable } from 'kysely'
 
@@ -67,6 +68,16 @@ export interface MatchRow {
    * unchanged. Written by the engine only; this side never writes it.
    */
   oppo_name_crop: Uint8Array | null
+  /**
+   * The row's identity across machines. See
+   * `resources/migrations/018_add_sync_ids.sql`.
+   *
+   * Nullable in the type because the column has no default and `ALTER TABLE`
+   * could not make it NOT NULL - which also makes it optional on insert, so the
+   * compiler will not catch a writer that forgets it. `tests/main/syncIds.test.ts`
+   * does. Every writer fills it with `newUid()`.
+   */
+  uid: string | null
 }
 
 export interface DeckRow {
@@ -103,6 +114,16 @@ export interface DeckRow {
    */
   familyId: number | null
   archivedAt: number | null
+  /**
+   * The row's identity across machines. See
+   * `resources/migrations/018_add_sync_ids.sql`.
+   *
+   * Nullable in the type because the column has no default and `ALTER TABLE`
+   * could not make it NOT NULL - which also makes it optional on insert, so the
+   * compiler will not catch a writer that forgets it. `tests/main/syncIds.test.ts`
+   * does. Every writer fills it with `newUid()`.
+   */
+  uid: string | null
 }
 
 export interface DeckCardRow {
@@ -144,6 +165,8 @@ export interface TagRow {
   name: string
   createdAt: number
   updatedAt: number | null
+  /** See `MatchRow.uid`. */
+  uid: string | null
 }
 
 export interface MatchTagRow {
@@ -283,7 +306,8 @@ export const TABLE_COLUMNS = {
     'mode_confidence',
     'engine_version',
     'recog_flags',
-    'oppo_name_crop'
+    'oppo_name_crop',
+    'uid'
   ],
   Deck: [
     'id',
@@ -301,10 +325,11 @@ export const TABLE_COLUMNS = {
     'importedAt',
     'rawJson',
     'familyId',
-    'archivedAt'
+    'archivedAt',
+    'uid'
   ],
   DeckCategory: ['id', 'name', 'sort', 'createdAt', 'updatedAt'],
-  Tag: ['id', 'name', 'createdAt', 'updatedAt'],
+  Tag: ['id', 'name', 'createdAt', 'updatedAt', 'uid'],
   MatchTag: ['matchId', 'tagId'],
   DeckCard: ['deckId', 'cardId', 'count'],
   Card: [
@@ -462,8 +487,11 @@ const toDateOrNull = (ms: number | null): Date | null => (ms === null ? null : n
 export const toMs = (d: Date | string | number): number => new Date(d).getTime()
 
 export function matchFromRow(row: Selectable<MatchRow>): Match {
+  // `uid` stays in the data layer, here and in the other two: it is for the
+  // sync protocol, and the UI addresses rows by `id`.
+  const { uid: _uid, ...rest } = row
   return {
-    ...row,
+    ...rest,
     result: row.result === null ? null : row.result === 1,
     play_order: row.play_order as Match['play_order'],
     my_class: row.my_class as Match['my_class'],
@@ -487,7 +515,7 @@ export function matchFromRow(row: Selectable<MatchRow>): Match {
  * through IPC to be thrown away.
  */
 export function deckFromRow(row: Selectable<DeckRow>): Deck {
-  const { rawJson: _rawJson, ...rest } = row
+  const { rawJson: _rawJson, uid: _uid, ...rest } = row
   return {
     ...rest,
     isDefault: row.isDefault === 1,
@@ -507,9 +535,11 @@ export function deckCategoryFromRow(row: DeckCategoryRow): DeckCategory {
   }
 }
 
-export function tagFromRow(row: Selectable<TagRow>): Tag {
+/** `uid` is optional on the way in: a tag joined into a match list is read without it. */
+export function tagFromRow(row: Omit<Selectable<TagRow>, 'uid'> & { uid?: string | null }): Tag {
+  const { uid: _uid, ...rest } = row
   return {
-    ...row,
+    ...rest,
     createdAt: toDate(row.createdAt),
     updatedAt: toDateOrNull(row.updatedAt)
   }
@@ -530,4 +560,16 @@ export function newCategoryId(): string {
     suffix += alphabet[Math.floor(Math.random() * alphabet.length)]
   }
   return `c${Date.now().toString(36)}${suffix}`
+}
+
+/**
+ * A row's identity across machines: 32 lowercase hex characters.
+ *
+ * The same shape the migration's backfill (`lower(hex(randomblob(16)))`) and the
+ * engine's INSERT produce, so a uid does not reveal which writer made it. 128
+ * random bits, so two machines never need to agree on anything to avoid a
+ * collision.
+ */
+export function newUid(): string {
+  return randomBytes(16).toString('hex')
 }

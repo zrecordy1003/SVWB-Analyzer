@@ -223,11 +223,18 @@ impl MatchStore {
         // `source` is written explicitly rather than left to a column default:
         // the default has to stay NULL so that rows predating the provenance
         // migration keep saying "unknown" instead of claiming to be ours.
+        //
+        // `uid` is made by SQLite itself, the same expression migration 018
+        // backfills with, so this crate needs no UUID dependency and every
+        // writer produces one shape. It has no column default on purpose (see
+        // 018), so leaving it out would write a match that can never be synced;
+        // `every_match_gets_a_uid` below pins it.
         self.conn.execute(
             "INSERT INTO Match (result, play_order, my_class, oppo_class, my_deckId,
                                 mode, year, month, day, playedAt, updatedAt,
-                                source, engine_version, oppo_name_crop)
-             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 'engine', ?10, ?11)",
+                                source, engine_version, oppo_name_crop, uid)
+             VALUES (NULL, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, 'engine', ?10, ?11,
+                     lower(hex(randomblob(16))))",
             rusqlite::params![
                 format!("{:?}", versus.play_order).to_lowercase(),
                 format!("{:?}", versus.my_class).to_lowercase(),
@@ -1137,6 +1144,26 @@ mod tests {
             .unwrap();
         assert_eq!(mode, None, "the mode written before the failure must roll back");
         assert_eq!(bp, Some(3), "and the row must still hold what it held before the patch");
+    }
+
+    /// A match with no `uid` is a match that can never be synced, and nothing
+    /// else would notice: the column has no default and is not NOT NULL (see
+    /// `018_add_sync_ids.sql`). Two rows, so a constant cannot pass.
+    #[test]
+    fn every_match_gets_a_uid() {
+        let store = store_with_schema();
+        let a = store.insert_match(&versus(), None, None).unwrap();
+        let b = store.insert_match(&versus(), None, None).unwrap();
+        let uid = |id: i64| -> Option<String> {
+            store
+                .conn
+                .query_row("SELECT uid FROM Match WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        let (ua, ub) = (uid(a).expect("uid on the first match"), uid(b).expect("uid on the second"));
+        assert_eq!(ua.len(), 32, "16 random bytes, hex");
+        assert!(ua.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')), "lowercase hex: {ua}");
+        assert_ne!(ua, ub);
     }
 
     /// Migrations are idempotent: a second pass applies nothing.

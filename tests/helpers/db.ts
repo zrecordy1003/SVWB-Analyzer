@@ -11,7 +11,12 @@ import os from 'os'
 import path from 'path'
 
 import { ENGINE_BINARY } from '../../src/shared/engineBinary'
-import { configureDbPathInProcess, getDb, resetDbForTests } from '../../src/main/data/db/client'
+import {
+  configureDbPathInProcess,
+  getDb,
+  newUid,
+  resetDbForTests
+} from '../../src/main/data/db/client'
 import type { Database } from '../../src/main/data/db/client'
 import type { Kysely } from 'kysely'
 
@@ -119,7 +124,9 @@ export async function insertMatch(values: {
       updatedAt: Date.now(),
       source: values.source === undefined ? 'engine' : values.source,
       recog_flags: values.recog_flags ? JSON.stringify(values.recog_flags) : null,
-      oppo_name_crop: values.oppo_name_crop ?? null
+      oppo_name_crop: values.oppo_name_crop ?? null,
+      // The engine fills this in its own INSERT (see migration 018).
+      uid: newUid()
     })
     .returning('id')
     .executeTakeFirstOrThrow()

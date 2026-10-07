@@ -8,6 +8,7 @@ import {
   deckFromRow,
   getDb,
   newCategoryId,
+  newUid,
   nowMs,
   toMs
 } from '../data/db/client.js'
@@ -353,7 +354,8 @@ async function upsertDeckWithCards(
         ...params.fields,
         class: params.cls,
         createdAt: params.now,
-        isDefault: params.isDefault ? 1 : 0
+        isDefault: params.isDefault ? 1 : 0,
+        uid: newUid()
       } as never)
       .returningAll()
       .executeTakeFirstOrThrow()
@@ -446,7 +448,10 @@ async function upsertDeckWithCards(
       class: current.class,
       createdAt: params.now,
       familyId,
-      isDefault: makeDefault ? 1 : 0
+      isDefault: makeDefault ? 1 : 0,
+      // A fork is a new row with its own identity - versions are separate rows
+      // that share a family, never the same row edited.
+      uid: newUid()
     } as never)
     .returningAll()
     .executeTakeFirstOrThrow()
@@ -922,7 +927,8 @@ export function registerDecksIpc(): void {
               categoryId,
               isDefault: input.isDefault ? 1 : 0,
               createdAt: now,
-              updatedAt: now
+              updatedAt: now,
+              uid: newUid()
             })
             .returningAll()
             .executeTakeFirstOrThrow()
