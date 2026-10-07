@@ -592,6 +592,11 @@ app.whenReady().then(async () => {
   const { startTelemetry } = await import('./telemetry/telemetry.js')
   startTelemetry()
 
+  // Cross-device sync. Inert until the user signs in and turns it on, and inert
+  // for good in a build with no endpoint. See sync/index.ts.
+  const { startSync } = await import('./sync/index.js')
+  startSync()
+
   // These two stay here: they close over this file's analyzer accessor and the
   // last status the game poll broadcast, neither of which belongs in ipc/.
   handleIpc('battle:getStatus', async () => {

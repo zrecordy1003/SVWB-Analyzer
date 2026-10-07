@@ -91,6 +91,22 @@ declare global {
        */
       noticeDue(): Answer<'telemetry:noticeDue'>
     }
+    sync: {
+      status(): Answer<'sync:status'>
+      /** Opens the browser and waits for Google. Resolves once signed in and (if nothing needs asking) syncing. */
+      signIn(): Answer<'sync:signIn'>
+      signOut(): Answer<'sync:signOut'>
+      enable(...args: IpcArgs<'sync:enable'>): Answer<'sync:enable'>
+      disable(): Answer<'sync:disable'>
+      syncNow(): Answer<'sync:syncNow'>
+      account(): Answer<'sync:account'>
+      devices(): Answer<'sync:devices'>
+      revokeDevice(...args: IpcArgs<'sync:revokeDevice'>): Answer<'sync:revokeDevice'>
+      deleteAccount(): Answer<'sync:deleteAccount'>
+      exportAccount(): Answer<'sync:exportAccount'>
+      backups(): Answer<'sync:backups'>
+      rollback(...args: IpcArgs<'sync:rollback'>): Answer<'sync:rollback'>
+    }
     support: {
       /**
        * The milestone to show, or null. Marks it shown server-side, so a second

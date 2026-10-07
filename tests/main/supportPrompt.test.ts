@@ -39,12 +39,16 @@ const prismaMock = vi.hoisted(() => ({ matchCount: 0, throws: false }))
 vi.mock('../../src/main/data/db/client.js', () => ({
   getDb: () => ({
     selectFrom: () => ({
-      select: () => ({
-        executeTakeFirstOrThrow: () => {
-          if (prismaMock.throws) throw new Error('no database')
-          return Promise.resolve({ n: prismaMock.matchCount })
+      select: () => {
+        const terminal = {
+          executeTakeFirstOrThrow: () => {
+            if (prismaMock.throws) throw new Error('no database')
+            return Promise.resolve({ n: prismaMock.matchCount })
+          }
         }
-      })
+        // `.where` is the demo-data filter; the mock has no data to filter.
+        return { ...terminal, where: () => terminal }
+      }
     })
   })
 }))

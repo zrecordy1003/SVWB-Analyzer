@@ -1490,6 +1490,11 @@ export function registerDecksIpc(): void {
           .where('id', '=', deckId)
           .executeTakeFirst()
         if (!deck) throw new Error('NOT_FOUND:Deck')
+        // A deck the demo seeder made is a fabrication; publishing it would put an
+        // invented list on the official portal under the user's hand.
+        if (deck.sourceRef === 'demo-seed') {
+          throw new Error('INVALID_INPUT:Demo decks cannot be published')
+        }
 
         // Ordered so the key-card fallback below is deterministic; without it
         // the same deck could publish under a different cover card each time.

@@ -33,6 +33,7 @@ import Settings from './components/Settings/Settings'
 import BattleStatus from './components/BattleStatus/BattleStatus'
 import UpdateProvider from './components/Update/UpdateProvider'
 import SidebarVersion from './components/Update/SidebarVersion'
+import AccountButton from './components/Sync/AccountButton'
 import DeckManagerControl from './components/DeckManager/DeckManagerControl'
 import About from './components/About/About'
 import SupportPrompt from './components/Common/SupportPrompt'
@@ -257,6 +258,7 @@ function App(): React.JSX.Element {
         <TelemetryPrompt />
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Toolbar sx={{ position: 'relative' }}>
+            <AccountButton onOpenSettings={() => setCurrentPage('Settings')} />
             <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
               {titles[currentPage]}
             </Typography>

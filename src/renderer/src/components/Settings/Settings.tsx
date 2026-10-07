@@ -4,6 +4,7 @@ import Disclaimer from '../Disclaimer'
 import UpdateSettings from '../Update/UpdateSettings'
 import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
 import TelemetrySettings from './TelemetrySettings'
+import SyncSettings from './SyncSettings'
 import IOSSwitch from '../Common/IOSSwitch'
 import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
@@ -155,6 +156,13 @@ const Settings: React.FC = () => {
       <Box display={'flex'} flexDirection={'column'} gap={1}>
         <Typography variant="h5">數據統計</Typography>
         <TelemetrySettings />
+      </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">跨裝置同步</Typography>
+        <SyncSettings />
       </Box>
 
       {/* There used to be a 「資料來源」 section here, reporting how many matches

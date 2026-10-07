@@ -1,0 +1,21 @@
+{
+  "name": "svwb-sync",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cloudflare Worker for SVWB Analyzer cross-device sync (Google sign-in, per-device append-only logs).",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:create": "wrangler d1 create svwb-sync",
+    "db:migrate": "wrangler d1 migrations apply svwb-sync --remote",
+    "db:migrate:local": "wrangler d1 migrations apply svwb-sync --local",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250901.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.34.0"
+  }
+}

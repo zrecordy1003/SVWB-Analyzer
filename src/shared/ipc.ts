@@ -58,6 +58,14 @@ import type {
 import type { BattleStatus, GameStatus, HudState } from './types.js'
 import type { UpdateSource } from './updates.js'
 import type { SupportPromptPayload } from './support.js'
+import type {
+  SyncAccountInfo,
+  SyncBackup,
+  SyncDevice,
+  SyncEnableResult,
+  SyncFirstChoice,
+  SyncStatus
+} from './sync.js'
 import type { TelemetryPayload, TelemetryStatus } from './telemetry.js'
 import type { MetaSnapshot } from './meta.js'
 import type {
@@ -198,6 +206,28 @@ export type IpcContract = {
    * on screen; see the handler.
    */
   'telemetry:noticeDue': () => boolean
+
+  // --------------------------------------------------------------------- sync
+  // Cross-device sync (docs/account-sync-plan.md). None of these ever returns
+  // match data: the renderer asks main to run a round and reports how it went.
+  'sync:status': () => SyncStatus
+  /** Opens the browser for Google sign-in, waits, and moves on to `enable`. */
+  'sync:signIn': () => SyncEnableResult
+  'sync:signOut': () => SyncStatus
+  /** `choice` answers the first-login question; omit it to find out whether one is needed. */
+  'sync:enable': (choice?: SyncFirstChoice) => SyncEnableResult
+  'sync:disable': () => SyncStatus
+  'sync:syncNow': () => SyncStatus
+  'sync:account': () => SyncAccountInfo | null
+  'sync:devices': () => SyncDevice[]
+  'sync:revokeDevice': (id: string) => SyncDevice[]
+  /** Deletes the CLOUD copy and signs out. Local data is untouched. */
+  'sync:deleteAccount': () => SyncStatus
+  /** Asks where to save, writes everything the cloud holds. Null if cancelled. */
+  'sync:exportAccount': () => string | null
+  'sync:backups': () => SyncBackup[]
+  /** Restores a pre-merge backup and turns sync off. */
+  'sync:rollback': (file: string) => SyncStatus
 
   // --------------------------------------------------------------------- 環境
   /**

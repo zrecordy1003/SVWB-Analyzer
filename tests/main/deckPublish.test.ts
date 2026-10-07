@@ -411,6 +411,30 @@ describe('decks:publishCode', () => {
     expect(portal.calls).toHaveLength(0)
   })
 
+  it('will not publish a deck the demo seeder made, and does not ask the portal', async () => {
+    const portal = fakePortal()
+    setPortalFetchForTests(portal.fetchImpl)
+    const now = Date.now()
+    const demo = await testDb()
+      .insertInto('Deck')
+      .values({
+        name: '[demo]',
+        class: 'elf',
+        isDefault: 0,
+        createdAt: now,
+        updatedAt: now,
+        sourceRef: 'demo-seed'
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow()
+    await testDb().insertInto('DeckCard').values({ deckId: demo.id, cardId: 1, count: 3 }).execute()
+
+    const res = await invoke<Res<unknown>>('decks:publishCode', { deckId: demo.id })
+    expect(res.ok).toBe(false)
+    if (!res.ok) expect(res.error).toContain('Demo decks')
+    expect(portal.calls).toHaveLength(0)
+  })
+
   it('reports a missing deck', async () => {
     setPortalFetchForTests(fakePortal().fetchImpl)
     const res = await invoke<Res<unknown>>('decks:publishCode', { deckId: 999999 })

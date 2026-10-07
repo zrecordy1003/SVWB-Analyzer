@@ -240,6 +240,44 @@ export interface TelemetryStateRow {
   updatedAt: number
 }
 
+/**
+ * Cross-device sync's ledger. See `resources/migrations/019_add_sync_tables.sql`
+ * and `src/main/sync/`. Nothing outside that folder reads these.
+ */
+export interface SyncStateRow {
+  key: string
+  value: string
+  updatedAt: number
+}
+export interface SyncOutboxRow {
+  tbl: string
+  uid: string
+  op: string
+  changedAt: number
+}
+export interface SyncRowMetaRow {
+  tbl: string
+  uid: string
+  ts: number
+  device: string
+  deletedAt: number | null
+}
+export interface SyncAliasRow {
+  tbl: string
+  fromUid: string
+  toUid: string
+}
+export interface SyncPendingRow {
+  tbl: string
+  uid: string
+  field: string
+  refTbl: string
+  refUid: string
+}
+export interface SyncSuppressRow {
+  one: number
+}
+
 export interface Database {
   Match: MatchRow
   Deck: DeckRow
@@ -252,6 +290,12 @@ export interface Database {
   CardPool: CardPoolRow
   CardPoolSync: CardPoolSyncRow
   TelemetryState: TelemetryStateRow
+  SyncState: SyncStateRow
+  SyncOutbox: SyncOutboxRow
+  SyncRowMeta: SyncRowMetaRow
+  SyncAlias: SyncAliasRow
+  SyncPending: SyncPendingRow
+  SyncSuppress: SyncSuppressRow
 }
 
 // ------------------------------------------------------- the schema, as values
@@ -353,6 +397,12 @@ export const TABLE_COLUMNS = {
   CardPool: ['battleFormat', 'cardId', 'sortIndex'],
   CardPoolSync: ['classId', 'battleFormat', 'lang', 'cardCount', 'syncedAt'],
   TelemetryState: ['key', 'value', 'updatedAt'],
+  SyncState: ['key', 'value', 'updatedAt'],
+  SyncOutbox: ['tbl', 'uid', 'op', 'changedAt'],
+  SyncRowMeta: ['tbl', 'uid', 'ts', 'device', 'deletedAt'],
+  SyncAlias: ['tbl', 'fromUid', 'toUid'],
+  SyncPending: ['tbl', 'uid', 'field', 'refTbl', 'refUid'],
+  SyncSuppress: ['one'],
   MatchOpeningCard: [
     'matchId',
     'stage',

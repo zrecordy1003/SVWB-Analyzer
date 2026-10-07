@@ -51,6 +51,9 @@ async function countMatches(): Promise<number> {
     const row = await getDb()
       .selectFrom('Match')
       .select(({ fn }) => fn.countAll<number>().as('n'))
+      // Seeded demo games are not games the user played: counting them would
+      // bring the "you have recorded 100 games" prompt forward on a dev machine.
+      .where((eb) => eb.or([eb('source', 'is', null), eb('source', '!=', 'demo-seed')]))
       .executeTakeFirstOrThrow()
     return Number(row.n)
   } catch {

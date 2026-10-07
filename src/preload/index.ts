@@ -98,6 +98,24 @@ contextBridge.exposeInMainWorld('telemetry', {
   noticeDue: () => ipcRenderer.invoke('telemetry:noticeDue')
 })
 
+// Cross-device sync. Every call goes through main, which owns the session, the
+// timers and the database; the renderer only ever sees status.
+contextBridge.exposeInMainWorld('sync', {
+  status: () => ipcRenderer.invoke('sync:status'),
+  signIn: () => ipcRenderer.invoke('sync:signIn'),
+  signOut: () => ipcRenderer.invoke('sync:signOut'),
+  enable: (choice?: 'merge' | 'cloud') => ipcRenderer.invoke('sync:enable', choice),
+  disable: () => ipcRenderer.invoke('sync:disable'),
+  syncNow: () => ipcRenderer.invoke('sync:syncNow'),
+  account: () => ipcRenderer.invoke('sync:account'),
+  devices: () => ipcRenderer.invoke('sync:devices'),
+  revokeDevice: (id: string) => ipcRenderer.invoke('sync:revokeDevice', id),
+  deleteAccount: () => ipcRenderer.invoke('sync:deleteAccount'),
+  exportAccount: () => ipcRenderer.invoke('sync:exportAccount'),
+  backups: () => ipcRenderer.invoke('sync:backups'),
+  rollback: (file: string) => ipcRenderer.invoke('sync:rollback', file)
+})
+
 contextBridge.exposeInMainWorld('hud', {
   show: () => ipcRenderer.invoke('hud:show'),
   hide: () => ipcRenderer.invoke('hud:hide'),

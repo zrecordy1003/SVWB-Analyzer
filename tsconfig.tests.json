@@ -26,7 +26,12 @@
     // declared here. Renderer modules under test reach for them, so without it
     // every `window.electron` in the graph is an error about a property that
     // does exist.
-    "src/renderer/src/global.d.ts"
+    "src/renderer/src/global.d.ts",
+    // The sync Worker's core. Unlike server/telemetry/src/index.ts it is written
+    // against its own structural storage interfaces (server/sync/src/types.ts)
+    // rather than the Workers globals, precisely so this project can check it
+    // and tests/server/sync can run the real router under Node.
+    "server/sync/src/**/*.ts"
   ],
   "compilerOptions": {
     "composite": false,
