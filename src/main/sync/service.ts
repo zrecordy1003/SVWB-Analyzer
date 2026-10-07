@@ -27,6 +27,7 @@ import {
   KEY_INITIALISED,
   KEY_LAST_ERROR,
   KEY_LAST_SYNC_AT,
+  KEY_NEXT_SEQ,
   KEY_NEEDS_UPDATE,
   ensureDeviceId,
   getNumber,
@@ -149,9 +150,27 @@ export class SyncService {
     if (previous !== null && previous !== credentials.email) {
       await resetLedger(db)
     }
+    // The same account, but the server has no record of this machine ever
+    // sending anything while this machine remembers having sent plenty: the
+    // cloud lost it (account deleted from another device, a reset server). The
+    // ledger would otherwise say "already uploaded" and never upload it again.
+    if (previous === credentials.email && (await this.cloudLostThisDevice())) {
+      await resetLedger(db)
+    }
     await setState(db, KEY_ACCOUNT_EMAIL, credentials.email)
     await setState(db, KEY_LAST_ERROR, null)
     return this.enable()
+  }
+
+  private async cloudLostThisDevice(): Promise<boolean> {
+    const db = this.deps.db()
+    if ((await getNumber(db, KEY_NEXT_SEQ, 1)) <= 1) return false
+    try {
+      const self = (await this.devices()).find((d) => d.self)
+      return self !== undefined && self.lastPushAt === null
+    } catch {
+      return false
+    }
   }
 
   async signOut(): Promise<SyncStatus> {
@@ -299,7 +318,12 @@ export class SyncService {
     if (e instanceof SyncError) {
       if (e.needsSignIn) {
         await this.deps.session.forget()
-        await setState(db, KEY_ENABLED, null)
+        // Revoked, retired, or the account was deleted elsewhere: whatever the
+        // ledger remembers about the cloud is no longer true, so it starts over.
+        // Signing in again is then a first sign-in - local rows are untouched,
+        // everything is queued again, and if the cloud has data too the user is
+        // asked, as the first time.
+        await resetLedger(db)
         await recordError(
           db,
           '登入已失效（可能在另一台裝置被撤銷），請重新登入。本機資料完全沒有動。'

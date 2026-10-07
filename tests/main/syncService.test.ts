@@ -212,6 +212,22 @@ describe('turning it on', () => {
   })
 })
 
+describe('when the cloud forgets this machine', () => {
+  it('a revoked sign-in starts over: signing back in re-uploads everything', async () => {
+    const r = await rig('a')
+    await addMatch(r.m, { note: 'kept' })
+    await r.service.signIn()
+    r.cloud.down = new SyncError(401, 'revoked', 'revoked')
+    await r.service.syncNow({ manual: true })
+    r.cloud.down = null
+    r.cloud.devices.clear() // and the account really is empty now
+
+    await r.service.signIn()
+    const sent = [...(r.cloud.devices.get(r.m.deviceId)?.segments.values() ?? [])].join('')
+    expect(sent).toContain('kept')
+  })
+})
+
 describe('the switch', () => {
   it('changes made while it was off are sent when it is turned back on', async () => {
     const r = await rig('a')
