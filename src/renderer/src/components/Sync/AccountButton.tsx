@@ -75,17 +75,27 @@ const AccountButton: React.FC<{ onOpenSettings: () => void }> = ({ onOpenSetting
     )
   }
 
-  const initial = (status.email ?? '?').charAt(0).toUpperCase()
+  const initial = (status.displayName ?? status.email ?? '?').charAt(0).toUpperCase()
   return (
     <>
-      <Tooltip title={status.email ?? ''}>
+      <Tooltip
+        title={
+          status.displayName ? `${status.displayName}（${status.email}）` : (status.email ?? '')
+        }
+      >
         <IconButton
           size="small"
           aria-label="帳號"
           onClick={(e) => setAnchor(e.currentTarget)}
           sx={{ mr: 1.5, p: 0.25 }}
         >
-          <Avatar sx={{ width: 28, height: 28, fontSize: 15 }}>{initial}</Avatar>
+          <Avatar
+            src={status.avatar ?? undefined}
+            alt={status.displayName ?? status.email ?? ''}
+            sx={{ width: 28, height: 28, fontSize: 15 }}
+          >
+            {initial}
+          </Avatar>
         </IconButton>
       </Tooltip>
       <Menu anchorEl={anchor} open={anchor !== null} onClose={() => setAnchor(null)}>

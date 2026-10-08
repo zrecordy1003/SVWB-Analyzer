@@ -353,6 +353,7 @@ describe('where the sign-in is kept', () => {
     refreshToken: 'SECRET-REFRESH',
     email: 'me@example.com',
     name: null,
+    picture: null,
     deviceId: 'd-1'
   }
 

@@ -11,6 +11,10 @@ export interface SyncStatus {
   configured: boolean
   signedIn: boolean
   email: string | null
+  /** The Google profile picture as a `data:` URL (the renderer's CSP allows no remote images), or null. */
+  avatar: string | null
+  /** The account's display name, for a tooltip. */
+  displayName: string | null
   /** Signed in AND the switch is on. Sync only ever runs when this is true. */
   enabled: boolean
   syncing: boolean

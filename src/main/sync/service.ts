@@ -90,6 +90,12 @@ export interface ServiceDeps {
   notifyChanged(): void
   /** After the first restore onto an empty machine: fetch the card pool (J-4). */
   afterRestore?(): Promise<void>
+  /**
+   * The profile picture as a `data:` URL. The renderer's CSP allows no remote
+   * images (and should not), so main fetches it. Null on any failure: the
+   * button then shows the account's initial, which is a fine avatar.
+   */
+  fetchAvatar?(url: string): Promise<string | null>
   /** Where "export my data" is written; null means the user cancelled. */
   chooseExportPath?(): Promise<string | null>
   writeFile?(file: string, data: string): Promise<void>
@@ -101,6 +107,8 @@ export class SyncService {
   private lastAttemptAt = 0
   private timers: Array<ReturnType<typeof setTimeout> | ReturnType<typeof setInterval>> = []
   private afterMatchTimer: ReturnType<typeof setTimeout> | null = null
+  /** url -> { dataUrl, at }. A failed fetch is remembered briefly so status polling does not retry it every few seconds. */
+  private avatars = new Map<string, { dataUrl: string | null; at: number }>()
 
   constructor(private readonly deps: ServiceDeps) {}
 
@@ -112,6 +120,16 @@ export class SyncService {
     return this.deps.transport
       ? this.deps.transport()
       : new HttpTransport(this.deps.session.request)
+  }
+
+  private async avatar(url: string): Promise<string | null> {
+    if (!this.deps.fetchAvatar) return null
+    const held = this.avatars.get(url)
+    // A good picture is kept for the session; a failure is retried after ten minutes.
+    if (held && (held.dataUrl !== null || this.now() - held.at < 10 * 60_000)) return held.dataUrl
+    const dataUrl = await this.deps.fetchAvatar(url).catch(() => null)
+    this.avatars.set(url, { dataUrl, at: this.now() })
+    return dataUrl
   }
 
   // ------------------------------------------------------------------ status
@@ -126,6 +144,8 @@ export class SyncService {
       configured: this.deps.configured(),
       signedIn: creds !== null,
       email: creds?.email ?? null,
+      avatar: creds?.picture ? await this.avatar(creds.picture) : null,
+      displayName: creds?.name ?? null,
       enabled,
       syncing: this.running !== null,
       lastSyncAt: lastSync > 0 ? lastSync : null,

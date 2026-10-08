@@ -25,6 +25,8 @@ export interface Credentials {
   refreshToken: string
   email: string
   name: string | null
+  /** Google profile picture URL, as of the last sign-in. Not a secret, but it is who the user is. */
+  picture?: string | null
   deviceId: string
 }
 
@@ -72,6 +74,7 @@ export function createFileCredentialStore(file: string, cipher: Cipher): Credent
             refreshToken: parsed.refreshToken,
             email: parsed.email,
             name: typeof parsed.name === 'string' ? parsed.name : null,
+            picture: typeof parsed.picture === 'string' ? parsed.picture : null,
             deviceId: parsed.deviceId
           }
           return memory

@@ -5,7 +5,6 @@ import CircularProgress from '@mui/material/CircularProgress'
 import CssBaseline from '@mui/material/CssBaseline'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
-import Typography from '@mui/material/Typography'
 import Box from '@mui/material/Box'
 // import Switch from '@mui/material/Switch'
 import Drawer from '@mui/material/Drawer'
@@ -216,18 +215,6 @@ function App(): React.JSX.Element {
     { key: 'About', text: '贊助', icon: <InfoOutlinedIcon /> }
   ]
 
-  // AppBar title 根據 page
-  const titles: Record<PageKey, string> = {
-    Analyzer: '分析器',
-    MatchList: '對局列表',
-    DeckPerformance: '牌組戰績',
-    Cards: '卡片',
-    Opening: '起手',
-    Meta: '環境數據',
-    Settings: '設定',
-    About: '贊助'
-  }
-
   useEffect(() => {
     requestAnimationFrame(() => {
       window.electron.ipcRenderer.send?.('renderer:ready')
@@ -259,9 +246,8 @@ function App(): React.JSX.Element {
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Toolbar sx={{ position: 'relative' }}>
             <AccountButton onOpenSettings={() => setCurrentPage('Settings')} />
-            <Typography variant="h6" noWrap sx={{ flexGrow: 1 }}>
-              {titles[currentPage]}
-            </Typography>
+            {/* The page title used to sit here; the sidebar already shows where you are. */}
+            <Box sx={{ flexGrow: 1 }} />
             <Box
               sx={{
                 position: 'absolute',

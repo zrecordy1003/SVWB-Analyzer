@@ -107,12 +107,13 @@ export class Session {
       accessToken: string
       accessExpiresAt: number
       refreshToken: string
-      account: { email: string; name: string | null }
+      account: { email: string; name: string | null; picture?: string | null }
     }
     const credentials: Credentials = {
       refreshToken: body.refreshToken,
       email: body.account.email,
       name: body.account.name ?? null,
+      picture: body.account.picture ?? null,
       deviceId
     }
     await this.deps.store.save(credentials)
@@ -216,10 +217,52 @@ interface Listener {
   close(): void
 }
 
-const PAGE = (title: string, body: string): string =>
-  `<!doctype html><meta charset="utf-8"><title>${title}</title>` +
-  `<body style="font-family:system-ui;max-width:32em;margin:4em auto;padding:0 1em">` +
-  `<h2>${title}</h2><p>${body}</p></body>`
+export type PageTone = 'ok' | 'neutral' | 'error'
+
+const ICON: Record<PageTone, string> = {
+  ok: '<path d="M5 12.5l4.2 4.2L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+  neutral:
+    '<path d="M12 7v6M12 17h.01" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>',
+  error:
+    '<path d="M7 7l10 10M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>'
+}
+
+const TONE_COLOR: Record<PageTone, string> = {
+  ok: '#2e7d32',
+  neutral: '#ed6c02',
+  error: '#d32f2f'
+}
+
+/**
+ * The page the browser lands on after Google. It is the last thing a user sees of
+ * signing in, so it says what happened and what to do, in the app's own words.
+ *
+ * Self-contained (no requests, no scripts beyond the one close attempt): it is
+ * served from a loopback listener that answers one path, and anything it loaded
+ * from elsewhere would be one more thing riding on a page that holds a one-time
+ * grant in its URL. Follows the system light/dark setting.
+ */
+export const PAGE = (tone: PageTone, title: string, body: string): string =>
+  `<!doctype html><html lang="zh-Hant"><meta charset="utf-8">` +
+  `<meta name="viewport" content="width=device-width,initial-scale=1">` +
+  `<meta name="referrer" content="no-referrer"><title>${title} · SVWB Analyzer</title>` +
+  `<style>` +
+  `:root{color-scheme:light dark;--bg:#f4f6fa;--card:#fff;--fg:#1c2530;--sub:#5b6776;--line:#e3e8ef}` +
+  `@media(prefers-color-scheme:dark){:root{--bg:#10151c;--card:#19202a;--fg:#e8edf3;--sub:#9aa7b6;--line:#27303b}}` +
+  `*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;` +
+  `background:var(--bg);color:var(--fg);font-family:system-ui,"Segoe UI","Microsoft JhengHei",sans-serif}` +
+  `main{width:min(26rem,calc(100vw - 2rem));background:var(--card);border:1px solid var(--line);` +
+  `border-radius:16px;padding:2.25rem 2rem;text-align:center;box-shadow:0 8px 30px rgba(0,0,0,.08)}` +
+  `.badge{width:64px;height:64px;margin:0 auto 1.25rem;border-radius:50%;display:grid;place-items:center;` +
+  `color:${TONE_COLOR[tone]};background:color-mix(in srgb,${TONE_COLOR[tone]} 14%,transparent)}` +
+  `.badge svg{width:34px;height:34px}h1{font-size:1.35rem;margin:0 0 .6rem}` +
+  `p{margin:0;color:var(--sub);line-height:1.6}.brand{margin-top:1.75rem;font-size:.8rem;color:var(--sub);opacity:.8}` +
+  `</style>` +
+  `<body><main><div class="badge"><svg viewBox="0 0 24 24" aria-hidden="true">${ICON[tone]}</svg></div>` +
+  `<h1>${title}</h1><p>${body}</p><div class="brand">SVWB Analyzer</div></main>` +
+  // Browsers only honour this for tabs a script opened, so it usually does
+  // nothing - which is why the text above still tells the user to close it.
+  `<script>setTimeout(function(){try{window.close()}catch(e){}},1500)</script></body></html>`
 
 /**
  * One-shot HTTP listener on 127.0.0.1 for the redirect.
@@ -252,17 +295,20 @@ function listenOnce(state: string, timeoutMs: number): Promise<Listener> {
         res.end(html)
       }
       if (url.searchParams.get('state') !== state) {
-        reply(400, PAGE('無法登入', '這個登入要求不是由 SVWB Analyzer 發起的，已忽略。'))
+        reply(400, PAGE('error', '無法登入', '這個登入要求不是由 SVWB Analyzer 發起的，已忽略。'))
         return
       }
       const error = url.searchParams.get('error')
       const grant = url.searchParams.get('grant')
       if (error || !grant) {
-        reply(200, PAGE('登入未完成', '你可以關閉這個分頁，回到 SVWB Analyzer 再試一次。'))
+        reply(
+          200,
+          PAGE('neutral', '登入未完成', '你可以關閉這個分頁，回到 SVWB Analyzer 再試一次。')
+        )
         settle.reject(new SyncError(0, error ?? 'cancelled', '登入未完成'))
         return
       }
-      reply(200, PAGE('登入完成', '你可以關閉這個分頁，回到 SVWB Analyzer。'))
+      reply(200, PAGE('ok', '登入完成', '已登入成功。你可以關閉這個分頁，回到 SVWB Analyzer。'))
       settle.resolve(grant)
     })
 

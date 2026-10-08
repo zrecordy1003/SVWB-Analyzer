@@ -178,6 +178,7 @@ export interface IdClaims {
   email?: string
   email_verified?: boolean | string
   name?: string
+  picture?: string
   nonce?: string
   exp?: number
   iat?: number

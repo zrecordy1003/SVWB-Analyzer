@@ -191,6 +191,28 @@ export interface GoogleIdentity {
   sub: string
   email: string
   name: string | null
+  /** An https Google-hosted image URL, or null. Shown in the app; never stored on the account. */
+  picture: string | null
+}
+
+/**
+ * Only a Google-hosted https image is passed on. The claim comes from Google, but
+ * the app will fetch whatever URL this hands it, so the host is checked here as
+ * well as there - a URL that is not what Google serves profile pictures from is
+ * dropped rather than forwarded.
+ */
+export function safePictureUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 500) return null
+  try {
+    const url = new URL(value)
+    const host = url.hostname.toLowerCase()
+    const google = host === 'googleusercontent.com' || host.endsWith('.googleusercontent.com')
+    return url.protocol === 'https:' && google && url.username === '' && url.password === ''
+      ? url.toString()
+      : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -275,7 +297,12 @@ export async function verifyGoogleIdToken(
     throw new LoginError('email_unverified')
   }
   const name = typeof claims.name === 'string' && claims.name.trim() !== '' ? claims.name : null
-  return { sub: claims.sub, email: claims.email, name: name ? sanitizeText(name, 200) : null }
+  return {
+    sub: claims.sub,
+    email: claims.email,
+    name: name ? sanitizeText(name, 200) : null,
+    picture: safePictureUrl(claims.picture)
+  }
 }
 
 async function exchangeCode(deps: Deps, code: string, redirectUri: string): Promise<string> {
@@ -326,8 +353,8 @@ export async function finishLogin(deps: Deps, url: URL): Promise<Response> {
   const grant = randomToken(32)
   await deps.db
     .prepare(
-      `INSERT INTO grants (hash, sub, email, name, challenge, expiresAt)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      `INSERT INTO grants (hash, sub, email, name, challenge, expiresAt, picture)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
     )
     .bind(
       await sha256Hex(grant),
@@ -335,7 +362,8 @@ export async function finishLogin(deps: Deps, url: URL): Promise<Response> {
       identity.email,
       identity.name,
       state.c,
-      deps.now() + GRANT_TTL_MS
+      deps.now() + GRANT_TTL_MS,
+      identity.picture
     )
     .run()
   return loopbackRedirect(state.p, { grant, state: state.s })
@@ -409,7 +437,7 @@ export async function exchangeGrant(deps: Deps, request: Request): Promise<Respo
   const spent = await deps.db
     .prepare(
       `DELETE FROM grants WHERE hash = ?1
-       RETURNING sub, email, name, challenge, expiresAt`
+       RETURNING sub, email, name, challenge, expiresAt, picture`
     )
     .bind(await sha256Hex(grant))
     .first<{
@@ -418,6 +446,7 @@ export async function exchangeGrant(deps: Deps, request: Request): Promise<Respo
       name: string | null
       challenge: string
       expiresAt: number
+      picture: string | null
     }>()
   const deny = (): ApiError =>
     new ApiError(403, 'forbidden', 'The login grant is invalid or has expired.')
@@ -484,7 +513,7 @@ export async function exchangeGrant(deps: Deps, request: Request): Promise<Respo
   return json({
     ...access,
     refreshToken,
-    account: { email: spent.email, name: spent.name },
+    account: { email: spent.email, name: spent.name, picture: spent.picture },
     deviceId
   })
 }

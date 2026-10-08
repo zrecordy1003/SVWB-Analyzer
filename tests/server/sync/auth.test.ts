@@ -114,7 +114,11 @@ describe('login flow', () => {
     const res = await exchange(w, grant, flow.verifier)
     expect(res.status).toBe(200)
     const body = await res.json()
-    expect(body.account).toEqual({ email: 'player@example.com', name: 'Test Player' })
+    expect(body.account).toEqual({
+      email: 'player@example.com',
+      name: 'Test Player',
+      picture: null
+    })
     expect(body.deviceId).toBe('dev-a')
     expect(body.accessExpiresAt).toBe(Math.floor((T0 + 15 * 60_000) / 1000) * 1000)
     expect(body.refreshToken).toMatch(/^1000000001\./)
@@ -194,6 +198,45 @@ describe('login flow', () => {
     expect(w.db.rows('SELECT sub, email FROM accounts')).toEqual([
       { sub: '111', email: 'player@example.com' }
     ])
+  })
+
+  describe('the profile picture', () => {
+    const login = async (picture?: string): Promise<{ account: { picture: string | null } }> => {
+      const w = await world()
+      const flow = await begin(w)
+      const back = await callback(
+        w,
+        flow,
+        await w.google.issueCode({ nonce: flow.nonce, sub: '111', ...(picture ? { picture } : {}) })
+      )
+      const res = await exchange(w, back.searchParams.get('grant')!, flow.verifier)
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { account: { picture: string | null } }
+      // Held by the grant for the exchange and by nothing afterwards.
+      expect(w.db.rows('SELECT * FROM grants')).toEqual([])
+      expect(JSON.stringify(w.db.rows('SELECT * FROM accounts'))).not.toContain('googleusercontent')
+      return body
+    }
+
+    it('comes back once, at sign-in, and is not kept on the account', async () => {
+      const url = 'https://lh3.googleusercontent.com/a/ACg8ocJ-abc=s96-c'
+      expect((await login(url)).account.picture).toBe(url)
+    })
+
+    it('is null when Google sent none', async () => {
+      expect((await login()).account.picture).toBeNull()
+    })
+
+    it.each([
+      'http://lh3.googleusercontent.com/a/x',
+      'https://evil.example.com/a.png',
+      'https://googleusercontent.com.evil.example/a.png',
+      'https://user:pw@lh3.googleusercontent.com/a.png',
+      'javascript:alert(1)',
+      `https://lh3.googleusercontent.com/${'a'.repeat(600)}`
+    ])('is dropped when it is not a Google-hosted https image: %s', async (picture) => {
+      expect((await login(picture)).account.picture).toBeNull()
+    })
   })
 
   describe('Google callback problems', () => {

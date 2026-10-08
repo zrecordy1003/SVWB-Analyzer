@@ -28,7 +28,8 @@ GET  /auth/callback?code=…&state=…        （Google 回跳；Worker 內換 i
        → 302 http://127.0.0.1:{port}/cb?grant=<一次性>&state=<原樣>
          失敗： http://127.0.0.1:{port}/cb?error=<code>&state=<原樣>
 POST /v1/auth/token    { grant, verifier, deviceId, deviceName, appVersion }
-       → { accessToken, accessExpiresAt, refreshToken, account: { email, name|null }, deviceId }
+       → { accessToken, accessExpiresAt, refreshToken, account: { email, name|null, picture|null }, deviceId }
+       （`picture`：Google 大頭貼的 https 網址，只在登入這一次帶回；伺服器不存在帳號上，app 自己留一份。）
 POST /v1/auth/refresh  { refreshToken, deviceId }
        → { accessToken, accessExpiresAt, refreshToken }      （refresh 每次輪替）
 POST /v1/auth/logout   （bearer）→ 204；撤銷這台裝置的 refresh

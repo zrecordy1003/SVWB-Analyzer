@@ -25,6 +25,28 @@ import type { SyncEnableResult } from '../../shared/sync.js'
 
 let service: SyncService | null = null
 
+const AVATAR_MAX_BYTES = 300 * 1024
+
+/**
+ * A Google profile picture, as a data URL the renderer is allowed to show.
+ *
+ * Fetched here and not by the renderer because its CSP permits no remote images,
+ * and that is worth keeping. The URL is checked again even though the Worker
+ * already filtered it: this is the process that actually makes the request.
+ */
+async function fetchAvatarAsDataUrl(raw: string): Promise<string | null> {
+  const url = new URL(raw)
+  const host = url.hostname.toLowerCase()
+  if (url.protocol !== 'https:') return null
+  if (host !== 'googleusercontent.com' && !host.endsWith('.googleusercontent.com')) return null
+  const res = await net.fetch(url.toString(), { signal: AbortSignal.timeout(8000) })
+  const type = res.headers.get('content-type') ?? ''
+  if (!res.ok || !type.startsWith('image/')) return null
+  const bytes = Buffer.from(await res.arrayBuffer())
+  if (bytes.length === 0 || bytes.length > AVATAR_MAX_BYTES) return null
+  return `data:${type.split(';')[0]};base64,${bytes.toString('base64')}`
+}
+
 function build(): SyncService {
   const credentials = createFileCredentialStore(
     path.join(app.getPath('userData'), 'sync-credentials.bin'),
@@ -56,6 +78,7 @@ function build(): SyncService {
       const { bootstrapCardPool } = await import('../data/cardPoolBootstrap.js')
       await bootstrapCardPool(getDb(), store.get('settings')?.cardLang ?? 'cht')
     },
+    fetchAvatar: fetchAvatarAsDataUrl,
     chooseExportPath: async () => {
       const { canceled, filePath } = await dialog.showSaveDialog({
         title: '匯出雲端資料',

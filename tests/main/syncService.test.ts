@@ -228,6 +228,50 @@ describe('when the cloud forgets this machine', () => {
   })
 })
 
+describe('the avatar', () => {
+  it('is fetched once, handed to the renderer as a data URL, and a failure falls back to nothing', async () => {
+    const r = await rig('a')
+    await r.service.signIn()
+    r.session.creds = {
+      ...r.session.creds!,
+      name: 'Me',
+      picture: 'https://lh3.googleusercontent.com/a/x=s96-c'
+    }
+
+    let fetches = 0
+    ;(
+      r.service as unknown as { deps: { fetchAvatar: (u: string) => Promise<string | null> } }
+    ).deps.fetchAvatar = async () => {
+      fetches++
+      return 'data:image/png;base64,AAAA'
+    }
+    expect(await r.service.status()).toMatchObject({
+      avatar: 'data:image/png;base64,AAAA',
+      displayName: 'Me'
+    })
+    await r.service.status()
+    expect(fetches).toBe(1) // not once per status poll
+
+    // A failing fetch is not retried on every poll either, and reads as "no picture".
+    r.session.creds = { ...r.session.creds!, picture: 'https://lh3.googleusercontent.com/a/y' }
+    ;(
+      r.service as unknown as { deps: { fetchAvatar: () => Promise<string | null> } }
+    ).deps.fetchAvatar = async () => {
+      fetches++
+      throw new Error('offline')
+    }
+    expect((await r.service.status()).avatar).toBeNull()
+    await r.service.status()
+    expect(fetches).toBe(2)
+  })
+
+  it('is null when the account has no picture', async () => {
+    const r = await rig('a')
+    await r.service.signIn()
+    expect((await r.service.status()).avatar).toBeNull()
+  })
+})
+
 describe('the switch', () => {
   it('changes made while it was off are sent when it is turned back on', async () => {
     const r = await rig('a')
