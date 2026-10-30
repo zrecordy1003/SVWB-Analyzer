@@ -1,19 +1,19 @@
 /**
- * Cross-device sync in the real app: two profiles, one Worker.
+ * Cross-device sync in the real app: two profiles, one (fake) Google account.
  *
- * `tests/main/syncEndToEnd.test.ts` runs the client logic against the Worker's
- * code with a stand-in for Electron. What it cannot show is that the pieces that
- * only exist inside Electron do their part: the preload bridge and the typed IPC
- * handlers, `safeStorage`, the database worker (transactions, `VACUUM INTO`,
- * `ATTACH`, the triggers firing in a real second process), and the Settings
- * page. So this launches the real app twice - two fresh profiles, which is what
- * two machines are - against the REAL Worker router served over HTTP from this
- * process, backed by SQLite and a Map.
+ * `tests/main/syncEndToEnd.test.ts` runs the client logic with a stand-in for
+ * Electron. What it cannot show is that the pieces that only exist inside
+ * Electron do their part: the preload bridge and the typed IPC handlers,
+ * `safeStorage`, the database worker (transactions, `VACUUM INTO`, `ATTACH`, the
+ * triggers firing in a real second process), `net.fetch`, and the Settings page.
+ * So this launches the real app twice - two fresh profiles, which is what two
+ * machines are - against the fake Google (`tools/sync-dev`) served over real HTTP
+ * from this process: its OAuth endpoints and its Drive appDataFolder.
  *
  * Only Google and the browser are stood in for. `shell.openExternal` is replaced
  * in the main process by something that records the URL; this file then does what
- * the browser would (follow the Worker's redirect to a fake Google, come back
- * through `/auth/callback`, land on the app's real loopback listener).
+ * the browser would (approve the sign-in at the fake, follow the redirect to the
+ * app's real loopback listener).
  */
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -24,60 +24,38 @@ import { fileURLToPath } from 'node:url'
 import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
 
 import { test, expect } from './app'
-import { handle } from '../../server/sync/src/router'
-import { world, type World } from '../server/sync/helpers'
+import { FakeGoogle } from '../../tools/sync-dev/fakeGoogle'
 import type { SyncStatus, SyncEnableResult } from '../../src/shared/sync'
 
 const PROJECT_ROOT = fileURLToPath(new URL('../..', import.meta.url))
 
-let w: World
+let google: FakeGoogle
 let server: Server
 let origin = ''
 
 test.beforeAll(async () => {
-  w = await world()
   server = createServer(async (req, res) => {
     const chunks: Buffer[] = []
     for await (const c of req) chunks.push(c as Buffer)
-    const body = Buffer.concat(chunks)
-    // The Worker and the fake Google share one clock object; keep it on real time
-    // so tokens are issued and judged on the same one the app is looking at.
-    w.clock.t = Date.now()
-    const response = await handle(
-      w.deps,
-      new Request(`${origin}${req.url}`, {
-        method: req.method,
-        headers: req.headers as Record<string, string>,
-        body: ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : body
-      })
-    )
+    const response = await google.fetch(`${origin}${req.url}`, {
+      method: req.method,
+      headers: req.headers as Record<string, string>,
+      body: ['GET', 'HEAD'].includes(req.method ?? 'GET') ? undefined : Buffer.concat(chunks)
+    })
     res.writeHead(response.status, Object.fromEntries(response.headers))
     res.end(Buffer.from(await response.arrayBuffer()))
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
   origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
-  // The fixture reads `process.env` when it launches the app, which is after
-  // this hook, so this is how the app under test learns where "Google sign-in"
-  // lives. An unpackaged build has no sync endpoint without it.
-  // The fake Google insists on the redirect URI the unit tests use. The Worker
-  // builds the real one from the request's origin (here a random local port), so
-  // translate on the way out rather than loosening the fake.
-  const googleFetch = w.deps.fetch
-  w.deps.fetch = ((url, init) => {
-    if (typeof init?.body === 'string' && String(url).includes('/token')) {
-      const form = new URLSearchParams(init.body)
-      if (form.get('redirect_uri') === `${origin}/auth/callback`) {
-        form.set('redirect_uri', 'https://sync.test/auth/callback')
-        return googleFetch(url, { ...init, body: form.toString() })
-      }
-    }
-    return googleFetch(url, init)
-  }) as typeof w.deps.fetch
-  process.env.SVWB_SYNC_URL = origin
+  google = new FakeGoogle({ origin })
+  // The fixture reads `process.env` when it launches the app, which is after this
+  // hook, so this is how the app under test learns where "Google" lives. An
+  // unpackaged build has no Google client without it.
+  process.env.SVWB_GOOGLE_BASE = origin
 })
 
 test.afterAll(async () => {
-  delete process.env.SVWB_SYNC_URL
+  delete process.env.SVWB_GOOGLE_BASE
   await new Promise<void>((resolve) => server.close(() => resolve()))
 })
 
@@ -105,7 +83,7 @@ async function captureOpenExternal(app: ElectronApplication): Promise<void> {
 }
 
 /** The user's side of Google sign-in. */
-async function playBrowser(app: ElectronApplication, sub: string): Promise<void> {
+async function playBrowser(app: ElectronApplication, email: string): Promise<void> {
   let url: string | undefined
   for (let i = 0; i < 100 && !url; i++) {
     url = await app.evaluate(() =>
@@ -114,28 +92,18 @@ async function playBrowser(app: ElectronApplication, sub: string): Promise<void>
     if (!url) await new Promise((r) => setTimeout(r, 100))
   }
   if (!url) throw new Error('the app never tried to open the browser')
-
-  const start = await fetch(url, { redirect: 'manual' })
-  const google = new URL(start.headers.get('location')!)
-  w.clock.t = Date.now()
-  const code = await w.google.issueCode({ sub, nonce: google.searchParams.get('nonce')! })
-  const callback = await fetch(
-    `${origin}/auth/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(google.searchParams.get('state')!)}`,
-    { redirect: 'manual' }
-  )
-  const back = callback.headers.get('location')!
-  if (process.env.E2E_VERBOSE) console.log('callback ->', back, start.status, callback.status)
-  await fetch(back) // the app's own loopback listener
+  // Approve at "Google", then follow the redirect to the app's own loopback listener.
+  await fetch(google.approve(url, email))
 }
 
 async function signIn(
   app: ElectronApplication,
   window: Page,
-  sub: string
+  email: string
 ): Promise<SyncEnableResult> {
   await captureOpenExternal(app)
   const pending = invoke<SyncEnableResult>(window, 'sync:signIn')
-  await playBrowser(app, sub)
+  await playBrowser(app, email)
   return pending
 }
 
@@ -160,7 +128,7 @@ test('Settings shows the sync section, offering Google sign-in', async ({ window
   await window.getByRole('button', { name: '設定', exact: true }).click()
   const panel = window.getByRole('main')
   await expect(panel.getByText('跨裝置同步')).toBeVisible()
-  // beforeAll points this build at a server, so the switch is real, not the "not available" note.
+  // beforeAll points this build at a (fake) Google, so the button is real, not the "not available" note.
   await expect(panel.getByRole('button', { name: '使用 Google 登入' })).toBeVisible()
 })
 
@@ -172,11 +140,11 @@ test('sign in on one profile, restore on a second, and an edit travels back', as
 
   // ---- machine A: has a game, signs in, it goes up
   await recordMatch(window, '電腦 A 的一場')
-  const first = await signIn(app, window, '1000000001')
+  const first = await signIn(app, window, 'me@example.com')
   expect(first.status.lastError).toBeNull()
   expect(first.needsChoice).toBe(false)
   expect(first.status).toMatchObject({ signedIn: true, enabled: true })
-  expect(w.bucket.keys().length).toBeGreaterThan(0)
+  expect(google.filesOf('me@example.com').length).toBeGreaterThan(0)
 
   // The credential is on disk encrypted, not in the database: the settings
   // page never sees the token, only who is signed in.
@@ -185,7 +153,7 @@ test('sign in on one profile, restore on a second, and an edit travels back', as
 
   // ---- machine B: a second app on a fresh profile
   const userDataDir = mkdtempSync(join(tmpdir(), 'svwb-e2e-sync-b-'))
-  const env = { ...process.env, SVWB_SYNC_URL: origin } as Record<string, string>
+  const env = { ...process.env, SVWB_GOOGLE_BASE: origin } as Record<string, string>
   const appB = await electron.launch({
     args: ['.', `--user-data-dir=${userDataDir}`],
     cwd: PROJECT_ROOT,
@@ -204,7 +172,7 @@ test('sign in on one profile, restore on a second, and an edit travels back', as
     )
 
     expect(await notesOf(windowB)).toEqual([])
-    const restored = await signIn(appB, windowB, '1000000001')
+    const restored = await signIn(appB, windowB, 'me@example.com')
     expect(restored.needsChoice).toBe(false) // nothing here to ask about
     expect(restored.status.enabled).toBe(true)
     expect(await notesOf(windowB)).toEqual(['電腦 A 的一場'])

@@ -150,8 +150,9 @@ const SyncSettings: React.FC = () => {
             登入後還要再按一次開關才會開始。
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            開啟後會上傳你的對局紀錄（含備註，以及從對戰畫面裁下的「對手名稱」截圖）、牌組與標籤，
-            存放在你自己的帳號下，只有你登入後讀得到。這和「分享對局數據」不同：那邊只送匿名計數。
+            資料存放在你自己的 Google 雲端硬碟裡這個應用程式專用的隱藏資料夾，不會出現在你的檔案列表，
+            也不經過我們的伺服器。內容包含對局紀錄（含備註，以及從對戰畫面裁下的「對手名稱」截圖）、
+            牌組與標籤，會占用你的 Google 儲存空間。這和「分享對局數據」不同：那邊只送匿名計數。
           </Typography>
           <Box>
             <Button variant="outlined" disabled={busy} onClick={() => void handleSignIn()}>
@@ -210,8 +211,7 @@ const SyncSettings: React.FC = () => {
 
           {account && (
             <Typography variant="body2" color="text.secondary">
-              雲端用量 {fmtBytes(account.bytesUsed)} / {fmtBytes(account.quotaBytes)} ·
-              {account.activeDevices} 台裝置
+              雲端硬碟用量 {fmtBytes(account.bytesUsed)} · {account.activeDevices} 台裝置
             </Typography>
           )}
 
@@ -219,29 +219,19 @@ const SyncSettings: React.FC = () => {
             <Box display="flex" flexDirection="column" gap={0.5}>
               <Typography variant="subtitle2">裝置</Typography>
               {devices.map((d) => (
-                <Box key={d.id} display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2" sx={{ flex: 1 }}>
-                    {d.name}
-                    {d.self && '（這台）'}
-                    <Typography component="span" variant="caption" color="text.secondary">
-                      {' · '}最後連線 {fmtTime(d.lastSeenAt)}
-                      {!d.active && ' · 已閒置'}
-                    </Typography>
+                <Typography key={d.id} variant="body2">
+                  {d.name}
+                  {d.self && '（這台）'}
+                  <Typography component="span" variant="caption" color="text.secondary">
+                    {' · '}最後連線 {fmtTime(d.lastSeenAt)}
+                    {!d.active && ' · 已閒置'}
                   </Typography>
-                  {!d.self && (
-                    <Button
-                      size="small"
-                      color="warning"
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => setDevices(await window.sync.revokeDevice(d.id)))
-                      }
-                    >
-                      撤銷
-                    </Button>
-                  )}
-                </Box>
+                </Typography>
               ))}
+              <Typography variant="caption" color="text.secondary">
+                要讓某台裝置不能再存取，請到 Google 帳號的「第三方存取權」移除這個應用程式，
+                然後重新登入其他裝置。
+              </Typography>
             </Box>
           )}
 
@@ -271,9 +261,9 @@ const SyncSettings: React.FC = () => {
 
       {backups.length > 0 && (
         <Box display="flex" flexDirection="column" gap={0.5}>
-          <Typography variant="subtitle2">合併前的備份</Typography>
+          <Typography variant="subtitle2">資料備份</Typography>
           <Typography variant="caption" color="text.secondary">
-            第一次同步前會先備份本機資料，只保留最近三份。還原會把本機退回那個時間點並關閉同步。
+            第一次同步前、清除資料前、套用其他裝置的變更前，都會先備份本機資料，只保留最近幾份。還原會把本機退回那個時間點並關閉同步。
           </Typography>
           {backups.map((b) => (
             <Box key={b.file} display="flex" alignItems="center" gap={1}>
@@ -297,7 +287,7 @@ const SyncSettings: React.FC = () => {
             包括任何測試用的資料。選「以雲端為準」，這台電腦現有的對局、牌組與標籤會被雲端的取代。
             <br />
             <br />
-            兩種做法都會先備份這台電腦的資料，之後可以在下方「合併前的備份」還原。
+            兩種做法都會先備份這台電腦的資料，之後可以在下方「資料備份」還原。
           </DialogContentText>
         </DialogContent>
         <DialogActions>
@@ -313,7 +303,7 @@ const SyncSettings: React.FC = () => {
         <DialogTitle>刪除雲端資料？</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            會刪除雲端上這個帳號的所有同步資料並登出。這台電腦上的資料不受影響，其他裝置也會保留自己的資料，
+            會刪除這個應用程式存放在你 Google 雲端硬碟裡的所有同步資料，並撤銷授權、登出。這台電腦上的資料不受影響，其他裝置也會保留自己的資料，
             但之後不再同步。無法復原。
           </DialogContentText>
         </DialogContent>

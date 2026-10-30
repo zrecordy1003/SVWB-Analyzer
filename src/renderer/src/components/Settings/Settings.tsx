@@ -5,6 +5,7 @@ import UpdateSettings from '../Update/UpdateSettings'
 import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
 import TelemetrySettings from './TelemetrySettings'
 import SyncSettings from './SyncSettings'
+import ClearDataSettings from './ClearDataSettings'
 import IOSSwitch from '../Common/IOSSwitch'
 import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
@@ -292,6 +293,13 @@ const Settings: React.FC = () => {
           }
           label="自動安裝更新"
         /> */}
+      </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">資料管理</Typography>
+        <ClearDataSettings />
       </Box>
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />

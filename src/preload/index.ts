@@ -109,7 +109,6 @@ contextBridge.exposeInMainWorld('sync', {
   syncNow: () => ipcRenderer.invoke('sync:syncNow'),
   account: () => ipcRenderer.invoke('sync:account'),
   devices: () => ipcRenderer.invoke('sync:devices'),
-  revokeDevice: (id: string) => ipcRenderer.invoke('sync:revokeDevice', id),
   deleteAccount: () => ipcRenderer.invoke('sync:deleteAccount'),
   exportAccount: () => ipcRenderer.invoke('sync:exportAccount'),
   backups: () => ipcRenderer.invoke('sync:backups'),

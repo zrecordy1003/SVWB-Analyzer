@@ -101,7 +101,6 @@ declare global {
       syncNow(): Answer<'sync:syncNow'>
       account(): Answer<'sync:account'>
       devices(): Answer<'sync:devices'>
-      revokeDevice(...args: IpcArgs<'sync:revokeDevice'>): Answer<'sync:revokeDevice'>
       deleteAccount(): Answer<'sync:deleteAccount'>
       exportAccount(): Answer<'sync:exportAccount'>
       backups(): Answer<'sync:backups'>

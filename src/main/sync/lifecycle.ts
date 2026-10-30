@@ -159,7 +159,9 @@ export async function backUp(
   // most likely to need, and a rolling one made every few hours would otherwise
   // age it out within a day.
   const isApply = reason === APPLY_BACKUP_REASON
-  const pool = (await listBackups(dir)).filter((b) => (b.reason === APPLY_BACKUP_REASON) === isApply)
+  const pool = (await listBackups(dir)).filter(
+    (b) => (b.reason === APPLY_BACKUP_REASON) === isApply
+  )
   for (const old of pool.slice(isApply ? KEEP_APPLY_BACKUPS : KEEP_BACKUPS)) {
     await fs.rm(old.file, { force: true }).catch(() => undefined)
   }

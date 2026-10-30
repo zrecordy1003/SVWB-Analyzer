@@ -7,48 +7,73 @@ Last updated: 2026-09-07（初版；同日敲定文末 J-1～J-6，其中 J-1 �
 共用識別碼）、`docs/deck-versioning-plan.md`（Deck 是不可變卡表 + `familyId`，同步規則直接繼承
 它的語意）、`docs/meta-stats-plan.md`。
 
-> 狀態：**客戶端與伺服器程式碼已全部實作並通過測試（2026-10-07），尚未部署、尚未對外開放。**
-> 見下面「實作狀態」。本文其餘章節仍是設計紀錄；其中的檔名與編號以「實作狀態」為準。
+> 狀態：**客戶端已全部實作並通過測試；儲存改成使用者自己的 Google Drive（2026-10-09），不再有伺服器。**
+> 見下面「實作狀態」。本文其餘章節是設計紀錄，涉及伺服器的部分已被取代；檔名與編號以「實作狀態」為準。
 > **J-7 已決定：照常同步**（2026-10-07），代價是隱私權政策必須寫出，見該節。
 
-## 實作狀態（2026-10-07）
+## 實作狀態（2026-10-09）：改用 Google Drive，不再有自己的伺服器
+
+> **這份計畫原本的伺服器（Cloudflare Worker + R2 + D1）已被取代並刪除。**
+> 2026-10-09 改成把資料存在**使用者自己的 Google Drive 的 `appDataFolder`**：一個只有本應用程式
+> 讀得到、不出現在使用者檔案列表的隱藏資料夾，用 `drive.appdata` 這個非敏感範圍
+> （Google 官方文件列為 non-sensitive，不需要額外審核），占用使用者自己的 Google 儲存空間。
+> 下面「身分」「伺服器」「成本粗算」「J-2」「J-3」「J-5」幾節描述的是被取代的設計，留著當紀錄。
+> **同步引擎本身（uid、觸發器、outbox、合併規則、備份、還原）完全沒有動**，因為它只透過
+> `Transport` 介面跟「資料放在哪」講話。
+
+**為什麼改**：不用付費或維運任何東西、不託管別人的個資（含 J-7 的對手名稱截圖）、隱私政策與刪除/匯出的
+責任大幅縮小、使用者自己擁有資料。代價是失去伺服器端的控管，見下。
+
+### 現在的架構
+
+| 層 | 檔案 | 內容 |
+| -- | ---- | ---- |
+| 登入 | `src/main/sync/google.ts` | 「桌面應用程式」類型的 OAuth client、系統瀏覽器、loopback 回跳、PKCE。直接對 Google，沒有中介 |
+| 儲存 | `src/main/sync/drive.ts` | `DriveBackend`：把段落、快照、裝置檔寫進 `appDataFolder` |
+| 設定 | `src/main/sync/config.ts` | 哪個 OAuth client、Google 的端點在哪 |
+| 引擎 | `src/main/sync/{engine,push,apply,merge,segment,rows,lifecycle,ledger,service}.ts` | 與儲存無關，沿用 |
+| 測試替身 | `tools/sync-dev/fakeGoogle.ts` | 假的 Google（OAuth + Drive），單元測試、e2e、本機開發共用 |
+
+**Drive 裡的檔案**（扁平，每個檔案的名稱與 `appProperties` 都說明它是什麼，所以列表一次請求就夠，不必下載）：
+
+- `seg-{device}-{seq:06d}.jsonl`：一段變更，由單一裝置寫一次。
+- `snap-{device}.jsonl`：該裝置的歷史折成目前狀態。
+- `dev-{device}.json`：空檔案，`appProperties` 放裝置名稱、版本、最後連線（最多每 12 小時更新一次）。
+
+和以前同一條規則：**每台裝置只寫自己的檔案、只新增**（或取代自己的快照），所以不需要鎖，也沒有伺服器端合併。
+
+### 和 Worker 版比，失去了什麼
+- **撤銷單一裝置**：Drive 只能「撤銷整個應用程式的授權」（使用者在 Google 帳號的「第三方存取權」做）。設定頁因此拿掉了「撤銷」按鈕，改成說明。
+- **kill switch、每日輪數限流、操作者設定的配額、同步健康指標**：沒有伺服器，所以沒有。上限是使用者自己的 Drive 配額與 Google 的每使用者請求限流（我們把 429／rate-limit 當成安靜的退避）。
+- **閒置裝置的伺服器端折疊**：沒有。閒置裝置的檔案留著，列表只多幾個條目，各裝置依游標跳過已讀的。
+- **刪除帳號**：變成「刪光 appDataFolder 並撤銷授權」，由客戶端做。
+
+### 狀態
 
 | 階段 | 內容 | 狀態 |
 | ---- | ---- | ---- |
-| 0 | uid 欄位與回填、引擎與所有寫入點填 uid | **完成**（migration `018`） |
-| 0 | 隱私權政策、Google Cloud 專案與 OAuth client | **草稿在 `docs/privacy-policy-draft.md`；Google 設定未做**（要維護者的帳號） |
-| 1 | 登入（loopback + PKCE，Worker 中介）、`safeStorage` 憑證、設定頁 | **完成** |
-| 2 | 單向備份：觸發器 outbox、段落、還原、卡池重抓 | **完成**（migration `019`） |
+| 0 | uid 欄位與回填 | **完成**（migration `018`） |
+| 1 | Google 登入（直連、PKCE）、`safeStorage` 憑證、帳號卡片、設定頁 | **完成** |
+| 2 | 備份：觸發器 outbox、段落、還原、卡池重抓 | **完成**（migration `019`） |
 | 3 | 雙向合併、首次登入的問題與備份、回到合併前 | **完成** |
-| 4 | 刪帳號、匯出、配額與輪數限流、閒置退休折疊、kill switch | **完成**（server 端） |
-| — | 部署 Worker、把網址填進 `src/main/sync/config.ts` 的 `BUILT_IN_ENDPOINT` | **未做**（這之前整個功能是惰性的，設定頁寫「尚未開放」） |
+| 4 | 刪除雲端資料、匯出、退避 | **完成**（客戶端） |
+| — | 填入 OAuth client、對真 Google 走一遍、發版 | **未做** |
 
-**怎麼找**：客戶端 `src/main/sync/`（`merge.ts`、`segment.ts`、`rows.ts`、`apply.ts`、`push.ts`、
-`engine.ts`、`lifecycle.ts`、`auth.ts`、`credentials.ts`、`service.ts`、`index.ts`）；
-伺服器 `server/sync/`；HTTP 契約 `docs/sync-protocol.md`；設定頁 `SyncSettings.tsx`。
-測試：`tests/main/sync*.test.ts`（含兩個資料庫＋假伺服器的收斂性測試、真 client 對真 Worker 程式碼的
-`syncEndToEnd`）、`tests/server/sync/`、`tests/e2e/sync.spec.ts`（兩個真的 Electron 設定檔對真 router）。
+**要讓它在正式版生效**（只有維護者做得了；逐步清單與查證來源見 `docs/google-oauth-setup.md`）：
+1. 在 Google Cloud Console 建一個**「桌面應用程式」**類型的 OAuth client（不是 Web）；同意畫面範圍只勾 `openid email profile` 與 `drive.appdata`；**發版前必須發佈成 Production**：Testing 狀態下 `drive.appdata` 的授權 7 天就失效。
+2. 建置時提供 `MAIN_VITE_GOOGLE_CLIENT_ID` 與 `MAIN_VITE_GOOGLE_CLIENT_SECRET`（環境變數或不進版控的 `.env`）。沒有它們，整個功能惰性，設定頁寫「尚未開放」。
+3. 公開的隱私權政策網址（草稿 `docs/privacy-policy-draft.md`，需要人看過、補上聯絡方式）。
+4. 對真 Google 走一遍：登入、第二台還原、編輯回傳、撤銷授權、刪除雲端資料。
+   開發版可用 `SVWB_GOOGLE_CLIENT_ID` / `SVWB_GOOGLE_CLIENT_SECRET` 環境變數對真 Google 試；
+   `node tools/sync-dev.mjs` 加 `SVWB_GOOGLE_BASE` 可以不靠任何帳號跑完整流程。
 
-**和提案不同的地方**（以實作為準）：
-
-- migration 編號是 `018_add_sync_ids`（uid）與 `019_add_sync_tables`（帳本＋觸發器），不是 015/016。
-- 增加了 `SyncPending`（參照的父列還沒到）。`SyncState` 也存每個遠端裝置的游標。
-- **假資料的處置：選了「觸發器層排除」。** `Match.source = 'demo-seed'`、`Deck.sourceRef = 'demo-seed'`
-  的列在觸發器就不會進 outbox（連同它們的 `MatchTag`／`DeckCard` 子列），`seedOutbox` 與推送時各再擋一次，
-  而且「這台有沒有對局」的判斷（J-1 的問題）也不算它們。這是 J-6 的一個明確例外。
-- **J-7：`oppo_name_crop` 照常同步**，base64 放在 Match 的 entry 裡。隱私權政策與設定頁文案都寫了。
-- 每次**套用遠端變更前**會備份本機資料庫（`VACUUM INTO`，保留最近 2 份，至多每 6 小時一次），
-  和「第一次同步前」那份（保留 3 份）是兩個池子，滾動備份不會把後者擠掉。
-- 合併規則的細節：以「使用者動手的時間」而不是上傳時間比大小（`SyncOutbox.changedAt` → HLC）；
-  刪除就是一個版本，晚的贏；`isDefault` 套用後重跑收斂；同名 Tag／Category 取 uid 較小者，敗者進 `SyncAlias`。
-- 刪除帳號只刪雲端那份；本機資料原封不動。登出同理。
-- 同步時機：啟動後 30 秒、對局結束後 60 秒去抖、每 2 分鐘**本機**看一眼有沒有待傳（不發請求）、
-  每小時心跳、手動；自動輪之間至少隔 5 分鐘；伺服器說 503/429 就照 `Retry-After` 安靜退開。
-
-**部署之前還要做的事（只有維護者做得了）**：見 `server/sync/README.md` 的部署步驟——建 D1／R2（APAC）、
-Google Cloud 的 OAuth client 與同意畫面（需要隱私權政策的公開網址）、三個 secret、`wrangler deploy`，
-最後把網址填進 `BUILT_IN_ENDPOINT` 並發版。**填進去之後那個網址就改不了了**（編進安裝檔）。
-另外：隱私權政策草稿必須經人看過、補上聯絡方式與實際網址才能用。
+**其他已落地的決定**（仍有效）：
+- J-7：對手名牌截圖照常同步（現在是存在使用者自己的 Drive，不是我們的伺服器）。
+- 假資料（`source`／`sourceRef` = `demo-seed`）在觸發器層排除，連同它們的子列。
+- 每次**套用遠端變更前**備份本機資料庫（保留最近 2 份，至多每 6 小時一次），和「第一次同步前」那份（保留 3 份）是兩個池子。
+- 套用遠端變更時，一個段落切成每 40 筆一個短交易（`apply.ts` 的 `CHUNK`），不讓長交易擋住整個 app 的資料庫與引擎寫入。
+- 每個網路請求 30 秒逾時；逾時是一般的、會重試的失敗，不會把使用者登出。
+- 登入被撤銷、或雲端裡這台裝置的檔案不見了，重新登入就當成第一次登入：本機資料不動、全部重新排隊上傳。
 
 ## 決定前提（已確認）
 
@@ -253,7 +278,11 @@ END;
 `SyncSuppress` 是「現在正在套用遠端變更，別記帳」的旗標：套用交易一開始插入那一列，
 提交前刪掉。**為什麼夠**：WAL 只允許一個寫入者，所以引擎的 INSERT 不可能夾在我們的
 `BEGIN IMMEDIATE` 中間執行——它會等（或拿到 `SQLITE_BUSY` 後重試），觸發器在旗標消失之後才跑。
-前提是套用**必須是單一 `BEGIN IMMEDIATE` 交易**；拆成多筆小交易就會漏掉引擎的變更。這條要有測試。
+前提是旗標**絕不能活過它自己的交易**（放進去的那個交易提交前一定拿掉）。~~套用必須是單一交易~~——
+這句原本寫錯了：每個小交易各自「放旗標、套用、拿旗標、提交」是安全的，旗標落下的空檔裡引擎的寫入會被正常記帳。
+實作因此把一個段落切成每 40 筆一個交易（`apply.ts` 的 `CHUNK`），因為一個長交易會握住資料庫唯一的連線與寫入鎖，
+讓整個 app 的其他查詢和引擎的寫入都排隊等它。`syncEngine.test.ts` 的「a big segment is applied in short
+transactions」釘住了三件事：每筆都套到、空檔裡的本機變更有被記帳、中途當機後重套會補完。
 
 ### 日誌段落格式（提案）
 

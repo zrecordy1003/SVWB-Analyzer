@@ -1,15 +1,26 @@
 /**
  * Folding someone else's changes into this database.
  *
- * ONE TRANSACTION, AND THE FIRST STATEMENT IS A WRITE. Both halves matter.
+ * EVERY TRANSACTION RAISES THE FLAG AND LOWERS IT AGAIN, AND ITS FIRST STATEMENT
+ * IS A WRITE. Both halves matter.
  *
  * The suppress flag (`SyncSuppress`) is what stops the triggers from writing
  * remote changes into the outbox, where they would be uploaded straight back
  * as if this machine had made them. It works because SQLite has a single
- * writer: the engine's INSERT cannot land in the middle of this transaction -
- * it waits for the lock - so no genuine local change can ever be mistaken for
- * a remote one by the flag being up. Split the apply into several transactions
- * and a match the engine records between two of them is silently never synced.
+ * writer: the engine's INSERT cannot land in the middle of a transaction - it
+ * waits for the lock - so no genuine local change can ever be mistaken for a
+ * remote one by the flag being up. The flag must NEVER outlive the transaction
+ * that raised it: leave it up across a commit and a match the engine records
+ * in between is silently never synced.
+ *
+ * That is also why a segment can be applied in several short transactions
+ * (`CHUNK`), and why it should be. Each one holds the database's single
+ * connection and SQLite's write lock for its whole length, so one long
+ * transaction would stall every other query in the app (the match list, the
+ * HUD) and make the engine wait on its own write. A few dozen entries per
+ * transaction keeps that to the order of a frame; between chunks the engine
+ * and the UI get their turn, and a change the engine records then is recorded
+ * normally, because the flag is down.
  *
  * And the flag goes in FIRST, because that INSERT is what takes the write
  * lock. A transaction that began with reads would hold a snapshot while the
@@ -69,7 +80,12 @@ export interface ApplyOptions {
    * restore that is not tied to a cursor.
    */
   cursor?: { device: string; seq: number; kind: 'segment' | 'snapshot' }
+  /** Test seam: called between chunks, when the database is free for anyone else to write. */
+  betweenChunks?: () => Promise<void>
 }
+
+/** Entries per transaction. See the header. */
+export const CHUNK = 40
 
 type Tx = Db
 
@@ -91,41 +107,57 @@ export async function applySegment(
     (a, b) => TABLE_ORDER[a.tbl] - TABLE_ORDER[b.tbl] || a.ts - b.ts
   )
 
-  await db.transaction().execute(async (tx) => {
-    // First statement, and a write. See the header.
-    await tx
-      .insertInto('SyncSuppress')
-      .values({ one: 1 })
-      .onConflict((oc) => oc.doNothing())
-      .execute()
+  const chunks: Entry[][] = []
+  for (let i = 0; i < ordered.length; i += CHUNK) chunks.push(ordered.slice(i, i + CHUNK))
+  // A segment with no entries still has bookkeeping to do (its cursor).
+  if (chunks.length === 0) chunks.push([])
 
-    let highWater = await readHlc(tx)
-    for (const entry of ordered) {
-      await applyEntry(tx, entry, device, options.selfDevice, stats)
-      if (entry.ts > highWater) highWater = entry.ts
-    }
-    await resolvePending(tx, stats)
-    await convergeDefaults(tx, options.selfDevice)
+  for (let c = 0; c < chunks.length; c++) {
+    const last = c === chunks.length - 1
+    await db.transaction().execute(async (tx) => {
+      // First statement, and a write. See the header.
+      await tx
+        .insertInto('SyncSuppress')
+        .values({ one: 1 })
+        .onConflict((oc) => oc.doNothing())
+        .execute()
 
-    if (segment.header.hlc > highWater) highWater = segment.header.hlc
-    await setStateIn(tx, KEY_HLC, String(highWater))
-    if (options.cursor) {
-      const key =
-        options.cursor.kind === 'snapshot'
-          ? snapshotKey(options.cursor.device)
-          : cursorKey(options.cursor.device)
-      await setStateIn(tx, key, String(options.cursor.seq))
-      // A snapshot stands in for every segment up to its seq.
-      if (options.cursor.kind === 'snapshot') {
-        const cur = Number((await getStateIn(tx, cursorKey(options.cursor.device))) ?? 0)
-        if (cur < options.cursor.seq) {
-          await setStateIn(tx, cursorKey(options.cursor.device), String(options.cursor.seq))
+      let highWater = await readHlc(tx)
+      for (const entry of chunks[c]) {
+        await applyEntry(tx, entry, device, options.selfDevice, stats)
+        if (entry.ts > highWater) highWater = entry.ts
+      }
+
+      if (last) {
+        // Once, at the end: parents that arrived in any chunk are all here now.
+        await resolvePending(tx, stats)
+        await convergeDefaults(tx, options.selfDevice)
+        if (segment.header.hlc > highWater) highWater = segment.header.hlc
+      }
+      await setStateIn(tx, KEY_HLC, String(highWater))
+
+      // The cursor moves only with the LAST chunk, in the same transaction as it:
+      // a crash part-way leaves the cursor behind, and applying the segment again
+      // is harmless because every row it already wrote compares as identical.
+      if (last && options.cursor) {
+        const key =
+          options.cursor.kind === 'snapshot'
+            ? snapshotKey(options.cursor.device)
+            : cursorKey(options.cursor.device)
+        await setStateIn(tx, key, String(options.cursor.seq))
+        // A snapshot stands in for every segment up to its seq.
+        if (options.cursor.kind === 'snapshot') {
+          const cur = Number((await getStateIn(tx, cursorKey(options.cursor.device))) ?? 0)
+          if (cur < options.cursor.seq) {
+            await setStateIn(tx, cursorKey(options.cursor.device), String(options.cursor.seq))
+          }
         }
       }
-    }
 
-    await tx.deleteFrom('SyncSuppress').execute()
-  })
+      await tx.deleteFrom('SyncSuppress').execute()
+    })
+    if (!last) await options.betweenChunks?.()
+  }
   return stats
 }
 
@@ -250,7 +282,25 @@ async function localId(tx: Tx, tbl: SyncTable, uid: string): Promise<number | st
   }
 }
 
+/**
+ * Aliases are read for almost every entry (a match's tags, a deck's category), and
+ * change only when two names collide, so they are read once per transaction and
+ * dropped when one is added. Keyed by the transaction object: a new transaction
+ * is a new cache, and nothing outlives the transaction it was read in.
+ */
+const aliasCaches = new WeakMap<object, Map<SyncTable, Map<string, string>>>()
+
 async function aliasMap(tx: Tx, tbl: SyncTable): Promise<Map<string, string>> {
+  let perTx = aliasCaches.get(tx)
+  if (!perTx) aliasCaches.set(tx, (perTx = new Map()))
+  const held = perTx.get(tbl)
+  if (held) return held
+  const loaded = await loadAliases(tx, tbl)
+  perTx.set(tbl, loaded)
+  return loaded
+}
+
+async function loadAliases(tx: Tx, tbl: SyncTable): Promise<Map<string, string>> {
   const rows = await tx
     .selectFrom('SyncAlias')
     .select(['fromUid', 'toUid'])
@@ -452,6 +502,7 @@ async function setAlias(tx: Tx, tbl: Named, fromUid: string, toUid: string): Pro
     .values({ tbl, fromUid, toUid })
     .onConflict((oc) => oc.columns(['tbl', 'fromUid']).doUpdateSet({ toUid }))
     .execute()
+  aliasCaches.get(tx)?.delete(tbl)
 }
 
 // --------------------------------------------------------------------- decks

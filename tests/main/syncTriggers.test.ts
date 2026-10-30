@@ -29,6 +29,14 @@ afterEach(async () => {
   for (const m of machines.splice(0)) await m.close()
 })
 
+/**
+ * SQLite's order: table, then uid, compared bytewise. (Not `localeCompare` on the
+ * two glued together - that compares a uid against the tail of a table name, and
+ * with random uids it passes or fails by luck.)
+ */
+const byRow = (a: { tbl: string; uid: string }, b: { tbl: string; uid: string }): number =>
+  a.tbl !== b.tbl ? (a.tbl < b.tbl ? -1 : 1) : a.uid < b.uid ? -1 : a.uid > b.uid ? 1 : 0
+
 const outbox = async (m: Machine): Promise<Array<{ tbl: string; uid: string; op: string }>> =>
   await m.db
     .selectFrom('SyncOutbox')
@@ -65,7 +73,7 @@ describe('every kind of row is recorded', () => {
         { tbl: 'Deck', uid: deck.uid, op: 'upsert' },
         { tbl: 'DeckCategory', uid: 'cNEW', op: 'upsert' },
         { tbl: 'Tag', uid: tag.uid, op: 'upsert' }
-      ].sort((a, b) => (a.tbl + a.uid).localeCompare(b.tbl + b.uid))
+      ].sort(byRow)
     )
 
     await m.db.deleteFrom('DeckCategory').where('id', '=', 'cNEW').execute()
@@ -138,7 +146,7 @@ describe('children dirty their parent', () => {
         { tbl: 'Match', uid: a.uid, op: 'upsert' },
         { tbl: 'Match', uid: b.uid, op: 'upsert' },
         { tbl: 'Tag', uid: tag.uid, op: 'delete' }
-      ].sort((x, y) => (x.tbl + x.uid).localeCompare(y.tbl + y.uid))
+      ].sort(byRow)
     )
   })
 

@@ -14,8 +14,9 @@ import { getDb } from '../data/db/client.js'
 import { store } from '../store.js'
 import { broadcast } from '../utils/broadcast.js'
 import { handleIpc } from '../ipc/typed.js'
-import { Session } from './auth.js'
-import { syncEndpoint } from './config.js'
+import { GoogleSession } from './google.js'
+import { googleConfig } from './config.js'
+import { DriveBackend } from './drive.js'
 import { createFileCredentialStore } from './credentials.js'
 import { ensureDeviceId } from './ledger.js'
 import { SyncService, backupDirFor } from './service.js'
@@ -31,8 +32,8 @@ const AVATAR_MAX_BYTES = 300 * 1024
  * A Google profile picture, as a data URL the renderer is allowed to show.
  *
  * Fetched here and not by the renderer because its CSP permits no remote images,
- * and that is worth keeping. The URL is checked again even though the Worker
- * already filtered it: this is the process that actually makes the request.
+ * and that is worth keeping. The host is checked here, in the process that
+ * actually makes the request, and not only where the URL was read from.
  */
 async function fetchAvatarAsDataUrl(raw: string): Promise<string | null> {
   const url = new URL(raw)
@@ -52,21 +53,33 @@ function build(): SyncService {
     path.join(app.getPath('userData'), 'sync-credentials.bin'),
     safeStorage
   )
-  const session = new Session({
-    endpoint: syncEndpoint,
+  const session = new GoogleSession({
+    config: googleConfig,
     fetch: (url, init) => net.fetch(url as string, init as RequestInit),
     store: credentials,
     openExternal: (url) => shell.openExternal(url),
     deviceId: () => ensureDeviceId(getDb()),
-    deviceName: () => os.hostname(),
-    appVersion: () => app.getVersion(),
     now: () => Date.now()
   })
   return new SyncService({
     db: getDb,
     session,
+    backend: async () => {
+      const config = googleConfig()
+      if (!config) throw new SyncError(0, 'not_configured', '這個版本沒有設定 Google 登入')
+      return new DriveBackend({
+        request: (url, init) => session.request(url, init),
+        endpoints: config.endpoints,
+        self: {
+          deviceId: await ensureDeviceId(getDb()),
+          deviceName: os.hostname(),
+          appVersion: app.getVersion()
+        },
+        now: () => Date.now()
+      })
+    },
     backupDir: () => backupDirFor(app.getPath('userData')),
-    configured: () => syncEndpoint() !== null,
+    configured: () => googleConfig() !== null,
     memoryOnlyCredentials: () => !credentials.persistent,
     notifyChanged: () => {
       broadcast('matches:needRefetch')
@@ -130,7 +143,6 @@ export function registerSyncIpc(): void {
   handleIpc('sync:syncNow', () => s().syncNow({ manual: true }))
   handleIpc('sync:account', () => s().account())
   handleIpc('sync:devices', () => s().devices())
-  handleIpc('sync:revokeDevice', (_e, id) => s().revokeDevice(id))
   handleIpc('sync:deleteAccount', () => s().deleteAccount())
   handleIpc('sync:exportAccount', () => s().exportAccount())
   handleIpc('sync:backups', () => s().backups())

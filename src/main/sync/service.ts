@@ -15,8 +15,9 @@
  *     to be asked first (J-1).
  *   - Sync is not polled. It runs once after launch, shortly after a match
  *     finishes, when local changes are waiting, on a slow heartbeat, and when
- *     asked. The ceiling on requests per account is what keeps the free tier
- *     alive, so the schedule is part of the cost model, not an optimisation.
+ *     asked. Drive's per-user request quota is shared with everything else the
+ *     user's Google account does, so the schedule is part of being a good
+ *     neighbour, not an optimisation.
  */
 import path from 'node:path'
 
@@ -47,8 +48,8 @@ import {
   wipeLocal
 } from './lifecycle.js'
 import { pendingCount } from './push.js'
-import { Session } from './auth.js'
-import { HttpTransport, SyncError, errorFrom, type Transport } from './transport.js'
+import type { GoogleSession } from './google.js'
+import { SyncError, type Backend } from './transport.js'
 import type {
   SyncAccountInfo,
   SyncBackup,
@@ -79,9 +80,9 @@ const DEFAULT_BACKOFF_S = 3600
 
 export interface ServiceDeps {
   db(): Db
-  session: Session
-  /** Overridable so tests can swap the HTTP layer; production uses `HttpTransport` over `session.request`. */
-  transport?: () => Transport
+  session: GoogleSession
+  /** Where the data lives: Google Drive in the app, an in-memory fake in tests. */
+  backend(): Promise<Backend>
   /** Where backups go (userData/sync-backup). */
   backupDir(): string
   configured(): boolean
@@ -116,10 +117,8 @@ export class SyncService {
     return this.deps.now ? this.deps.now() : nowMs()
   }
 
-  private transport(): Transport {
-    return this.deps.transport
-      ? this.deps.transport()
-      : new HttpTransport(this.deps.session.request)
+  private transport(): Promise<Backend> {
+    return this.deps.backend()
   }
 
   private async avatar(url: string): Promise<string | null> {
@@ -170,10 +169,10 @@ export class SyncService {
     if (previous !== null && previous !== credentials.email) {
       await resetLedger(db)
     }
-    // The same account, but the server has no record of this machine ever
-    // sending anything while this machine remembers having sent plenty: the
-    // cloud lost it (account deleted from another device, a reset server). The
-    // ledger would otherwise say "already uploaded" and never upload it again.
+    // The same account, but the cloud holds nothing of this machine's while this
+    // machine remembers having sent plenty: the user cleared the app's Drive data,
+    // or deleted it from another device. The ledger would otherwise say "already
+    // uploaded" and never upload it again.
     if (previous === credentials.email && (await this.cloudLostThisDevice())) {
       await resetLedger(db)
     }
@@ -186,8 +185,7 @@ export class SyncService {
     const db = this.deps.db()
     if ((await getNumber(db, KEY_NEXT_SEQ, 1)) <= 1) return false
     try {
-      const self = (await this.devices()).find((d) => d.self)
-      return self !== undefined && self.lastPushAt === null
+      return !(await (await this.transport()).hasOwnData())
     } catch {
       return false
     }
@@ -221,7 +219,7 @@ export class SyncService {
     if ((await getState(db, KEY_INITIALISED)) !== '1') {
       let remote: { hasData: boolean }
       try {
-        remote = await peekRemote(this.transport())
+        remote = await peekRemote(await this.transport())
       } catch (e) {
         // Signed in, but the server is not answering (or is switched off): say
         // so in the usual quiet way, and stay off. Nothing local was touched, and
@@ -305,7 +303,7 @@ export class SyncService {
     this.lastAttemptAt = this.now()
     try {
       const deviceId = await ensureDeviceId(db)
-      const report = await syncOnce(db, this.transport(), {
+      const report = await syncOnce(db, await this.transport(), {
         deviceId,
         beforeApply: () => this.backUpBeforeApply()
       })
@@ -338,7 +336,7 @@ export class SyncService {
     if (e instanceof SyncError) {
       if (e.needsSignIn) {
         await this.deps.session.forget()
-        // Revoked, retired, or the account was deleted elsewhere: whatever the
+        // Revoked, or the user cleared the cloud copy: whatever the
         // ledger remembers about the cloud is no longer true, so it starts over.
         // Signing in again is then a first sign-in - local rows are untouched,
         // everything is queued again, and if the cloud has data too the user is
@@ -346,7 +344,7 @@ export class SyncService {
         await resetLedger(db)
         await recordError(
           db,
-          '登入已失效（可能在另一台裝置被撤銷），請重新登入。本機資料完全沒有動。'
+          'Google 授權已失效（可能在 Google 帳號裡移除了這個應用程式的存取權），請重新登入。本機資料完全沒有動。'
         )
         return
       }
@@ -359,7 +357,7 @@ export class SyncService {
         return
       }
       if (e.code === 'quota') {
-        await recordError(db, '雲端空間已滿（100 MB），新的變更暫時無法上傳。')
+        await recordError(db, 'Google 雲端硬碟空間已滿，新的變更暫時無法上傳。')
         return
       }
       await recordError(db, e.message)
@@ -416,37 +414,30 @@ export class SyncService {
 
   // ------------------------------------------------------- account and data
 
-  private async json<T>(path: string, init?: RequestInit): Promise<T> {
-    const res = await this.deps.session.request(path, init)
-    if (!res.ok) throw await errorFrom(res)
-    return (await res.json()) as T
-  }
-
   async account(): Promise<SyncAccountInfo | null> {
-    if (!(await this.deps.session.isSignedIn())) return null
-    return this.json<SyncAccountInfo>('/v1/me')
+    const creds = await this.deps.session.credentials()
+    if (!creds) return null
+    const usage = await (await this.transport()).usage()
+    return { email: creds.email, name: creds.name, ...usage }
   }
 
   async devices(): Promise<SyncDevice[]> {
     if (!(await this.deps.session.isSignedIn())) return []
-    const body = await this.json<{ devices: SyncDevice[] }>('/v1/devices')
-    return body.devices
+    return (await this.transport()).devices()
   }
 
-  async revokeDevice(id: string): Promise<SyncDevice[]> {
-    const res = await this.deps.session.request(`/v1/devices/${encodeURIComponent(id)}/revoke`, {
-      method: 'POST'
-    })
-    if (!res.ok) throw await errorFrom(res)
-    return this.devices()
-  }
-
-  /** Delete the cloud copy and sign out. Local data is untouched - it is what the user keeps. */
+  /**
+   * Delete everything this app stored in the user's Drive, and sign out.
+   *
+   * Local data is untouched - it is what the user keeps. Other devices will find
+   * the cloud empty on their next round and, if the user signs back in there,
+   * start over from what they have.
+   */
   async deleteAccount(): Promise<SyncStatus> {
-    const res = await this.deps.session.request('/v1/account/delete', { method: 'POST' })
-    if (!res.ok) throw await errorFrom(res)
+    await (await this.transport()).deleteAll()
     this.stopTimers()
-    await this.deps.session.forget()
+    // Revokes the grant as well: the app has nothing left to do in this Drive.
+    await this.deps.session.signOut()
     const db = this.deps.db()
     await resetLedger(db)
     await setState(db, KEY_ACCOUNT_EMAIL, null)
@@ -457,9 +448,7 @@ export class SyncService {
   async exportAccount(): Promise<string | null> {
     const file = await this.deps.chooseExportPath?.()
     if (!file) return null
-    const res = await this.deps.session.request('/v1/account/export')
-    if (!res.ok) throw await errorFrom(res)
-    await (this.deps.writeFile ?? defaultWrite)(file, await res.text())
+    await (this.deps.writeFile ?? defaultWrite)(file, await (await this.transport()).exportAll())
     return file
   }
 

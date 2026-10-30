@@ -10,7 +10,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import type { Session } from '../../src/main/sync/auth'
+import type { GoogleSession } from '../../src/main/sync/google'
 import type { Credentials } from '../../src/main/sync/credentials'
 import { SyncService } from '../../src/main/sync/service'
 import { SyncError } from '../../src/main/sync/transport'
@@ -80,8 +80,8 @@ async function rig(name: string, cloud = new Cloud(), email = 'me@example.com'):
   }
   r.service = new SyncService({
     db: () => m.db,
-    session: session as unknown as Session,
-    transport: () => cloud.transportFor(m.deviceId),
+    session: session as unknown as GoogleSession,
+    backend: async () => cloud.transportFor(m.deviceId),
     backupDir: () => path.join(m.dir, 'sync-backup'),
     configured: () => true,
     memoryOnlyCredentials: () => false,
@@ -204,7 +204,7 @@ describe('turning it on', () => {
     await a.service.signOut()
     a.session.signInAs = 'two@example.com'
     const fresh = new Cloud()
-    ;(a.service as unknown as { deps: { transport: () => unknown } }).deps.transport = () =>
+    ;(a.service as unknown as { deps: { backend: () => unknown } }).deps.backend = async () =>
       fresh.transportFor(a.m.deviceId)
     await a.service.signIn()
     // Re-initialised against the new (empty) account: everything is queued and uploaded again.

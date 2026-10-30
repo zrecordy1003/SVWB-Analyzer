@@ -540,6 +540,10 @@ app.whenReady().then(async () => {
   const { registerTagsIpc } = await import('./ipc/tags.js')
   registerTagsIpc()
 
+  const { registerDataClearIpc } = await import('./ipc/dataClear.js')
+  const { backupDirFor } = await import('./sync/service.js')
+  registerDataClearIpc({ backupDir: () => backupDirFor(app.getPath('userData')) })
+
   const { registerCardImagesIpc } = await import('./ipc/cardImages.js')
   registerCardImagesIpc()
 

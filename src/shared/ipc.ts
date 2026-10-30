@@ -58,6 +58,7 @@ import type {
 import type { BattleStatus, GameStatus, HudState } from './types.js'
 import type { UpdateSource } from './updates.js'
 import type { SupportPromptPayload } from './support.js'
+import type { ClearCounts, ClearResult, ClearSelection } from './clearData.js'
 import type {
   SyncAccountInfo,
   SyncBackup,
@@ -207,6 +208,12 @@ export type IpcContract = {
    */
   'telemetry:noticeDue': () => boolean
 
+  // ------------------------------------------------------------ clearing data
+  /** How many of each kind of recorded data there is, for the clear dialog. */
+  'data:clearCounts': () => ClearCounts
+  /** Backs up, then deletes the chosen kinds. With sync on, the deletions sync out too. */
+  'data:clear': (selection: ClearSelection) => ClearResult
+
   // --------------------------------------------------------------------- sync
   // Cross-device sync (docs/account-sync-plan.md). None of these ever returns
   // match data: the renderer asks main to run a round and reports how it went.
@@ -220,8 +227,7 @@ export type IpcContract = {
   'sync:syncNow': () => SyncStatus
   'sync:account': () => SyncAccountInfo | null
   'sync:devices': () => SyncDevice[]
-  'sync:revokeDevice': (id: string) => SyncDevice[]
-  /** Deletes the CLOUD copy and signs out. Local data is untouched. */
+  /** Deletes everything this app stored in the user's Drive, and signs out. Local data is untouched. */
   'sync:deleteAccount': () => SyncStatus
   /** Asks where to save, writes everything the cloud holds. Null if cancelled. */
   'sync:exportAccount': () => string | null

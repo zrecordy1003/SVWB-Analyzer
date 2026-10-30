@@ -18,7 +18,7 @@ import { newUid, type Database } from '../../src/main/data/db/client'
 import { syncOnce, type SyncReport } from '../../src/main/sync/engine'
 import { ensureDeviceId, setState, KEY_ENABLED } from '../../src/main/sync/ledger'
 import { seedOutbox } from '../../src/main/sync/lifecycle'
-import { SyncError, type RemoteDevice, type Transport } from '../../src/main/sync/transport'
+import { SyncError, type Backend, type RemoteDevice } from '../../src/main/sync/transport'
 import { migrateWithEngine } from './db'
 
 interface Stored {
@@ -51,7 +51,7 @@ export class Cloud {
     return n
   }
 
-  transportFor(self: string): Transport {
+  transportFor(self: string): Backend {
     const check = (): void => {
       if (this.down) throw this.down
     }
@@ -105,6 +105,40 @@ export class Cloud {
         const s = this.stored(self)
         s.snapshot = { upToSeq, text: body }
         for (const seq of [...s.segments.keys()]) if (seq <= upToSeq) s.segments.delete(seq)
+      },
+      hasOwnData: async () => {
+        check()
+        const s = this.devices.get(self)
+        return s !== undefined && (s.segments.size > 0 || s.snapshot !== null)
+      },
+      usage: async () => {
+        check()
+        return { bytesUsed: this.totalBytes(), activeDevices: this.devices.size }
+      },
+      devices: async () => {
+        check()
+        return [...this.devices.keys()].map((id) => ({
+          id,
+          name: `PC-${id}`,
+          appVersion: 'test',
+          lastSeenAt: 0,
+          lastPushAt: null,
+          active: true,
+          self: id === self
+        }))
+      },
+      exportAll: async () => {
+        check()
+        let out = ''
+        for (const s of this.devices.values()) {
+          if (s.snapshot) out += s.snapshot.text
+          for (const t of s.segments.values()) out += t
+        }
+        return out
+      },
+      deleteAll: async () => {
+        check()
+        this.devices.clear()
       }
     }
   }

@@ -7,7 +7,7 @@
  */
 
 export interface SyncStatus {
-  /** The build knows where the sync server is. False in builds made before the Worker exists, and in unpackaged ones. */
+  /** The build has a Google OAuth client. False in builds made without one, and in unpackaged ones. */
   configured: boolean
   signedIn: boolean
   email: string | null
@@ -25,7 +25,7 @@ export interface SyncStatus {
   pending: number
   /** Another device wrote data this version cannot read yet; an update will pick it up. */
   needsUpdate: boolean
-  /** The server asked this app to stay away until then (kill switch or rate limit). */
+  /** Google asked this app to slow down until then (a rate limit or an outage). */
   backoffUntil: number | null
   /** `safeStorage` is unavailable, so the sign-in lives in memory and is lost on restart. */
   memoryOnlyCredentials: boolean
@@ -43,11 +43,9 @@ export type SyncFirstChoice = 'merge' | 'cloud'
 export interface SyncAccountInfo {
   email: string
   name: string | null
+  /** What this app has stored in the user's Drive (its hidden app folder). */
   bytesUsed: number
-  quotaBytes: number
   activeDevices: number
-  syncRoundsToday: number
-  roundsPerDay: number
 }
 
 export interface SyncDevice {

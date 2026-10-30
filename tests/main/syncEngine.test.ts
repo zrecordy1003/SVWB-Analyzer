@@ -23,6 +23,8 @@ import {
   type Machine
 } from '../helpers/syncMachine'
 import { SyncError } from '../../src/main/sync/transport'
+import { CHUNK, applySegment } from '../../src/main/sync/apply'
+import { parseSegment } from '../../src/main/sync/segment'
 
 const machines: Machine[] = []
 async function machine(name: string): Promise<Machine> {
@@ -299,6 +301,96 @@ describe('two machines that made the same thing', () => {
     }
     expect(await dump(a)).toEqual(await dump(b))
     expect(da.uid).not.toBe(db2.uid)
+  })
+})
+
+describe('a big segment is applied in short transactions', () => {
+  /** A's segment with more than three chunks' worth of matches, as text. */
+  async function bigSegment(): Promise<{ a: Machine; text: string; count: number }> {
+    const cloud = new Cloud()
+    const a = await machine('a')
+    const count = CHUNK * 3 + 7
+    for (let i = 0; i < count; i++) await addMatch(a, { note: `m${i}` })
+    await a.enable()
+    await a.sync(cloud)
+    const texts = [...cloud.devices.get(a.deviceId)!.segments.values()]
+    // One segment holds them all (entries are tiny), which is the point.
+    expect(texts).toHaveLength(1)
+    return { a, text: texts[0], count }
+  }
+
+  it('applies every entry, across chunks, and moves the cursor only at the end', async () => {
+    const { a, text, count } = await bigSegment()
+    const b = await machine('b')
+    const seg = parseSegment(text)!
+    const cursors: number[] = []
+    await applySegment(b.db, seg, {
+      selfDevice: b.deviceId,
+      cursor: { device: a.deviceId, seq: seg.header.seq, kind: 'segment' },
+      betweenChunks: async () => {
+        const c = await b.db
+          .selectFrom('SyncState')
+          .select('value')
+          .where('key', '=', `cursor:${a.deviceId}`)
+          .executeTakeFirst()
+        cursors.push(c ? Number(c.value) : -1)
+      }
+    })
+    expect(await b.db.selectFrom('Match').selectAll().execute()).toHaveLength(count)
+    // Three gaps between four chunks; the cursor was not there for any of them.
+    expect(cursors).toEqual([-1, -1, -1])
+    const after = await b.db
+      .selectFrom('SyncState')
+      .select('value')
+      .where('key', '=', `cursor:${a.deviceId}`)
+      .executeTakeFirst()
+    expect(Number(after?.value)).toBe(seg.header.seq)
+    expect(await outboxSize(b)).toBe(0)
+  })
+
+  it('a change made between two chunks is recorded - the flag is down whenever the database is free', async () => {
+    const { a, text } = await bigSegment()
+    const b = await machine('b')
+    let local: { uid: string } | undefined
+    await applySegment(b.db, parseSegment(text)!, {
+      selfDevice: b.deviceId,
+      cursor: { device: a.deviceId, seq: 1, kind: 'segment' },
+      betweenChunks: async () => {
+        // What the engine does the moment it can get the lock.
+        local ??= await addMatch(b, { note: 'recorded mid-apply' })
+      }
+    })
+    const queued = await b.db.selectFrom('SyncOutbox').select(['uid', 'op']).execute()
+    // Only this one: the 100-odd remote rows stayed out of the outbox.
+    expect(queued).toEqual([{ uid: local!.uid, op: 'upsert' }])
+  })
+
+  it('a crash between chunks leaves the cursor behind, and applying again finishes the job', async () => {
+    const { a, text, count } = await bigSegment()
+    const b = await machine('b')
+    const seg = parseSegment(text)!
+    const options = {
+      selfDevice: b.deviceId,
+      cursor: { device: a.deviceId, seq: seg.header.seq, kind: 'segment' as const }
+    }
+    await expect(
+      applySegment(b.db, seg, {
+        ...options,
+        betweenChunks: async () => {
+          throw new Error('power cut')
+        }
+      })
+    ).rejects.toThrow('power cut')
+    const partial = (await b.db.selectFrom('Match').selectAll().execute()).length
+    expect(partial).toBeGreaterThan(0)
+    expect(partial).toBeLessThan(count)
+    expect(
+      await b.db.selectFrom('SyncState').selectAll().where('key', 'like', 'cursor:%').execute()
+    ).toHaveLength(0)
+
+    await applySegment(b.db, seg, options)
+    expect(await b.db.selectFrom('Match').selectAll().execute()).toHaveLength(count)
+    expect(await outboxSize(b)).toBe(0)
   })
 })
 

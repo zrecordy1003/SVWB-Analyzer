@@ -12,9 +12,9 @@ future changes that should still be considered. More focused notes live in:
 - `docs/telemetry-dau-plan.md` — anonymous usage statistics: what is uploaded, when, and where.
 - `docs/meta-stats-plan.md` — match provenance and cross-user meta stats. Upload side implemented;
   the public chart is deferred to a later release.
-- `docs/account-sync-plan.md` — Google sign-in and PC-to-PC data sync. Client and Worker
-  are implemented and tested (migrations 018-019, `src/main/sync/`, `server/sync/`) but not deployed, so
-  the feature is inert in every build. Read it before touching primary keys, the migration set, or the
+- `docs/account-sync-plan.md` — Google sign-in and PC-to-PC data sync. Implemented and
+  tested (migrations 018-019, `src/main/sync/`); data lives in the user's own Google Drive app folder, so
+  there is no server. Inert in every build until an OAuth client is supplied at build time. Read it before touching primary keys, the migration set, or the
   telemetry identifiers.
 - `docs/opening-hand-plan.md` — the opening hand, before and after the mulligan. Recognition is
   wired end to end, verified against the recordings but not yet on a real machine; the UI that
