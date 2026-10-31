@@ -5,7 +5,7 @@
  * database. This is the part they cannot: the dialog in front of it - that the
  * counts shown are the real ones, that matches are ticked and the rest are not,
  * that nothing happens until the confirm button, and that the result says what
- * was removed.
+ * was removed, and that the backup it took can be restored from the same section.
  */
 import { test, expect } from './app'
 import type { Page } from '@playwright/test'
@@ -55,6 +55,23 @@ test('the dialog shows how many of each there are, clears only what is ticked, a
   // The matches are gone; the tag, which was not ticked, is not.
   expect(await invoke<unknown[]>(window, 'matches:getPage', {})).toHaveLength(0)
   expect(await invoke<unknown[]>(window, 'tags:list')).toHaveLength(1)
+
+  // The backup the clear took is listed right here and can be put back - in this
+  // build, which has no Google client, as in any other.
+  const panel = window.getByRole('main')
+  await expect(panel.getByText('資料備份')).toBeVisible()
+  await panel.getByRole('button', { name: '還原' }).first().click()
+  await window.getByRole('dialog').getByRole('button', { name: '還原' }).click()
+  await expect
+    .poll(async () => (await invoke<unknown[]>(window, 'matches:getPage', {})).length)
+    .toBe(3)
+})
+
+test('a build without a Google client shows no sign-in and no sync section', async ({ window }) => {
+  await window.getByRole('button', { name: '設定', exact: true }).click()
+  await expect(window.getByRole('main').getByText('資料管理')).toBeVisible()
+  await expect(window.getByText('跨裝置同步')).toHaveCount(0)
+  await expect(window.getByRole('button', { name: '使用 Google 登入' })).toHaveCount(0)
 })
 
 test('cancelling removes nothing', async ({ window }) => {

@@ -12,13 +12,7 @@ import {
   Typography
 } from '@mui/material'
 import React, { useCallback, useEffect, useState } from 'react'
-import type {
-  SyncAccountInfo,
-  SyncBackup,
-  SyncDevice,
-  SyncFirstChoice,
-  SyncStatus
-} from '@shared/sync'
+import type { SyncAccountInfo, SyncDevice, SyncFirstChoice, SyncStatus } from '@shared/sync'
 import IOSSwitch from '../Common/IOSSwitch'
 
 /**
@@ -33,21 +27,30 @@ import IOSSwitch from '../Common/IOSSwitch'
  *
  * Failure is quiet by design: a round that goes wrong leaves one line of text
  * here and changes nothing else in the app.
+ *
+ * A build without a Google client renders nothing at all, heading included -
+ * not a section that only says "not available". The backup list that used to
+ * close this section is `BackupSettings`, under data management, because it
+ * serves clearing data too and has to be there in such a build.
+ *
+ * `onDataChanged` is called after anything that may have backed up or rewritten
+ * local data; `dataVersion` changes when a sibling section did.
  */
 const fmtTime = (ms: number | null): string => (ms ? new Date(ms).toLocaleString() : '尚未同步過')
 
 const fmtBytes = (n: number): string =>
   n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`
 
-const SyncSettings: React.FC = () => {
+const SyncSettings: React.FC<{ dataVersion: number; onDataChanged(): void }> = ({
+  dataVersion,
+  onDataChanged
+}) => {
   const [status, setStatus] = useState<SyncStatus | null>(null)
   const [account, setAccount] = useState<SyncAccountInfo | null>(null)
   const [devices, setDevices] = useState<SyncDevice[]>([])
-  const [backups, setBackups] = useState<SyncBackup[]>([])
   const [busy, setBusy] = useState(false)
   const [asking, setAsking] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [confirmRollback, setConfirmRollback] = useState<SyncBackup | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -67,10 +70,6 @@ const SyncSettings: React.FC = () => {
         setAccount(null)
         setDevices([])
       }
-      window.sync
-        .backups()
-        .then(setBackups)
-        .catch(() => setBackups([]))
     } catch (e) {
       console.error('Failed to load sync status:', e)
     }
@@ -78,7 +77,7 @@ const SyncSettings: React.FC = () => {
 
   useEffect(() => {
     void refresh()
-  }, [refresh])
+  }, [refresh, dataVersion])
 
   // While a round is running, look again every couple of seconds.
   useEffect(() => {
@@ -96,6 +95,7 @@ const SyncSettings: React.FC = () => {
     } finally {
       setBusy(false)
       await refresh()
+      onDataChanged()
     }
   }
 
@@ -120,15 +120,7 @@ const SyncSettings: React.FC = () => {
     return run(() => window.sync.enable(choice))
   }
 
-  if (status === null) return null
-
-  if (!status.configured) {
-    return (
-      <Typography variant="body2" color="text.secondary">
-        這個版本尚未開放跨裝置同步。
-      </Typography>
-    )
-  }
+  if (status === null || !status.configured) return null
 
   const statusLine = ((): React.ReactNode => {
     if (status.syncing) return '同步中⋯'
@@ -142,208 +134,174 @@ const SyncSettings: React.FC = () => {
   })()
 
   return (
-    <Box display="flex" flexDirection="column" gap={1.5} maxWidth={560}>
-      {!status.signedIn ? (
-        <>
-          <Typography variant="body2" color="text.secondary">
-            用 Google 帳號把對局紀錄、牌組、標籤與備註同步到你其他的電腦。預設關閉；
-            登入後還要再按一次開關才會開始。
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            資料存放在你自己的 Google 雲端硬碟裡這個應用程式專用的隱藏資料夾，不會出現在你的檔案列表，
-            也不經過我們的伺服器。內容包含對局紀錄（含備註，以及從對戰畫面裁下的「對手名稱」截圖）、
-            牌組與標籤，會占用你的 Google 儲存空間。這和「分享對局數據」不同：那邊只送匿名計數。
-          </Typography>
-          <Box>
-            <Button variant="outlined" disabled={busy} onClick={() => void handleSignIn()}>
-              使用 Google 登入
-            </Button>
-          </Box>
-        </>
-      ) : (
-        <>
-          <Typography variant="body2">
-            已登入為 <b>{status.email}</b>
-            {status.memoryOnlyCredentials && (
-              <Typography component="span" variant="body2" color="warning.main">
-                {' '}
-                （這台電腦無法加密儲存登入資訊，重新開啟後需要再登入一次）
+    <>
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">跨裝置同步</Typography>
+        <Box display="flex" flexDirection="column" gap={1.5} maxWidth={560}>
+          {!status.signedIn ? (
+            <>
+              <Typography variant="body2" color="text.secondary">
+                用 Google 帳號把對局紀錄、牌組、標籤與備註同步到你其他的電腦。預設關閉；
+                登入後還要再按一次開關才會開始。
               </Typography>
-            )}
-          </Typography>
-
-          <FormControlLabel
-            control={
-              <IOSSwitch
-                checked={status.enabled}
-                disabled={busy}
-                onChange={(_, checked) => void handleToggle(checked)}
-              />
-            }
-            label="同步對局與牌組"
-          />
-
-          {status.enabled && (
-            <Typography variant="body2" color="text.secondary">
-              {statusLine}
-            </Typography>
-          )}
-          {status.lastError && <Alert severity="warning">{status.lastError}</Alert>}
-
-          <Box display="flex" gap={1} flexWrap="wrap">
-            <Button
-              size="small"
-              variant="outlined"
-              disabled={busy || !status.enabled || status.syncing}
-              onClick={() => void run(() => window.sync.syncNow())}
-            >
-              立即同步
-            </Button>
-            <Button
-              size="small"
-              variant="text"
-              disabled={busy}
-              onClick={() => void run(() => window.sync.signOut())}
-            >
-              登出
-            </Button>
-          </Box>
-
-          {account && (
-            <Typography variant="body2" color="text.secondary">
-              雲端硬碟用量 {fmtBytes(account.bytesUsed)} · {account.activeDevices} 台裝置
-            </Typography>
-          )}
-
-          {devices.length > 0 && (
-            <Box display="flex" flexDirection="column" gap={0.5}>
-              <Typography variant="subtitle2">裝置</Typography>
-              {devices.map((d) => (
-                <Typography key={d.id} variant="body2">
-                  {d.name}
-                  {d.self && '（這台）'}
-                  <Typography component="span" variant="caption" color="text.secondary">
-                    {' · '}最後連線 {fmtTime(d.lastSeenAt)}
-                    {!d.active && ' · 已閒置'}
+              <Typography variant="body2" color="text.secondary">
+                資料存放在你自己的 Google
+                雲端硬碟裡這個應用程式專用的隱藏資料夾，不會出現在你的檔案列表，
+                也不經過我們的伺服器。內容包含對局紀錄（含備註，以及從對戰畫面裁下的「對手名稱」截圖）、
+                牌組與標籤，會占用你的 Google 儲存空間。這和「分享對局數據」不同：那邊只送匿名計數。
+              </Typography>
+              <Box>
+                <Button variant="outlined" disabled={busy} onClick={() => void handleSignIn()}>
+                  使用 Google 登入
+                </Button>
+              </Box>
+            </>
+          ) : (
+            <>
+              <Typography variant="body2">
+                已登入為 <b>{status.email}</b>
+                {status.memoryOnlyCredentials && (
+                  <Typography component="span" variant="body2" color="warning.main">
+                    {' '}
+                    （這台電腦無法加密儲存登入資訊，重新開啟後需要再登入一次）
                   </Typography>
-                </Typography>
-              ))}
-              <Typography variant="caption" color="text.secondary">
-                要讓某台裝置不能再存取，請到 Google 帳號的「第三方存取權」移除這個應用程式，
-                然後重新登入其他裝置。
+                )}
               </Typography>
-            </Box>
+
+              <FormControlLabel
+                control={
+                  <IOSSwitch
+                    checked={status.enabled}
+                    disabled={busy}
+                    onChange={(_, checked) => void handleToggle(checked)}
+                  />
+                }
+                label="同步對局與牌組"
+              />
+
+              {status.enabled && (
+                <Typography variant="body2" color="text.secondary">
+                  {statusLine}
+                </Typography>
+              )}
+              {status.lastError && <Alert severity="warning">{status.lastError}</Alert>}
+
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={busy || !status.enabled || status.syncing}
+                  onClick={() => void run(() => window.sync.syncNow())}
+                >
+                  立即同步
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  disabled={busy}
+                  onClick={() => void run(() => window.sync.signOut())}
+                >
+                  登出
+                </Button>
+              </Box>
+
+              {account && (
+                <Typography variant="body2" color="text.secondary">
+                  雲端硬碟用量 {fmtBytes(account.bytesUsed)} · {account.activeDevices} 台裝置
+                </Typography>
+              )}
+
+              {devices.length > 0 && (
+                <Box display="flex" flexDirection="column" gap={0.5}>
+                  <Typography variant="subtitle2">裝置</Typography>
+                  {devices.map((d) => (
+                    <Typography key={d.id} variant="body2">
+                      {d.name}
+                      {d.self && '（這台）'}
+                      <Typography component="span" variant="caption" color="text.secondary">
+                        {' · '}最後連線 {fmtTime(d.lastSeenAt)}
+                        {!d.active && ' · 已閒置'}
+                      </Typography>
+                    </Typography>
+                  ))}
+                  <Typography variant="caption" color="text.secondary">
+                    要讓某台裝置不能再存取，請到 Google 帳號的「第三方存取權」移除這個應用程式，
+                    然後重新登入其他裝置。
+                  </Typography>
+                </Box>
+              )}
+
+              <Divider />
+
+              <Box display="flex" gap={1} flexWrap="wrap">
+                <Button
+                  size="small"
+                  variant="text"
+                  disabled={busy}
+                  onClick={() => void run(() => window.sync.exportAccount())}
+                >
+                  匯出雲端資料
+                </Button>
+                <Button
+                  size="small"
+                  variant="text"
+                  color="error"
+                  disabled={busy}
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  刪除雲端資料
+                </Button>
+              </Box>
+            </>
           )}
 
-          <Divider />
-
-          <Box display="flex" gap={1} flexWrap="wrap">
-            <Button
-              size="small"
-              variant="text"
-              disabled={busy}
-              onClick={() => void run(() => window.sync.exportAccount())}
-            >
-              匯出雲端資料
-            </Button>
-            <Button
-              size="small"
-              variant="text"
-              color="error"
-              disabled={busy}
-              onClick={() => setConfirmDelete(true)}
-            >
-              刪除雲端資料
-            </Button>
-          </Box>
-        </>
-      )}
-
-      {backups.length > 0 && (
-        <Box display="flex" flexDirection="column" gap={0.5}>
-          <Typography variant="subtitle2">資料備份</Typography>
-          <Typography variant="caption" color="text.secondary">
-            第一次同步前、清除資料前、套用其他裝置的變更前，都會先備份本機資料，只保留最近幾份。還原會把本機退回那個時間點並關閉同步。
-          </Typography>
-          {backups.map((b) => (
-            <Box key={b.file} display="flex" alignItems="center" gap={1}>
-              <Typography variant="body2" sx={{ flex: 1 }}>
-                {fmtTime(b.createdAt)} · {fmtBytes(b.bytes)}
-              </Typography>
-              <Button size="small" disabled={busy} onClick={() => setConfirmRollback(b)}>
-                還原
+          {/* J-1: the one question sync asks. Two answers, no third. */}
+          <Dialog open={asking} onClose={() => setAsking(false)}>
+            <DialogTitle>這台電腦和雲端都已經有資料</DialogTitle>
+            <DialogContent>
+              <DialogContentText component="div">
+                同步是雙向的：選「合併」，這台電腦的對局也會上傳並出現在你的其他裝置上，
+                包括任何測試用的資料。選「以雲端為準」，這台電腦現有的對局、牌組與標籤會被雲端的取代。
+                <br />
+                <br />
+                兩種做法都會先備份這台電腦的資料，之後可以在下方「資料備份」還原。
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setAsking(false)}>先不要</Button>
+              <Button onClick={() => void answer('cloud')}>以雲端為準</Button>
+              <Button variant="contained" onClick={() => void answer('merge')}>
+                合併
               </Button>
-            </Box>
-          ))}
+            </DialogActions>
+          </Dialog>
+
+          <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
+            <DialogTitle>刪除雲端資料？</DialogTitle>
+            <DialogContent>
+              <DialogContentText>
+                會刪除這個應用程式存放在你 Google
+                雲端硬碟裡的所有同步資料，並撤銷授權、登出。這台電腦上的資料不受影響，其他裝置也會保留自己的資料，
+                但之後不再同步。無法復原。
+              </DialogContentText>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setConfirmDelete(false)}>取消</Button>
+              <Button
+                color="error"
+                onClick={() => {
+                  setConfirmDelete(false)
+                  void run(() => window.sync.deleteAccount())
+                }}
+              >
+                刪除
+              </Button>
+            </DialogActions>
+          </Dialog>
         </Box>
-      )}
-
-      {/* J-1: the one question sync asks. Two answers, no third. */}
-      <Dialog open={asking} onClose={() => setAsking(false)}>
-        <DialogTitle>這台電腦和雲端都已經有資料</DialogTitle>
-        <DialogContent>
-          <DialogContentText component="div">
-            同步是雙向的：選「合併」，這台電腦的對局也會上傳並出現在你的其他裝置上，
-            包括任何測試用的資料。選「以雲端為準」，這台電腦現有的對局、牌組與標籤會被雲端的取代。
-            <br />
-            <br />
-            兩種做法都會先備份這台電腦的資料，之後可以在下方「資料備份」還原。
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setAsking(false)}>先不要</Button>
-          <Button onClick={() => void answer('cloud')}>以雲端為準</Button>
-          <Button variant="contained" onClick={() => void answer('merge')}>
-            合併
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={confirmDelete} onClose={() => setConfirmDelete(false)}>
-        <DialogTitle>刪除雲端資料？</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            會刪除這個應用程式存放在你 Google 雲端硬碟裡的所有同步資料，並撤銷授權、登出。這台電腦上的資料不受影響，其他裝置也會保留自己的資料，
-            但之後不再同步。無法復原。
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmDelete(false)}>取消</Button>
-          <Button
-            color="error"
-            onClick={() => {
-              setConfirmDelete(false)
-              void run(() => window.sync.deleteAccount())
-            }}
-          >
-            刪除
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={confirmRollback !== null} onClose={() => setConfirmRollback(null)}>
-        <DialogTitle>還原到這份備份？</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            本機的對局、牌組與標籤會退回 {confirmRollback ? fmtTime(confirmRollback.createdAt) : ''}
-            的樣子，同步會關閉。還原前會再備份一次目前的狀態。
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfirmRollback(null)}>取消</Button>
-          <Button
-            color="warning"
-            onClick={() => {
-              const target = confirmRollback
-              setConfirmRollback(null)
-              if (target) void run(() => window.sync.rollback(target.file))
-            }}
-          >
-            還原
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Box>
+      </Box>
+    </>
   )
 }
 

@@ -6,6 +6,7 @@ import DiagnosticsSettings from '../Diagnostics/DiagnosticsSettings'
 import TelemetrySettings from './TelemetrySettings'
 import SyncSettings from './SyncSettings'
 import ClearDataSettings from './ClearDataSettings'
+import BackupSettings from './BackupSettings'
 import IOSSwitch from '../Common/IOSSwitch'
 import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
@@ -69,6 +70,10 @@ const Settings: React.FC = () => {
   // 這幾顆開關（自動檢查/下載更新）在還沒讀到實際值以前先不掛載，等讀到了
   // 就直接以正確的 checked 狀態掛上去，不會有滑動動畫。
   const [loaded, setLoaded] = useState(false)
+  // Bumped when a section may have made a backup or rewritten local data, so the
+  // others (sync status, the backup list) look again.
+  const [dataVersion, setDataVersion] = useState(0)
+  const bumpData = (): void => setDataVersion((v) => v + 1)
 
   // 載入設定
   useEffect(() => {
@@ -159,12 +164,9 @@ const Settings: React.FC = () => {
         <TelemetrySettings />
       </Box>
 
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-
-      <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">跨裝置同步</Typography>
-        <SyncSettings />
-      </Box>
+      {/* Brings its own divider and heading, and renders nothing in a build
+          without a Google client. */}
+      <SyncSettings dataVersion={dataVersion} onDataChanged={bumpData} />
 
       {/* There used to be a 「資料來源」 section here, reporting how many matches
           carried provenance and how many the user had edited. It was accurate
@@ -299,7 +301,8 @@ const Settings: React.FC = () => {
 
       <Box display={'flex'} flexDirection={'column'} gap={1}>
         <Typography variant="h5">資料管理</Typography>
-        <ClearDataSettings />
+        <ClearDataSettings onCleared={bumpData} />
+        <BackupSettings dataVersion={dataVersion} onDataChanged={bumpData} />
       </Box>
 
       <Divider sx={{ mt: '10px', mb: '20px' }} />

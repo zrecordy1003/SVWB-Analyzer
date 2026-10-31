@@ -60,7 +60,7 @@ const KINDS: Array<{
 
 const NONE: ClearSelection = { matches: false, decks: false, tags: false, categories: false }
 
-const ClearDataSettings: React.FC = () => {
+const ClearDataSettings: React.FC<{ onCleared(): void }> = ({ onCleared }) => {
   const [open, setOpen] = useState(false)
   const [counts, setCounts] = useState<ClearCounts | null>(null)
   const [selection, setSelection] = useState<ClearSelection>({ ...NONE, matches: true })
@@ -94,6 +94,7 @@ const ClearDataSettings: React.FC = () => {
       const toSend = { ...NONE }
       for (const k of chosen) toSend[k.key] = true
       setResult(await invokeIpc('data:clear', toSend))
+      onCleared()
       setCounts(await invokeIpc('data:clearCounts'))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -126,7 +127,7 @@ const ClearDataSettings: React.FC = () => {
                 。
               </Alert>
               <DialogContentText>
-                清除前已自動備份。要退回去，可以在「跨裝置同步」區塊最下面的備份列表按「還原」。
+                清除前已自動備份。要退回去，可以在下方「資料備份」列表按「還原」。
                 {result.syncs && '另外，其他裝置與雲端的對應資料也會在下次同步時一併清除。'}
               </DialogContentText>
             </Box>

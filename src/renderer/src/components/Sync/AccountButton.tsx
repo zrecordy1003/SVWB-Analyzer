@@ -83,7 +83,9 @@ const AccountButton: React.FC<{ onOpenSettings: () => void }> = ({ onOpenSetting
     return () => clearInterval(t)
   }, [refresh])
 
-  if (status === null) return null
+  // A build without a Google client shows no account control at all, rather than
+  // a sign-in card that can never be pressed.
+  if (status === null || !status.configured) return null
 
   const signIn = async (): Promise<void> => {
     setBusy(true)
@@ -100,17 +102,13 @@ const AccountButton: React.FC<{ onOpenSettings: () => void }> = ({ onOpenSetting
   }
 
   if (!status.signedIn) {
-    const title = !status.configured
-      ? '同步尚未開放（這個版本沒有設定同步伺服器）'
-      : busy
-        ? '請在瀏覽器完成 Google 登入⋯'
-        : '使用 Google 登入'
+    const title = busy ? '請在瀏覽器完成 Google 登入⋯' : '使用 Google 登入'
     return (
       <Tooltip title={title}>
         <span>
           <ButtonBase
             aria-label="使用 Google 登入"
-            disabled={busy || !status.configured}
+            disabled={busy}
             onClick={() => void signIn()}
             sx={cardSx}
           >
