@@ -35,6 +35,10 @@
 - [ ] `https://www.googleapis.com/auth/drive.appdata`
 
 不要多加。`google.ts` 要求的就是這四個（`SCOPES`），多一個範圍就要改隱私權政策，也可能踩到審核。
+四個都應該出現在 Console 的「非機密範圍」表格裡；有任何一個跑到敏感範圍底下，就是加錯了。
+
+- [ ] **API 和服務 → 程式庫 → 啟用「Google Drive API」**。這一步和範圍是分開的：範圍只決定同意畫面要問什麼，
+      專案沒啟用 Drive API 的話，登入照樣會成功，但每次讀寫 Drive 都會收到 403 `accessNotConfigured`。
 
 ## 3. Audience：發版前一定要切到 Production
 
