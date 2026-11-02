@@ -1,12 +1,12 @@
 /* UpdateSettings.tsx - 設定頁的「檢查更新」，回報使用者問到的每一種結果。 */
 
 import React, { useEffect, useRef, useState } from 'react'
-import { Button, CircularProgress, Stack, Typography } from '@mui/material'
-import { alpha } from '@mui/material/styles'
+import { CircularProgress, Stack, Typography } from '@mui/material'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import type { UpdateProgress, UpdateSummary } from '@shared/updates'
 import UpdateDialog, { type UpdatePhase } from './UpdateDialog'
+import SoftButton from '../Common/SoftButton'
 
 const UpdateSettings: React.FC = () => {
   const [phase, setPhase] = useState<UpdatePhase>('available')
@@ -117,52 +117,19 @@ const UpdateSettings: React.FC = () => {
           sits in a column of settings rows where it has to look pressable
           without shouting louder than the update dialog's primary action.
         */}
-        <Button
+        <SoftButton
           onClick={onCheck}
           disabled={checking}
-          disableElevation
           startIcon={
             checking ? (
               <CircularProgress size={15} thickness={5} color="inherit" />
             ) : (
-              <RefreshRoundedIcon sx={{ fontSize: 18 }} />
+              <RefreshRoundedIcon />
             )
           }
-          sx={(t) => ({
-            borderRadius: 99,
-            px: 2.25,
-            py: 0.9,
-            textTransform: 'none',
-            fontWeight: 600,
-            letterSpacing: 0.2,
-            lineHeight: 1.2,
-            color: 'text.primary',
-            border: '1px solid',
-            borderColor: alpha(t.palette.common.white, 0.12),
-            bgcolor: alpha(t.palette.common.white, 0.05),
-            transition: t.transitions.create(
-              ['background-color', 'border-color', 'transform', 'box-shadow'],
-              { duration: 180 }
-            ),
-            '&:hover': {
-              bgcolor: alpha(t.palette.primary.main, 0.14),
-              borderColor: alpha(t.palette.primary.main, 0.5),
-              transform: 'translateY(-1px)',
-              boxShadow: `0 4px 14px ${alpha(t.palette.primary.main, 0.22)}`
-            },
-            '&:active': { transform: 'translateY(0)', boxShadow: 'none' },
-            '&.Mui-disabled': {
-              color: 'text.secondary',
-              borderColor: alpha(t.palette.common.white, 0.08),
-              bgcolor: alpha(t.palette.common.white, 0.03)
-            },
-            // The icon keeps its slot at both sizes, so swapping the refresh
-            // glyph for the spinner does not nudge the label sideways.
-            '& .MuiButton-startIcon': { mr: 1, width: 18, justifyContent: 'center' }
-          })}
         >
           {checking ? '檢查中…' : '檢查更新'}
-        </Button>
+        </SoftButton>
         {upToDate && (
           <Stack direction="row" spacing={0.5} alignItems="center">
             <CheckCircleRoundedIcon fontSize="small" color="success" />

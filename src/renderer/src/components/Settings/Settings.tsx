@@ -1,4 +1,4 @@
-import { Box, FormControlLabel, Divider, Typography, RadioGroup, Radio } from '@mui/material'
+import { Box, FormControlLabel, Divider, Paper, Typography, RadioGroup, Radio } from '@mui/material'
 import React, { useEffect, useState } from 'react'
 import Disclaimer from '../Disclaimer'
 import UpdateSettings from '../Update/UpdateSettings'
@@ -7,6 +7,7 @@ import TelemetrySettings from './TelemetrySettings'
 import SyncSettings from './SyncSettings'
 import ClearDataSettings from './ClearDataSettings'
 import BackupSettings from './BackupSettings'
+import { PANEL_SX } from '../Common/surfaces'
 import IOSSwitch from '../Common/IOSSwitch'
 import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
@@ -300,19 +301,27 @@ const Settings: React.FC = () => {
       <Divider sx={{ mt: '10px', mb: '20px' }} />
 
       <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">資料管理</Typography>
-        <ClearDataSettings onCleared={bumpData} />
-        <BackupSettings dataVersion={dataVersion} onDataChanged={bumpData} />
-      </Box>
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-
-      <Box display={'flex'} flexDirection={'column'} gap={1}>
         <Typography variant="h5">辨識診斷</Typography>
         <DiagnosticsSettings
           enabled={s.diagnostics}
           onToggle={(checked) => handleChange('diagnostics', checked)}
         />
+      </Box>
+
+      <Divider sx={{ mt: '10px', mb: '20px' }} />
+
+      {/* Last on the page, in a card of its own: the one section here that removes
+          the user's records, kept apart from 辨識診斷's log-clearing button. */}
+      <Box display={'flex'} flexDirection={'column'} gap={1}>
+        <Typography variant="h5">資料管理</Typography>
+        <Paper
+          elevation={0}
+          sx={{ ...PANEL_SX, borderRadius: '12px', overflow: 'hidden', maxWidth: 600 }}
+        >
+          <ClearDataSettings onCleared={bumpData} />
+          <Divider />
+          <BackupSettings dataVersion={dataVersion} onDataChanged={bumpData} />
+        </Paper>
       </Box>
 
       <Box component={'footer'} sx={{ mt: 10 }}>

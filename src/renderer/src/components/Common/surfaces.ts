@@ -130,3 +130,24 @@ export const DRAWER_SURFACE_SX: Surface = {
 export const BACKDROP_SX: Surface = {
   backgroundColor: 'rgba(7, 9, 13, 0.46)'
 }
+
+/**
+ * An inline note in a tone, for an MUI `Alert`.
+ *
+ * MUI's standard alert is a solid wash of the tone (a brown slab for a warning
+ * on this canvas), which outshouts the dialog it sits in. This keeps the tone to
+ * a faint tint, a hairline and the icon, with the text in the normal colour.
+ */
+export const noteSx = (tone: 'warning' | 'success' | 'error'): Surface => {
+  const c = { warning: '#f0b450', success: '#5cc98a', error: '#f2545b' }[tone]
+  return {
+    borderRadius: '10px',
+    border: `1px solid ${c}40`,
+    backgroundColor: `${c}14`,
+    color: 'rgba(255,255,255,0.86)',
+    fontSize: 13,
+    alignItems: 'center',
+    '& .MuiAlert-icon': { color: c, opacity: 0.9, py: 0.5 },
+    '& .MuiAlert-message': { py: 0.75 }
+  }
+}

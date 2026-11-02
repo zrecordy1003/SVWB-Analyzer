@@ -1,10 +1,11 @@
-import { Alert, Box, Button, CircularProgress, FormControlLabel, Snackbar } from '@mui/material'
+import { Alert, Box, CircularProgress, FormControlLabel, Snackbar } from '@mui/material'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import IosShareIcon from '@mui/icons-material/IosShare'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import React, { useCallback, useEffect, useState } from 'react'
 import InfoHint from '@renderer/components/Common/InfoHint'
 import IOSSwitch from '../Common/IOSSwitch'
+import SoftButton from '../Common/SoftButton'
 
 type Summary = {
   eventCount: number
@@ -124,33 +125,25 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
       />
 
       <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
-        <Button
-          variant="contained"
-          size="small"
-          startIcon={busy ? <CircularProgress size={16} /> : <IosShareIcon />}
+        <SoftButton
+          tone="primary"
+          startIcon={busy ? <CircularProgress size={15} color="inherit" /> : <IosShareIcon />}
           onClick={handleExport}
           disabled={busy || nothingToExport}
         >
           匯出診斷包
-        </Button>
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={<FolderOpenIcon />}
-          onClick={() => window.diagnostics.openFolder()}
-        >
+        </SoftButton>
+        <SoftButton startIcon={<FolderOpenIcon />} onClick={() => window.diagnostics.openFolder()}>
           開啟資料夾
-        </Button>
-        <Button
-          variant="outlined"
-          size="small"
-          color="error"
+        </SoftButton>
+        <SoftButton
+          tone="danger"
           startIcon={<DeleteSweepIcon />}
           onClick={handleClear}
           disabled={busy || nothingToExport}
         >
           清除紀錄
-        </Button>
+        </SoftButton>
       </Box>
 
       <Snackbar

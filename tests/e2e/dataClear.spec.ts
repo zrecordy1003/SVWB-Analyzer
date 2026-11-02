@@ -37,19 +37,19 @@ test('the dialog shows how many of each there are, clears only what is ticked, a
   await invoke(window, 'tags:create', '練習')
 
   await window.getByRole('button', { name: '設定', exact: true }).click()
-  await window.getByRole('button', { name: '清除資料⋯' }).click()
+  await window.getByRole('button', { name: '清除⋯' }).click()
   const dialog = window.getByRole('dialog')
 
   // Each kind with its number; matches ticked by default, nothing else.
-  await expect(dialog.getByText('3 場')).toBeVisible()
-  await expect(dialog.getByText('1 個').first()).toBeVisible()
+  await expect(dialog.getByRole('checkbox', { name: /對局資料\s*3\s*場/ })).toBeVisible()
+  await expect(dialog.getByRole('checkbox', { name: /標籤\s*1\s*個/ })).toBeVisible()
   await expect(dialog.getByRole('checkbox', { name: /對局資料/ })).toBeChecked()
   await expect(dialog.getByRole('checkbox', { name: /標籤/ })).not.toBeChecked()
   // A kind with none cannot be ticked.
   await expect(dialog.getByRole('checkbox', { name: /牌組分類/ })).toBeDisabled()
 
-  await dialog.getByRole('button', { name: '清除', exact: true }).click()
-  await expect(dialog.getByText(/已清除：對局資料 3 場/)).toBeVisible()
+  await dialog.getByRole('button', { name: '刪除 3 筆' }).click()
+  await expect(dialog.getByText(/已清除對局資料 3 場/)).toBeVisible()
   await dialog.getByRole('button', { name: '完成' }).click()
 
   // The matches are gone; the tag, which was not ticked, is not.
@@ -59,9 +59,14 @@ test('the dialog shows how many of each there are, clears only what is ticked, a
   // The backup the clear took is listed right here and can be put back - in this
   // build, which has no Google client, as in any other.
   const panel = window.getByRole('main')
-  await expect(panel.getByText('資料備份')).toBeVisible()
-  await panel.getByRole('button', { name: '還原' }).first().click()
-  await window.getByRole('dialog').getByRole('button', { name: '還原' }).click()
+  await expect(panel.getByText(/最近一次：.*（清除資料前）/)).toBeVisible()
+  await panel.getByRole('button', { name: '還原⋯' }).click()
+  const restore = window.getByRole('dialog')
+  // Choosing a backup does nothing by itself; the footer button restores.
+  await expect(restore.getByRole('button', { name: '還原', exact: true })).toBeDisabled()
+  await restore.getByRole('radio').first().click()
+  await restore.getByRole('button', { name: '還原', exact: true }).click()
+  await expect(restore.getByText(/已還原到/)).toBeVisible()
   await expect
     .poll(async () => (await invoke<unknown[]>(window, 'matches:getPage', {})).length)
     .toBe(3)
@@ -82,7 +87,7 @@ test('cancelling removes nothing', async ({ window }) => {
     result: true
   })
   await window.getByRole('button', { name: '設定', exact: true }).click()
-  await window.getByRole('button', { name: '清除資料⋯' }).click()
+  await window.getByRole('button', { name: '清除⋯' }).click()
   await window.getByRole('dialog').getByRole('button', { name: '取消' }).click()
   expect(await invoke<unknown[]>(window, 'matches:getPage', {})).toHaveLength(1)
 })
