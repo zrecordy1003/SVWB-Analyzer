@@ -44,8 +44,15 @@ export type MetaCell = {
 
 export type MetaDocument = {
   generatedAt: string
-  /** What was counted: the filter the SQL applied. Stated so a chart can say it. */
-  window: { since: string; days: number }
+  /**
+   * What was counted: the filter the SQL applied. Stated so a chart can say it.
+   *
+   * `days` is the span actually counted, which is shorter than the one asked
+   * for when a card pack came out inside it. `season` names that pack; it is
+   * absent from documents made before the Worker knew about seasons, and when
+   * no release in `CARD_PACK_RELEASES` has happened yet.
+   */
+  window: { since: string; days: number; season?: MetaSeason }
   mode: string
   tiers: string[]
   /** Distinct installs that contributed at least one bucket in the window. */
@@ -99,6 +106,62 @@ export type MetaDocument = {
  */
 export const META_WINDOW_DAYS = [7, 14, 30] as const
 export type MetaWindowDays = (typeof META_WINDOW_DAYS)[number]
+
+/** A card pack that started a new environment, as the document reports it. */
+export type MetaSeason = {
+  name: string
+  /** The release instant, ISO 8601 in UTC. */
+  releasedAt: string
+}
+
+/**
+ * Card pack releases, oldest first. The public aggregate never counts a day
+ * from before the latest one that has happened: a matchup table that mixes two
+ * card pools describes neither.
+ *
+ * Adding a pack is adding a line here and redeploying the Worker - nothing
+ * else reads a date. An entry may go in ahead of time; it takes effect once
+ * `releasedAt` has passed. Old clients need no update, since the cut is made in
+ * the server's query.
+ *
+ * `releasedAt` is when the pack went live (the end of the release maintenance),
+ * not the date on the announcement, because the boundary is drawn from it to
+ * the hour - see `metaSeasonStart`.
+ */
+export const CARD_PACK_RELEASES: readonly MetaSeason[] = [
+  // 第 10 彈「ニーゲルヘリア神殺事件」。維護 10/28 14:00–17:00 JST，17:00 JST 開放。
+  // https://x.com/shadowverse_jp/status/2111034415589855531
+  { name: '第 10 彈 Deicide in Nacreheim', releasedAt: '2026-10-28T08:00:00Z' }
+]
+
+/** The latest release that has happened by `now`, or null before the first one. */
+export function currentSeason(
+  now: Date,
+  releases: readonly MetaSeason[] = CARD_PACK_RELEASES
+): MetaSeason | null {
+  let current: MetaSeason | null = null
+  for (const release of releases) {
+    const at = Date.parse(release.releasedAt)
+    if (at <= now.getTime() && (!current || at > Date.parse(current.releasedAt))) current = release
+  }
+  return current
+}
+
+/**
+ * The first UTC date that holds only games from `season`.
+ *
+ * Buckets are per UTC date (plan D-7), so a release at 08:00 UTC shares its
+ * date with eight hours of the old environment, and there is no finer grain
+ * to split it on. That day is left out rather than let in: losing most of a
+ * day of the new pool costs a little sample, while counting the old one is
+ * the exact thing this cut exists to prevent. A release at UTC midnight starts
+ * on its own date.
+ */
+export function metaSeasonStart(season: MetaSeason): string {
+  const DAY_MS = 86_400_000
+  const at = Date.parse(season.releasedAt)
+  return new Date(Math.ceil(at / DAY_MS) * DAY_MS).toISOString().slice(0, 10)
+}
 
 /**
  * A fetched document plus the two things the page has to say about it that the

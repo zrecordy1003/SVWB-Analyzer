@@ -3,9 +3,20 @@
  * client's rollup are checked against the same constants in one run.
  */
 import { describe, expect, it } from 'vitest'
-import { buildMeta, buildOverview, lastDates } from '../../server/telemetry/src/aggregate'
+import {
+  buildMeta,
+  buildOverview,
+  lastDates,
+  metaWindow
+} from '../../server/telemetry/src/aggregate'
 import { validatePayload } from '../../server/telemetry/src/validate'
 import { rollup, type RollupRow } from '../../src/main/telemetry/rollup'
+import {
+  CARD_PACK_RELEASES,
+  currentSeason,
+  metaSeasonStart,
+  type MetaSeason
+} from '../../src/shared/meta'
 import {
   TELEMETRY_ACCEPTED_SCHEMAS,
   TELEMETRY_MAX_MATCHES_PER_DAY
@@ -307,6 +318,75 @@ describe('buildMeta', () => {
     const doc = buildMeta([cell('witch', 'dragon', 'first', 9, 0, 0)], META_OPTS)
     expect(doc.cells).toEqual([])
     expect(doc.matches).toBe(0)
+  })
+})
+
+describe('metaWindow: the card pack cut', () => {
+  // 第 10 彈: maintenance ended 17:00 JST on 2026-10-28, i.e. 08:00 UTC.
+  const PACK_10: MetaSeason = { name: '第 10 彈', releasedAt: '2026-10-28T08:00:00Z' }
+  const PACK_9: MetaSeason = { name: '第 9 彈', releasedAt: '2026-07-29T08:00:00Z' }
+  const RELEASES = [PACK_9, PACK_10]
+
+  it('lists 第 10 彈 as released at 17:00 JST on 2026-10-28', () => {
+    expect(CARD_PACK_RELEASES.map((r) => r.releasedAt)).toContain('2026-10-28T08:00:00Z')
+  })
+
+  it('starts the season on the first UTC date with no old-environment games', () => {
+    expect(metaSeasonStart(PACK_10)).toBe('2026-10-29')
+    // A release on UTC midnight owns its whole date.
+    expect(metaSeasonStart({ name: 'x', releasedAt: '2026-10-28T00:00:00Z' })).toBe('2026-10-28')
+  })
+
+  it('picks the latest release that has already happened', () => {
+    expect(currentSeason(new Date('2026-10-28T07:59:59Z'), RELEASES)).toBe(PACK_9)
+    expect(currentSeason(new Date('2026-10-28T08:00:00Z'), RELEASES)).toBe(PACK_10)
+    // Order in the list does not matter.
+    expect(currentSeason(new Date('2026-11-01T00:00:00Z'), [PACK_10, PACK_9])).toBe(PACK_10)
+    expect(currentSeason(new Date('2026-01-01T00:00:00Z'), RELEASES)).toBeNull()
+  })
+
+  it('cuts a window that reaches back past the release, and reports the span counted', () => {
+    const w = metaWindow(new Date('2026-11-01T12:00:00Z'), 14, RELEASES)
+    expect(w).toEqual({ since: '2026-10-29', days: 4, season: PACK_10 })
+  })
+
+  it('leaves a window alone when it starts after the cut', () => {
+    const w = metaWindow(new Date('2026-11-20T12:00:00Z'), 7, RELEASES)
+    expect(w).toEqual({ since: '2026-11-14', days: 7, season: PACK_10 })
+  })
+
+  it('counts nothing on release day itself, rather than the old environment', () => {
+    const w = metaWindow(new Date('2026-10-28T20:00:00Z'), 14, RELEASES)
+    expect(w.since).toBe('2026-10-29')
+    expect(w.days).toBe(0)
+    expect(w.season).toBe(PACK_10)
+  })
+
+  it('stays on the previous season until the release instant passes', () => {
+    const w = metaWindow(new Date('2026-10-28T07:00:00Z'), 14, RELEASES)
+    expect(w).toEqual({ since: '2026-10-15', days: 14, season: PACK_9 })
+  })
+
+  it('applies no cut before the first listed release', () => {
+    expect(metaWindow(new Date('2026-01-10T00:00:00Z'), 7, RELEASES)).toEqual({
+      since: '2026-01-04',
+      days: 7
+    })
+  })
+
+  it('carries the season into the published document', () => {
+    const doc = buildMeta([], {
+      installs: 0,
+      since: '2026-10-29',
+      days: 4,
+      season: PACK_10,
+      mode: 'ranked',
+      tiers: ['clean'],
+      maxPerInstallPerCell: 10,
+      minInstallsPerCell: 5,
+      now: NOW
+    })
+    expect(doc.window).toEqual({ since: '2026-10-29', days: 4, season: PACK_10 })
   })
 })
 

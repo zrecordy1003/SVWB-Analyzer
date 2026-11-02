@@ -16,7 +16,7 @@ app 端的對應程式在 `src/main/telemetry/`；wire format 在 `src/shared/te
 | 方法 | 路徑                 | 用途                                                                | 保護                                   |
 | ---- | -------------------- | ------------------------------------------------------------------- | -------------------------------------- |
 | POST | `/v1/ingest`         | app 上傳。以 `(installId, date)` 為鍵整批**覆寫**，重送冪等。       | 無認證；每 IP 60/分、每 installId 6/分 |
-| GET  | `/v1/meta`           | 公開彙總：ranked、`clean` tier、預設最近 14 天（`?days=1..90`）。   | 無認證；每 IP 120/分；邊緣快取 15 分   |
+| GET  | `/v1/meta`           | 公開彙總：ranked、`clean` tier、預設最近 14 天（`?days=1..90`），且只從目前卡包的環境起算。 | 無認證；每 IP 120/分；邊緣快取 15 分   |
 | GET  | `/v1/admin/overview` | 維護者數字：活躍安裝數（今日／7 天／30 天）、各版本人數、每日序列、**CR 段位切分**。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
 | GET  | `/v1/admin/opening`  | 起手手牌的計數：每張卡的留牌／換掉 × `rest_band` × 勝負。預設 30 天、ranked ＋ `clean`（`?days=1..90`、`?mode=all`、`?tiers=all`）。 | `Authorization: Bearer <ADMIN_TOKEN>`  |
 | GET  | `/health`            | 存活檢查                                                            | 無                                     |
@@ -65,6 +65,21 @@ crBand`），因為 `unknown` 本來就是多數，一個悄悄不送這個欄�
 
 `rest_band` 為 null 的列（同伴費用查不到）照收、照送，並在 `coverage.unbanded` 單獨報出來：
 它們在合併層可用、在分層比較不可用，跟本機建議的處理方式一致。
+
+### 新卡包上線：環境切點
+
+`/v1/meta` 不會算到最新一彈卡包上線前的對局：兩套卡池混在一起的對戰表兩邊都不像。
+日期清單在 `src/shared/meta.ts` 的 `CARD_PACK_RELEASES`，出新彈時**只要加一行**
+（`releasedAt` 填開放時間、UTC），再部署 Worker：
+
+```sh
+pnpm --dir server/telemetry deploy
+```
+
+可以提前加，`releasedAt` 過了才生效。舊版 app 不用更新，因為切點在伺服器的查詢裡。
+bucket 是以 UTC 日期為單位，所以上線當天（同一天裡還有舊環境的對局）不算，從隔天 UTC
+00:00 起算；文件的 `window.since`／`window.days` 是**實際**算到的區間，`window.season` 寫明是哪一彈。
+部署後邊緣快取最多 15 分鐘才會換成新切點。
 
 ### 為什麼 CR 段位不在 `/v1/meta`
 

@@ -389,6 +389,11 @@ export default function MetaPage(): React.JSX.Element {
                   <Row
                     k="統計區間"
                     v={`${doc?.window.days ?? days} 天（自 ${doc?.window.since ?? '—'}）`}
+                    note={
+                      doc?.window.season
+                        ? `只算 ${doc.window.season.name} 上線之後。上線當天混有舊環境的對局，所以從隔天（UTC）起算。`
+                        : undefined
+                    }
                   />
                   <Row
                     k="先手優勢"

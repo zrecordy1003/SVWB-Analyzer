@@ -4,7 +4,14 @@
  * `index.ts` runs the SQL; this shapes what comes back into the two documents
  * the Worker serves. Pure, so the shapes can be tested without a database.
  */
-import type { MetaCell, MetaDocument } from '../../../src/shared/meta'
+import {
+  CARD_PACK_RELEASES,
+  currentSeason,
+  metaSeasonStart,
+  type MetaCell,
+  type MetaDocument,
+  type MetaSeason
+} from '../../../src/shared/meta'
 
 // ------------------------------------------------------------------ /v1/meta
 
@@ -65,12 +72,41 @@ export const META_CAVEATS: readonly string[] = [
   '只計入引擎自己記錄、沒有手動修改過、也沒有辨識警告的對局。'
 ]
 
+/**
+ * The dates `/v1/meta` counts: the last `days` UTC dates up to today, cut at
+ * the start of the current card pack's environment.
+ *
+ * `days` in the result is the span actually counted, so a page that prints
+ * "14 天" never does so over four days of data. It is 0 on a release day,
+ * whose first clean date is tomorrow; the query then matches nothing, which is
+ * the honest answer.
+ */
+export function metaWindow(
+  now: Date,
+  days: number,
+  releases: readonly MetaSeason[] = CARD_PACK_RELEASES
+): { since: string; days: number; season?: MetaSeason } {
+  const today = Math.floor(now.getTime() / DAY_MS) * DAY_MS
+  const windowStart = utcDate(today - (days - 1) * DAY_MS)
+  const season = currentSeason(now, releases)
+  if (!season) return { since: windowStart, days }
+
+  const seasonStart = metaSeasonStart(season)
+  if (seasonStart <= windowStart) return { since: windowStart, days, season }
+  return {
+    since: seasonStart,
+    days: Math.max(0, (today - Date.parse(`${seasonStart}T00:00:00Z`)) / DAY_MS + 1),
+    season
+  }
+}
+
 export function buildMeta(
   rows: readonly MatrixRow[],
   opts: {
     installs: number
     since: string
     days: number
+    season?: MetaSeason
     mode: string
     tiers: string[]
     maxPerInstallPerCell: number
@@ -135,7 +171,11 @@ export function buildMeta(
 
   return {
     generatedAt: opts.now.toISOString(),
-    window: { since: opts.since, days: opts.days },
+    window: {
+      since: opts.since,
+      days: opts.days,
+      ...(opts.season ? { season: { ...opts.season } } : {})
+    },
     mode: opts.mode,
     tiers: opts.tiers,
     installs: opts.installs,

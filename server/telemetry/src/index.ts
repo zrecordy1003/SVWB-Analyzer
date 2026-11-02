@@ -23,6 +23,7 @@ import {
   buildMeta,
   buildOpening,
   buildOverview,
+  metaWindow,
   type ActivityRow,
   type NewInstallRow,
   type UploadsRow,
@@ -626,7 +627,10 @@ async function meta(request: Request, env: Env, ctx: ExecutionContext): Promise<
   }
 
   const now = new Date()
-  const since = daysAgo(now, days - 1)
+  // Cut at the current card pack's release, so the old environment never mixes
+  // in. The cache key stays `days`: the cut moves only when a release passes,
+  // and an entry outlives that by at most `META_CACHE_SECONDS`.
+  const { since, days: counted, season } = metaWindow(now, days)
   const tierList = META_TIERS.map(() => '?').join(', ')
 
   const [matrix, installs] = await Promise.all([
@@ -680,7 +684,8 @@ async function meta(request: Request, env: Env, ctx: ExecutionContext): Promise<
   const document = buildMeta(matrix.results, {
     installs: Number(installs?.n) || 0,
     since,
-    days,
+    days: counted,
+    season,
     mode: META_MODE,
     tiers: META_TIERS,
     maxPerInstallPerCell: META_MAX_PER_INSTALL_CELL,
