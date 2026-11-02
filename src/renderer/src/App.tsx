@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import React, { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { ThemeProvider, createTheme, styled } from '@mui/material/styles'
 import CircularProgress from '@mui/material/CircularProgress'
@@ -37,16 +37,19 @@ import DeckManagerControl from './components/DeckManager/DeckManagerControl'
 import About from './components/About/About'
 import SupportPrompt from './components/Common/SupportPrompt'
 import TelemetryPrompt from './components/Common/TelemetryPrompt'
-const Analyzer = lazy(() => import('./components/Analyzer/Analyzer'))
-const MatchList = lazy(() => import('./components/MatchList/MatchList'))
-const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerformance'))
+import { preloadableLazy } from './components/Common/preloadableLazy'
+const Analyzer = preloadableLazy(() => import('./components/Analyzer/Analyzer'))
+const MatchList = preloadableLazy(() => import('./components/MatchList/MatchList'))
+const DeckPerformance = preloadableLazy(
+  () => import('./components/DeckPerformance/DeckPerformance')
+)
 /**
  * 卡片頁暫時停用 - 一張卡的勝率單看沒什麼可以下判斷的，要等之後那個數據分析
  * 的介面做出來、能把它和牌組、對局擺在一起看，這頁才講得出東西。程式碼、
  * `cards:stats` 和資料庫那邊都原封不動留著，要開回來只要把這裡、選單項目和
  * `PAGE_KEYS`、下面的 render 分支這四處的註解拿掉。
  */
-// const CardsPage = lazy(() => import('./components/Cards/CardsPage'))
+// const CardsPage = preloadableLazy(() => import('./components/Cards/CardsPage'))
 /**
  * 起手頁在這一版不上側邊欄，但**資料照收**。
  *
@@ -63,12 +66,13 @@ const DeckPerformance = lazy(() => import('./components/DeckPerformance/DeckPerf
  * 要開回來：把這裡、選單項目、`PAGE_KEYS`、下面的 render 分支這四處的註解拿掉，
  * 和 `CardsPage` 同一個作法。
  */
-// const OpeningPage = lazy(() => import('./components/Opening/OpeningPage'))
+// const OpeningPage = preloadableLazy(() => import('./components/Opening/OpeningPage'))
 /**
- * 環境：唯一一頁畫的不是本機資料的頁面，資料來自公開的統計端點。lazy 在這裡
- * 比其他頁更划算 - 沒點進去的人連那段程式碼都不會抓，也不會發出任何請求。
+ * 環境：唯一一頁畫的不是本機資料的頁面，資料來自公開的統計端點。閒置時會預載
+ * 它的程式碼（見 `App` 裡的預載），但請求要等頁面真的掛上去才發 - 沒點進去的人
+ * 不會發出任何請求。
  */
-const MetaPage = lazy(() => import('./components/Meta/MetaPage'))
+const MetaPage = preloadableLazy(() => import('./components/Meta/MetaPage'))
 // import Statistics from './components/Statistics'
 
 const DRAWER_COLLAPSED_WIDTH = 92
@@ -111,6 +115,16 @@ type PageKey =
   | 'Meta'
   | 'Settings'
   | 'About'
+const PAGES: Partial<Record<PageKey, React.ReactNode>> = {
+  MatchList: <MatchList />,
+  DeckPerformance: <DeckPerformance />,
+  // Cards: <CardsPage />,
+  // Opening: <OpeningPage />,
+  Analyzer: <Analyzer />,
+  Meta: <MetaPage />,
+  Settings: <Settings />,
+  About: <About />
+}
 const PAGE_KEYS: readonly PageKey[] = [
   'Analyzer',
   'MatchList',
@@ -135,6 +149,45 @@ function App(): React.JSX.Element {
 
   // current page
   const [currentPage, setCurrentPage] = useState<PageKey>('MatchList')
+  /**
+   * 去過的分頁留在畫面裡，只是藏起來，不再一切走就卸載。
+   *
+   * 卸載的代價是每次切回來都重來一遍：重抓資料、骨架閃一下、篩選和捲動位置
+   * 全歸零。頁面的資料本來就靠 `matches:needRefetch` / `reference-data:changed`
+   * 這些廣播保持最新，藏著的時候照樣會收到，所以留著不會顯示舊資料。
+   * 沒去過的頁不掛，啟動時只付第一頁的成本。
+   */
+  const [visited, setVisited] = useState<ReadonlySet<PageKey>>(() => new Set([currentPage]))
+  // 每一頁共用 `Main` 這一個捲動容器，所以各頁的捲動位置由這裡記、這裡還。
+  const mainRef = useRef<HTMLElement>(null)
+  const scrollByPage = useRef(new Map<PageKey, number>())
+  const goTo = (page: PageKey): void => {
+    if (mainRef.current) scrollByPage.current.set(currentPage, mainRef.current.scrollTop)
+    setCurrentPage(page)
+    setVisited((prev) => (prev.has(page) ? prev : new Set(prev).add(page)))
+  }
+  const goToRef = useRef(goTo)
+  goToRef.current = goTo
+  useLayoutEffect(() => {
+    if (mainRef.current) mainRef.current.scrollTop = scrollByPage.current.get(currentPage) ?? 0
+  }, [currentPage])
+  // 第一頁畫完、手上沒事的時候把其他頁的程式碼先抓好，第一次切過去就不會
+  // 看到轉圈。只抓程式碼，不掛元件，所以不會發出任何資料請求。
+  useEffect(() => {
+    const id = requestIdleCallback(() => {
+      for (const page of [MatchList, DeckPerformance, Analyzer, MetaPage]) void page.preload()
+    })
+    return () => cancelIdleCallback(id)
+  }, [])
+  // The sidebar's selection background is one box that slides to the selected
+  // item, measured from the item itself so it follows whatever height a label
+  // wraps to. Null until the first measure, so it never animates in from the top.
+  const navRefs = useRef(new Map<PageKey, HTMLDivElement>())
+  const [navMark, setNavMark] = useState<{ top: number; height: number } | null>(null)
+  useLayoutEffect(() => {
+    const el = navRefs.current.get(currentPage)
+    if (el) setNavMark({ top: el.offsetTop, height: el.offsetHeight })
+  }, [currentPage])
 
   // build theme
 
@@ -229,7 +282,7 @@ function App(): React.JSX.Element {
     const unsubscribe = window.electron?.ipcRenderer.on(
       'app:navigate',
       (_event: unknown, page: PageKey) => {
-        if (PAGE_KEYS.includes(page)) setCurrentPage(page)
+        if (PAGE_KEYS.includes(page)) goToRef.current(page)
       }
     )
     return () => unsubscribe?.()
@@ -245,7 +298,7 @@ function App(): React.JSX.Element {
         <TelemetryPrompt />
         <AppBar position="fixed" sx={{ zIndex: (t) => t.zIndex.drawer + 1 }}>
           <Toolbar sx={{ position: 'relative' }}>
-            <AccountButton onOpenSettings={() => setCurrentPage('Settings')} />
+            <AccountButton onOpenSettings={() => goTo('Settings')} />
             {/* The page title used to sit here; the sidebar already shows where you are. */}
             <Box sx={{ flexGrow: 1 }} />
             <Box
@@ -287,12 +340,41 @@ function App(): React.JSX.Element {
           <Toolbar />
 
           <Box display={'flex'} flexDirection={'column'} height={'100%'}>
-            <List sx={{ px: 0.75, pt: 1 }}>
+            <List sx={{ px: 0.75, pt: 1, position: 'relative' }}>
+              {navMark && (
+                <Box
+                  aria-hidden
+                  sx={{
+                    position: 'absolute',
+                    left: (t) => t.spacing(0.75),
+                    right: (t) => t.spacing(0.75),
+                    top: 0,
+                    height: navMark.height,
+                    transform: `translateY(${navMark.top}px)`,
+                    borderRadius: 1.5,
+                    bgcolor: 'action.selected',
+                    pointerEvents: 'none',
+                    transition: (t) =>
+                      t.transitions.create(['transform', 'height'], {
+                        duration: 250,
+                        easing: t.transitions.easing.easeInOut
+                      }),
+                    '@media (prefers-reduced-motion: reduce)': { transition: 'none' }
+                  }}
+                />
+              )}
               {menuItems.map(({ key, text, icon }) => (
                 <ListItemButton
                   key={key}
+                  ref={(el: HTMLDivElement | null) => {
+                    if (el) navRefs.current.set(key, el)
+                    else navRefs.current.delete(key)
+                  }}
                   selected={currentPage === key}
-                  onClick={() => setCurrentPage(key)}
+                  onClick={() => goTo(key)}
+                  // No ripple: the sliding selection box is the click feedback.
+                  // Keyboard focus gets a ring below instead of the focus ripple.
+                  disableRipple
                   sx={{
                     minHeight: 64,
                     mb: 0.5,
@@ -301,14 +383,20 @@ function App(): React.JSX.Element {
                     flexDirection: 'column',
                     justifyContent: 'center',
                     gap: 0.25,
-                    '&.Mui-selected': { bgcolor: 'action.selected' },
-                    '&.Mui-selected:hover': { bgcolor: 'action.selected' }
+                    // The sliding box above draws the selection; the item itself stays clear.
+                    '&.Mui-selected': { bgcolor: 'transparent' },
+                    '&.Mui-selected:hover': { bgcolor: 'action.hover' },
+                    '&.Mui-focusVisible': {
+                      bgcolor: 'transparent',
+                      boxShadow: 'inset 0 0 0 2px rgba(144,202,249,0.6)'
+                    }
                   }}
                 >
                   <ListItemIcon
                     sx={{
                       minWidth: 0,
-                      color: currentPage === key ? 'primary.main' : 'text.secondary'
+                      color: currentPage === key ? 'primary.main' : 'text.secondary',
+                      transition: (t) => t.transitions.create('color', { duration: 250 })
                     }}
                   >
                     {icon}
@@ -344,18 +432,16 @@ function App(): React.JSX.Element {
         </Drawer>
 
         {/* 主內容 */}
-        <Main>
+        <Main ref={mainRef}>
           <Toolbar />
-          <Suspense fallback={<PageLoading />}>
-            {currentPage === 'MatchList' && <MatchList />}
-            {currentPage === 'DeckPerformance' && <DeckPerformance />}
-            {/* {currentPage === 'Cards' && <CardsPage />} */}
-            {/* {currentPage === 'Opening' && <OpeningPage />} */}
-            {currentPage === 'Analyzer' && <Analyzer />}
-            {currentPage === 'Meta' && <MetaPage />}
-            {currentPage === 'Settings' && <Settings />}
-            {currentPage === 'About' && <About />}
-          </Suspense>
+          {PAGE_KEYS.filter((key) => visited.has(key)).map((key) => (
+            // `contents` 讓頁面照舊當 `Main` 的直接子層排版（它們靠 `flex: 1`
+            // 拿剩下的高度）；藏起來就是 `none`，狀態和 DOM 都留著。每頁各自一個
+            // Suspense，新頁在抓程式碼時不會把已經在畫面上的頁一起換成轉圈。
+            <Box key={key} sx={{ display: key === currentPage ? 'contents' : 'none' }}>
+              <Suspense fallback={<PageLoading />}>{PAGES[key]}</Suspense>
+            </Box>
+          ))}
 
           {/* Footer */}
           {/* <Box component="footer" sx={{ textAlign: 'center', mt: 2 }}> */}
