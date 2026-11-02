@@ -126,6 +126,12 @@ export const test = base.extend<SvwbFixtures>({
     env.SVWB_TELEMETRY_URL = 'http://127.0.0.1:1'
 
     /**
+     * Keep the app's windows off the developer's screen and out of focus
+     * (`src/main/e2eOffscreen.ts`). Export `SVWB_E2E_OFFSCREEN=0` to watch a run.
+     */
+    env.SVWB_E2E_OFFSCREEN = process.env.SVWB_E2E_OFFSCREEN ?? '1'
+
+    /**
      * Point this at an installed or `--dir`-unpacked executable to run the
      * suite against a real package instead of `out/`.
      *

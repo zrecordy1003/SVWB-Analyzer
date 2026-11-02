@@ -22,6 +22,7 @@ import { broadcast } from './utils/broadcast.js'
 import { IDLE_THRESHOLD_SECONDS, decidePoll, initialPollState } from './gamePoll.js'
 import { handleIpc, onIpc, onceIpc } from './ipc/typed.js'
 import { registerCardImageProtocol, registerCardImageScheme } from './protocol/cardImageProtocol.js'
+import { installE2eOffscreen } from './e2eOffscreen.js'
 
 // Image recognition is handled by a self-contained Rust addon
 // (tools/svwb-vision.node), so no OpenCV SDK paths or runtime DLLs are needed.
@@ -42,6 +43,10 @@ import { registerCardImageProtocol, registerCardImageScheme } from './protocol/c
  * window whatever this run started as.
  */
 const startedHidden = process.argv.includes('--hidden')
+
+// Before any window and before `ready`: it adds command-line switches. Inert
+// outside the e2e suite.
+installE2eOffscreen()
 
 const gotTheLock = app.requestSingleInstanceLock()
 if (!gotTheLock) {
@@ -155,7 +160,9 @@ function createSplash(): void {
     resizable: false,
     // Painted before the HTML does, so the first frame is not a white flash.
     backgroundColor: '#0f1216',
-    show: true,
+    // Shown right after construction rather than by it, so that a show is a
+    // `show()` call the e2e offscreen mode can intercept (`e2eOffscreen.ts`).
+    show: false,
     webPreferences: {
       // No preload. There never was one: `../preload/splash-preload.js` is not
       // built by any entry in `electron.vite.config.ts` and does not exist in
@@ -168,6 +175,7 @@ function createSplash(): void {
     }
   })
 
+  splash.show()
   splashShownAt = Date.now()
   const splashPath = app.isPackaged
     ? path.join(process.resourcesPath, 'splash.html')
