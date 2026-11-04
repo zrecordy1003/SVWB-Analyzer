@@ -54,19 +54,34 @@ import SegmentedControl from '@renderer/components/Common/SegmentedControl'
 import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
 import MatchupBars from '@renderer/components/Analyzer/component/MatchupBars'
 import MatchupHeatmap from '@renderer/components/Analyzer/component/MatchupHeatmap'
-import { readSetting } from '@renderer/components/Analyzer/filterState'
+import { motion } from '@renderer/components/Common/motion'
 import { invokeIpc } from '@renderer/ipc'
-import { classes } from '@renderer/map/classMap'
 
 import MetaClassTable from './MetaClassTable'
 import MetaSharePie from './MetaSharePie'
 import { metaClassRows, metaFirstTurnAdvantage, metaMatchup } from './metaModel'
+import {
+  DEFAULT_META_DAYS,
+  META_SETTINGS_KEYS,
+  META_STALE_MS,
+  isClassName,
+  parseMetaPrefs,
+  settledPrefetch,
+  takeWarmMeta,
+  type ChartKind
+} from './metaPrefetch'
 
 import { META_WINDOW_DAYS, type MetaSnapshot, type MetaWindowDays } from '@shared/meta'
 import type { ClassName } from '@shared/domain'
 
 const TOOLBAR_CONTROL_HEIGHT = 36
 const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
+
+/**
+ * 工具列最左邊那行規模數字的保留寬度。大約是「1,234 位使用者 ・ 56,789 場 ・
+ * 14 天」的寬：數字再長才會把右邊推開，而那時推開是對的（字總不能被截掉）。
+ */
+const STATS_SLOT_WIDTH = 240
 
 /** 面板內距（`p: 2`）的像素數；下面算欄寬時要把它加回去。 */
 const PANEL_PADDING = 16
@@ -132,8 +147,6 @@ const HIDDEN_SCROLL_SX = {
   '&::-webkit-scrollbar': { display: 'none' }
 } as const
 
-type ChartKind = 'heatmap' | 'bars'
-
 const META_MATCHUP_EMPTY =
   '這個職業在這段期間還沒有公開的對位數據。可以換個職業，或選擇較長的期間。'
 
@@ -155,18 +168,6 @@ const CHART_OPTIONS: Array<{ id: ChartKind; label: string; icon: React.ReactNode
   { id: 'bars', label: '長條圖', icon: <AlignHorizontalLeftIcon sx={{ fontSize: 16 }} /> }
 ]
 
-const SETTINGS_KEYS = {
-  days: 'meta.days',
-  myClass: 'meta.myClass',
-  chartKind: 'meta.chartKind'
-} as const
-
-const isWindowDays = (value: unknown): value is MetaWindowDays =>
-  (META_WINDOW_DAYS as readonly number[]).includes(Number(value))
-
-const isClassName = (value: unknown): value is ClassName =>
-  classes.some((klass) => String(klass.id) === value)
-
 /**
  * 這一頁現在有多寬，決定要不要並排。
  *
@@ -174,13 +175,21 @@ const isClassName = (value: unknown): value is ClassName =>
  * `SPLIT_MIN_WIDTH` 上。第一次在 layout effect 裡同步量一次，否則第一幀會先
  * 畫疊著的版、observer 回來再跳成並排，換頁的瞬間版面會抖一下。量不到（測試
  * 環境沒有 `ResizeObserver`）就當作不夠寬，疊著放是兩種版面裡比較保守的那種。
+ *
+ * 寬度 0 不算數。去過的頁面在 `App.tsx` 裡是用 `display: none` 藏起來的，藏的
+ * 那一刻 observer 會回報 0，原本因此把 `wide` 設回 false；切回來時頁面先用疊著
+ * 的版面畫一幀，observer 的下一個回報才跳回並排 - 每次回到這頁都整塊抖一下
+ * （量到的 layout shift 是 0.2）。藏著的頁面沒有寬度可言，就留著藏起來之前的
+ * 答案；切回來時寬度若真的變了，observer 會照常回報。
  */
 function useIsWide(ref: React.RefObject<HTMLElement | null>): boolean {
   const [wide, setWide] = useState(false)
   useLayoutEffect(() => {
     const el = ref.current
     if (!el) return
-    const measure = (width: number): void => setWide(width >= SPLIT_MIN_WIDTH)
+    const measure = (width: number): void => {
+      if (width > 0) setWide(width >= SPLIT_MIN_WIDTH)
+    }
     measure(el.getBoundingClientRect().width)
     if (typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver(([entry]) => {
@@ -219,21 +228,72 @@ function Row({ k, v, note }: { k: string; v: string; note?: string }): React.JSX
   )
 }
 
+/**
+ * 頁面從藏著變成看得到時叫一次 `onShown`。
+ *
+ * 去過的頁不卸載，只是 `display: none`（見 `App.tsx`），所以「使用者回到這頁」
+ * 在 React 裡不是任何事件 - 沒有重新掛載、沒有 prop 變。量自己的寬度從 0 變回
+ * 非 0 就是那個時刻，和 `useIsWide` 用的是同一個原則：量自己，不用知道外面
+ * 是誰在藏它。第一次量到寬度不算（那是掛上，不是回來）。
+ */
+function useWhenShown(ref: React.RefObject<HTMLElement | null>, onShown: () => void): void {
+  const callback = useRef(onShown)
+  useLayoutEffect(() => {
+    callback.current = onShown
+  })
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let hidden = el.getBoundingClientRect().width === 0
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      const nowHidden = entry.contentRect.width === 0
+      if (hidden && !nowHidden) callback.current()
+      hidden = nowHidden
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+}
+
 export default function MetaPage(): React.JSX.Element {
-  const [days, setDays] = useState<MetaWindowDays>(14)
-  const [myClass, setMyClass] = useState<ClassName>('elf')
-  const [chartKind, setChartKind] = useState<ChartKind>('heatmap')
-  const [snapshot, setSnapshot] = useState<MetaSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
+  /**
+   * 預先載入（`metaPrefetch.ts`）已經抓好的話，第一幀就用它：設定、資料都有，
+   * 不畫骨架。只在掛上時拿一次 - 之後這頁一直留著，新舊由下面自己管。
+   */
+  const [warm] = useState(takeWarmMeta)
+  const [days, setDays] = useState<MetaWindowDays>(warm?.days ?? DEFAULT_META_DAYS)
+  const [myClass, setMyClass] = useState<ClassName>(warm?.prefs.myClass ?? 'elf')
+  const [chartKind, setChartKind] = useState<ChartKind>(warm?.prefs.chartKind ?? 'heatmap')
+  const [snapshot, setSnapshot] = useState<MetaSnapshot | null>(warm?.snapshot ?? null)
+  /**
+   * 手上那份資料是**哪個區間**的。
+   *
+   * 不能從文件裡讀：`doc.window.days` 是實際算進去的天數，新卡包上線後會比要求
+   * 的短（見 `MetaDocument.window`），所以 30 天的那份可能寫著 6 天。切換區間
+   * 時畫面上那份還是舊的，要靠這個才知道「畫面上的不是按鈕上選的」。
+   */
+  const [snapshotDays, setSnapshotDays] = useState<MetaWindowDays | null>(
+    warm?.snapshot ? warm.days : null
+  )
+  const [loading, setLoading] = useState(!warm)
   const [error, setError] = useState<string | null>(null)
   /**
    * 環與表之間的連動：滑過（或鍵盤停在）哪個職業。放在這裡而不是任一個子元件
    * 裡，因為兩邊都要讀也都要寫 - 一邊持有另一邊就得往上再傳一層。
    */
   const [highlighted, setHighlighted] = useState<string | null>(null)
+  /**
+   * 「現在該不該檢查資料有沒有過期」的觸發。值本身沒有意義，變了就是要檢查：
+   * 回到這頁、視窗從背景回來、網路恢復都會推它一下，由下面那個抓資料的 effect
+   * 決定要不要真的去抓。
+   */
+  const [revalidateAt, setRevalidateAt] = useState(0)
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const wide = useIsWide(rootRef)
+  const revalidate = useCallback(() => setRevalidateAt(Date.now()), [])
+  useWhenShown(rootRef, revalidate)
 
   /**
    * 存回設定的閘門，和分析器踩過的是同一個坑：讀回來之前就寫，會把存檔用預設
@@ -248,9 +308,14 @@ export default function MetaPage(): React.JSX.Element {
    * state。原本沒有這個閘門，於是每次進這一頁都是先用預設的 14 天發一次請求，
    * 設定讀回來變成 30 天再發一次——其中第一次是使用者從來沒要求看的區間。
    */
-  const [ready, setReady] = useState(false)
+  const [ready, setReady] = useState(warm !== null)
   /** 這一頁被關掉以後才回來的請求不該再改狀態。 */
   const alive = useRef(true)
+  /**
+   * 最新一次請求的編號。連點 7 天、30 天時兩個請求同時在路上，先發的不一定先
+   * 回來；只有最新那個能寫進畫面，否則按鈕寫 30 天、畫面是 7 天的資料。
+   */
+  const latestRequest = useRef(0)
 
   useEffect(() => {
     alive.current = true
@@ -259,48 +324,61 @@ export default function MetaPage(): React.JSX.Element {
     }
   }, [])
 
-  useEffect(() => {
-    let mounted = true
-    void window.settings
-      .getAll()
-      .then((raw) => {
-        if (!mounted || !raw) return
-        const storedDays = readSetting(raw, SETTINGS_KEYS.days)
-        if (isWindowDays(storedDays)) setDays(Number(storedDays) as MetaWindowDays)
-        const storedClass = readSetting(raw, SETTINGS_KEYS.myClass)
-        if (isClassName(storedClass)) setMyClass(storedClass)
-        const storedChart = readSetting(raw, SETTINGS_KEYS.chartKind)
-        if (storedChart === 'heatmap' || storedChart === 'bars') setChartKind(storedChart)
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (!mounted) return
-        hydrated.current = true
-        setReady(true)
-      })
-    return () => {
-      mounted = false
-    }
-  }, [])
-
+  // 寫在讀設定之前：兩個 effect 掛上時照宣告順序跑，這個先跑才會在閘門還關著
+  // 的時候跳過，不會把剛讀回來（或預先載入帶來）的值原樣再寫一次。
   useEffect(() => {
     if (!hydrated.current) return
     void window.settings
       .setMany({
-        [SETTINGS_KEYS.days]: days,
-        [SETTINGS_KEYS.myClass]: myClass,
-        [SETTINGS_KEYS.chartKind]: chartKind
+        [META_SETTINGS_KEYS.days]: days,
+        [META_SETTINGS_KEYS.myClass]: myClass,
+        [META_SETTINGS_KEYS.chartKind]: chartKind
       })
       .catch(() => {})
   }, [chartKind, days, myClass])
 
+  useEffect(() => {
+    if (warm) {
+      hydrated.current = true
+      return
+    }
+    let mounted = true
+    void (async () => {
+      // 預先載入還在跑就等它：它讀的就是同一份設定、抓的就是同一個區間，
+      // 再發一次只是讓同一個請求走兩遍。
+      const pre = await settledPrefetch()
+      const prefs =
+        pre?.prefs ??
+        parseMetaPrefs(
+          (await window.settings.getAll().catch(() => null)) as Record<string, unknown> | null
+        )
+      if (!mounted) return
+      if (prefs.days) setDays(prefs.days)
+      if (prefs.myClass) setMyClass(prefs.myClass)
+      if (prefs.chartKind) setChartKind(prefs.chartKind)
+      if (pre?.snapshot) {
+        setSnapshot(pre.snapshot)
+        setSnapshotDays(pre.days)
+        setLoading(false)
+      }
+      hydrated.current = true
+      setReady(true)
+    })()
+    return () => {
+      mounted = false
+    }
+  }, [warm])
+
   const load = useCallback(async (windowDays: MetaWindowDays, refresh: boolean): Promise<void> => {
+    const request = ++latestRequest.current
+    const isLatest = (): boolean => alive.current && request === latestRequest.current
     setLoading(true)
     try {
       const res = await invokeIpc('meta:fetch', { days: windowDays, refresh })
-      if (!alive.current) return
+      if (!isLatest()) return
       if (res.ok) {
         setSnapshot(res.data)
+        setSnapshotDays(windowDays)
         setError(null)
       } else {
         // 舊的那份留著。網路斷一下就把畫面清空，等於用一個暫時的問題換掉使用者
@@ -313,26 +391,75 @@ export default function MetaPage(): React.JSX.Element {
       // 或主行程掛了。沒有這個 catch 的話 promise 直接往外拋，下面的
       // `setLoading(false)` 永遠不會跑，整頁就停在骨架上**而且一個字都不說**。
       // 那是最難回報的一種壞法：使用者只會說「沒有顯示資料」。
-      if (!alive.current) return
+      if (!isLatest()) return
       setError(
         `無法取得統計資料。如果剛更新過，請重新開啟 SVWB Analyzer 後再試一次。（${(e as Error)?.message ?? String(e)}）`
       )
     } finally {
       // finally 而不是兩條路各寫一次：漏掉任何一條的代價就是永遠的骨架。
-      if (alive.current) setLoading(false)
+      if (isLatest()) setLoading(false)
     }
   }, [])
 
+  /**
+   * 該抓就抓：手上沒有這個區間的資料，或那份已經放超過 `META_STALE_MS`。
+   *
+   * 「過期」用的是 `fetchedAt` - 主程式從它的快取回的那份也帶著原本抓的時間，
+   * 所以這裡算的是資料真正的年紀。新鮮的時候什麼都不做，所以回到這頁、視窗
+   * 回到前景時推 `revalidateAt` 是便宜的：大多數時候它只是看一眼時間。
+   *
+   * 等設定讀完才問。差別是一次請求還是兩次，而且省下的那次是問錯區間的那次。
+   */
+  const held = useRef({ snapshot, snapshotDays })
+  useLayoutEffect(() => {
+    held.current = { snapshot, snapshotDays }
+  }, [snapshot, snapshotDays])
+  // 手上的資料是透過 ref 讀的，不放進依賴：一份**剛拿到**的資料不該觸發下一次
+  // 檢查。要是放進去，主程式哪天回了一份 `fetchedAt` 已經過期的（時鐘跳、快取
+  // 邊界剛好跨過），這裡就會拿到、判過期、再抓、再拿到 - 一個打在限流端點上的迴圈。
   useEffect(() => {
-    // 等設定讀完才問。差別是一次請求還是兩次，而且省下的那次是問錯區間的那次。
     if (!ready) return
+    const { snapshot: current, snapshotDays: currentDays } = held.current
+    const fresh =
+      current !== null &&
+      currentDays === days &&
+      Date.now() - Date.parse(current.fetchedAt) < META_STALE_MS
+    if (fresh) return
     void load(days, false)
-  }, [days, load, ready])
+  }, [days, load, ready, revalidateAt])
+
+  // 視窗從背景（縮到系統匣、切到遊戲）回來時也檢查一次 - 但只在這頁是正在看的
+  // 那頁時。藏著的頁沒有人在看，等使用者回到這頁時 `useWhenShown` 會再推一次。
+  useEffect(() => {
+    const onVisible = (): void => {
+      const el = rootRef.current
+      if (document.visibilityState === 'visible' && el && el.getClientRects().length > 0) {
+        revalidate()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [revalidate])
+
+  // 斷線失敗後，網路一回來就自己再試，不用等使用者想到要按重試。
+  useEffect(() => {
+    if (!error) return
+    window.addEventListener('online', revalidate)
+    return () => window.removeEventListener('online', revalidate)
+  }, [error, revalidate])
 
   const doc = snapshot?.document ?? null
   const rows = useMemo(() => metaClassRows(doc), [doc])
   const matchup = useMemo(() => metaMatchup(doc, myClass), [doc, myClass])
   const advantage = useMemo(() => metaFirstTurnAdvantage(doc), [doc])
+
+  /**
+   * 換了區間、新的那份還在路上：畫面上的是上一個區間的數字，按鈕卻已經寫著
+   * 新的。不清掉（清掉就是整頁閃回骨架），而是淡下去，讓人一眼看出「這些數字
+   * 還不是你剛選的」。單純按重新整理時區間沒變，畫面上的仍是對的，只轉按鈕。
+   */
+  const switching = loading && snapshot !== null && snapshotDays !== days
+  const staleSx = { opacity: switching ? 0.45 : 1, transition: motion(['opacity'], 'base') }
 
   const hasData = (doc?.cells.length ?? 0) > 0
   const showSkeleton = loading && !snapshot
@@ -378,19 +505,24 @@ export default function MetaPage(): React.JSX.Element {
           */}
           <Box display="flex" alignItems="center" gap={0.75}>
             {/* 還沒有文件時不寫「0 位使用者・0 場」：那讀起來是一個結論（沒有人用），
-                而實際上只是還沒拿到。 */}
-            {doc ? (
-              <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85 }} noWrap>
-                {doc.installs.toLocaleString()} 位使用者 ・ {doc.matches.toLocaleString()} 場 ・{' '}
-                {doc.window.days} 天
-              </Typography>
-            ) : loading ? (
-              <Skeleton variant="text" width={180} />
-            ) : (
-              <Typography variant="body2" sx={{ opacity: 0.55 }} noWrap>
-                尚未取得資料
-              </Typography>
-            )}
+                而實際上只是還沒拿到。
+                這一格留一個最小寬：骨架、「尚未取得資料」、真正的數字三者寬度都不同，
+                而它右邊就是統計區間的按鈕 - 不留的話資料一回來，那排按鈕會往旁邊
+                跳一截，剛好是使用者準備點下去的地方。 */}
+            <Box sx={{ minWidth: STATS_SLOT_WIDTH, ...staleSx }}>
+              {doc ? (
+                <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85 }} noWrap>
+                  {doc.installs.toLocaleString()} 位使用者 ・ {doc.matches.toLocaleString()} 場 ・{' '}
+                  {doc.window.days} 天
+                </Typography>
+              ) : loading ? (
+                <Skeleton variant="text" width={STATS_SLOT_WIDTH} />
+              ) : (
+                <Typography variant="body2" sx={{ opacity: 0.55 }} noWrap>
+                  尚未取得資料
+                </Typography>
+              )}
+            </Box>
             {/*
               滑過去才給細節，不是點開。
 
@@ -558,8 +690,10 @@ export default function MetaPage(): React.JSX.Element {
           flexDirection: twoColumn ? 'row' : 'column',
           alignItems: 'stretch',
           gap: 1.5,
-          overflowY: twoColumn ? 'hidden' : 'auto'
+          overflowY: twoColumn ? 'hidden' : 'auto',
+          ...staleSx
         }}
+        aria-busy={loading}
       >
         {showSkeleton ? (
           <>

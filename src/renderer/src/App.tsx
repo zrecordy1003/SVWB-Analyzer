@@ -39,6 +39,7 @@ import About from './components/About/About'
 import SupportPrompt from './components/Common/SupportPrompt'
 import TelemetryPrompt from './components/Common/TelemetryPrompt'
 import { preloadableLazy } from './components/Common/preloadableLazy'
+import { prefetchMeta } from './components/Meta/metaPrefetch'
 import { EASE, MOTION } from './components/Common/motion'
 const Analyzer = preloadableLazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = preloadableLazy(() => import('./components/MatchList/MatchList'))
@@ -174,10 +175,15 @@ function App(): React.JSX.Element {
     if (mainRef.current) mainRef.current.scrollTop = scrollByPage.current.get(currentPage) ?? 0
   }, [currentPage])
   // 第一頁畫完、手上沒事的時候把其他頁的程式碼先抓好，第一次切過去就不會
-  // 看到轉圈。只抓程式碼，不掛元件，所以不會發出任何資料請求。
+  // 看到轉圈。只抓程式碼，不掛元件。
+  //
+  // 唯一的例外是環境數據：它的資料在網路另一頭，一趟來回比抓程式碼久得多，
+  // 所以也在這時候先抓（理由與界線見 `metaPrefetch.ts`）。其他頁的資料在本機，
+  // 進頁再讀就夠快了。
   useEffect(() => {
     const id = requestIdleCallback(() => {
       for (const page of [MatchList, DeckPerformance, Analyzer, MetaPage]) void page.preload()
+      void prefetchMeta()
     })
     return () => cancelIdleCallback(id)
   }, [])
