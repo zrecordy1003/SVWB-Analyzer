@@ -57,6 +57,17 @@ export function parseMetaPrefs(raw: Record<string, unknown> | null | undefined):
   return prefs
 }
 
+/**
+ * 沒存過職業的人，預設成最近一場打的職業（和分析器同一個規則）；一場都沒有才
+ * 落回頁面的預設。不寫回設定 - 頁面只在使用者動過選項以後才存。
+ */
+export async function withPlayedClass(prefs: MetaPrefs): Promise<MetaPrefs> {
+  if (prefs.myClass) return prefs
+  const latest = (await window.matches.fetchRecent(1, 'all').catch(() => null))?.[0]
+  const played = latest ? String(latest.my_class) : null
+  return isClassName(played) ? { ...prefs, myClass: played } : prefs
+}
+
 /** 預先載入的成果：讀到的偏好，與（抓得到的話）那個區間的資料。 */
 export type WarmMeta = { prefs: MetaPrefs; days: MetaWindowDays; snapshot: MetaSnapshot | null }
 
@@ -73,11 +84,15 @@ let inflight: Promise<void> | null = null
 export function prefetchMeta(): Promise<void> {
   inflight ??= (async () => {
     const raw = await window.settings.getAll().catch(() => null)
-    const prefs = parseMetaPrefs(raw as Record<string, unknown> | null)
-    const days = prefs.days ?? DEFAULT_META_DAYS
+    const saved = parseMetaPrefs(raw as Record<string, unknown> | null)
+    const days = saved.days ?? DEFAULT_META_DAYS
+    // 查最近一場和抓資料互不相干，一起送出去。
+    const [prefs, res] = await Promise.all([
+      withPlayedClass(saved),
+      invokeIpc('meta:fetch', { days, refresh: false })
+    ])
     // 先把偏好放好：資料抓失敗時，頁面至少不用再讀一次設定。
     warm = { prefs, days, snapshot: null }
-    const res = await invokeIpc('meta:fetch', { days, refresh: false })
     if (res.ok && warm) warm = { ...warm, snapshot: res.data }
   })().catch(() => {})
   return inflight

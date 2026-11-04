@@ -66,6 +66,7 @@ import {
   META_STALE_MS,
   isClassName,
   parseMetaPrefs,
+  withPlayedClass,
   settledPrefetch,
   takeWarmMeta,
   type ChartKind
@@ -349,9 +350,11 @@ export default function MetaPage(): React.JSX.Element {
       const pre = await settledPrefetch()
       const prefs =
         pre?.prefs ??
-        parseMetaPrefs(
-          (await window.settings.getAll().catch(() => null)) as Record<string, unknown> | null
-        )
+        (await withPlayedClass(
+          parseMetaPrefs(
+            (await window.settings.getAll().catch(() => null)) as Record<string, unknown> | null
+          )
+        ))
       if (!mounted) return
       if (prefs.days) setDays(prefs.days)
       if (prefs.myClass) setMyClass(prefs.myClass)

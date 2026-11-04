@@ -54,13 +54,14 @@ import {
   BAR_SX,
   DRAWER_SURFACE_SX,
   HAIRLINE_BOTTOM,
-  PANEL_SX,
   noteSx
 } from '@renderer/components/Common/surfaces'
 import type { ClassName } from '@shared/domain'
 import { useDecksTags, type DeckLite } from '@renderer/hooks/useDecksTags'
 import { invokeIpc } from '@renderer/ipc'
 import { motion } from '../Common/motion'
+import { TOOLTIP_SURFACE_SX } from '../Common/tooltipSurface'
+import { DROPDOWN_PAPER_SX } from '../Common/filters/dropdownSurface'
 
 /** BattleState 介面（來自事件） */
 interface BattleState {
@@ -947,9 +948,24 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                               placement="bottom-start"
                               arrow
                               describeChild
+                              // 和其他 tooltip 同一塊面板，只有框線帶錯誤色 - 實心的
+                              // 紅底在這張深色抽屜上比輸入框本身還搶眼。
                               slotProps={{
-                                tooltip: { sx: { bgcolor: 'error.dark', fontSize: 12 } },
-                                arrow: { sx: { color: 'error.dark' } }
+                                tooltip: {
+                                  sx: {
+                                    ...TOOLTIP_SURFACE_SX,
+                                    borderColor: 'error.main',
+                                    fontSize: 12,
+                                    px: 1.25,
+                                    py: 0.75
+                                  }
+                                },
+                                arrow: {
+                                  sx: {
+                                    color: 'background.paper',
+                                    '&::before': { border: '1px solid', borderColor: 'error.main' }
+                                  }
+                                }
                               }}
                             >
                               <InputBase
@@ -1046,7 +1062,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                                   transition: motion(['border-color'], 'fast')
                                 },
                                 '&:hover .deck-name, &:focus-visible .deck-name': {
-                                  borderColor: 'rgba(255,255,255,0.5)'
+                                  borderColor: 'text.secondary'
                                 },
                                 '&:hover .deck-pencil, &:focus-visible .deck-pencil': {
                                   color: 'primary.light'
@@ -1175,8 +1191,8 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                             ...(categoryOf(d)
                               ? {}
                               : {
-                                  color: 'rgba(255,255,255,0.42)',
-                                  borderColor: 'rgba(255,255,255,0.14)',
+                                  color: 'text.disabled',
+                                  borderColor: 'divider',
                                   fontWeight: 500
                                 }),
                             '&:hover': { borderColor: 'primary.main', color: 'text.primary' }
@@ -1213,7 +1229,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         sx={{ zIndex: 1600 }}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
         transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        slotProps={{ paper: { sx: { minWidth: 168, ...PANEL_SX, backgroundColor: '#242832' } } }}
+        slotProps={{ paper: { sx: { ...DROPDOWN_PAPER_SX, minWidth: 168 } } }}
       >
         {categoryMenu &&
           categories.map((cat) => (

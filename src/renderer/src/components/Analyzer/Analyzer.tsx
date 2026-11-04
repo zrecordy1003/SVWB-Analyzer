@@ -679,6 +679,7 @@ const Analyzer: React.FC = () => {
       {prunedDeckCount > 0 && (
         <Alert
           severity="info"
+          sx={noteSx('info')}
           data-testid="analyzer-deck-filter-pruned"
           onClose={() => setPrunedDeckCount(0)}
         >

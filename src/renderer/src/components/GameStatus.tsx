@@ -11,6 +11,7 @@ import HourglassTopRoundedIcon from '@mui/icons-material/HourglassTopRounded'
 import PauseCircleOutlineRoundedIcon from '@mui/icons-material/PauseCircleOutlineRounded'
 import AspectRatioRoundedIcon from '@mui/icons-material/AspectRatioRounded'
 
+import { motion } from './Common/motion'
 import { TOOLTIP_SURFACE_SX } from './Common/tooltipSurface'
 import { captureStateOf, type CaptureKind } from './captureState'
 
@@ -42,6 +43,12 @@ const BADGES: Record<Exclude<CaptureKind, 'loading'>, { icon: SvgIconComponent; 
   watching: { icon: SportsEsportsIcon, color: 'success.main' }
 }
 
+/**
+ * One fixed box for every state, spinner included, so swapping between them
+ * never moves the sidebar items below by a pixel or two.
+ */
+const BADGE_SIZE = 24
+
 const GameStatus: React.FC<Props> = () => {
   const state = captureStateOf(useSvwbStatus())
 
@@ -49,9 +56,21 @@ const GameStatus: React.FC<Props> = () => {
     // Spinner only: text beside it did not fit the 92px column and was clipped
     // mid-word. The tooltip says what the spinner is for.
     return (
-      <Tooltip title={state.detail} placement="right">
-        <Box display="flex" justifyContent="center" alignItems="center" role="status">
-          <CircularProgress size={20} />
+      <Tooltip
+        title={state.detail}
+        placement="right"
+        slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
+      >
+        <Box
+          width="100%"
+          height={BADGE_SIZE}
+          display="flex"
+          justifyContent="center"
+          alignItems="center"
+          role="status"
+          aria-label={state.detail}
+        >
+          <CircularProgress size={18} thickness={4.5} />
         </Box>
       </Tooltip>
     )
@@ -66,13 +85,14 @@ const GameStatus: React.FC<Props> = () => {
     >
       <Box
         width="100%"
+        height={BADGE_SIZE}
         display="flex"
         alignItems="center"
         justifyContent="center"
         role="img"
         aria-label={state.label}
       >
-        <Icon sx={{ color }} />
+        <Icon sx={{ color, transition: motion(['color'], 'base') }} />
       </Box>
     </Tooltip>
   )
