@@ -115,7 +115,14 @@ const ADVANCED_FILTER_ICONS: Record<AdvancedFilterKey, SvgIconComponent> = {
 /** Every toolbar control is pinned to one height; mixed 32/40px reads as a bug. */
 const TOOLBAR_CONTROL_HEIGHT = 36
 
-/** Long enough to swallow a burst of clicks, short enough to feel immediate. */
+/**
+ * The window in which further filter changes are folded into one query.
+ *
+ * Leading-edge: a change that arrives after a quiet spell queries at once, and
+ * only changes that follow it within this window wait for the burst to end.
+ * It used to delay every change by the full window, so a single click on 50 場
+ * waited 180ms before asking for an answer that takes about 2ms to compute.
+ */
 const QUERY_DEBOUNCE_MS = 180
 /**
  * 查詢要拖過這麼久，圖才壓淡表示「更新中」。大多數查詢在這之前就回來了，
@@ -188,6 +195,8 @@ const Analyzer: React.FC = () => {
   const persistedRef = useRef<AnalyzerFilters | null>(null)
   /** Guards against out-of-order responses when filters change quickly. */
   const requestIdRef = useRef(0)
+  /** When the last query went out, for the leading-edge debounce below. */
+  const lastQueryAtRef = useRef(-Infinity)
   /** Read by the long-lived `needRefetch` subscription. */
   const filtersRef = useRef(filters)
   const prevClassRef = useRef<ClassName | null>(null)
@@ -347,7 +356,15 @@ const Analyzer: React.FC = () => {
     // A deck pick resolves against the deck list; before that list has arrived
     // it would resolve to nothing, and nothing means "every deck".
     if (decksLoading && !isEmptyDeckSelection(filters.decks)) return
-    const handle = setTimeout(() => void runQuery(filters), QUERY_DEBOUNCE_MS)
+    const run = (): void => {
+      lastQueryAtRef.current = performance.now()
+      void runQuery(filters)
+    }
+    if (performance.now() - lastQueryAtRef.current >= QUERY_DEBOUNCE_MS) {
+      run()
+      return
+    }
+    const handle = setTimeout(run, QUERY_DEBOUNCE_MS)
     return () => clearTimeout(handle)
   }, [decksLoading, deckFamilies, filters, runQuery])
 
