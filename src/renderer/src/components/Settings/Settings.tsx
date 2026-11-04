@@ -7,7 +7,7 @@ import TelemetrySettings from './TelemetrySettings'
 import SyncSettings from './SyncSettings'
 import ClearDataSettings from './ClearDataSettings'
 import BackupSettings from './BackupSettings'
-import { SETTINGS_WIDTH, SettingRow, SettingsSection, SwitchRow } from './SettingsLayout'
+import { PAGE_COLUMN_WIDTH, SectionRow, Section, SwitchRow } from '../Common/SectionLayout'
 import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
 /**
@@ -111,7 +111,7 @@ const Settings: React.FC = () => {
     <Box
       sx={{
         width: '100%',
-        maxWidth: SETTINGS_WIDTH,
+        maxWidth: PAGE_COLUMN_WIDTH,
         mx: 'auto',
         display: 'flex',
         flexDirection: 'column',
@@ -123,7 +123,7 @@ const Settings: React.FC = () => {
           commented out; see git history. 開機時自動啟動 needs `sendIpc` with
           'settings:startOnBoot' when it comes back (main/ipc/settings.ts). */}
 
-      <SettingsSection title="一般">
+      <Section title="一般">
         <SwitchRow
           title="只在遊戲畫面聚焦時顯示 HUD"
           checked={s.hudFollowGame}
@@ -147,7 +147,7 @@ const Settings: React.FC = () => {
           onChange={(checked) => handleChange('askBeforeExit', checked)}
         />
         {!s.askBeforeExit && (
-          <SettingRow
+          <SectionRow
             title="關閉視窗時"
             control={
               <RadioGroup
@@ -172,15 +172,15 @@ const Settings: React.FC = () => {
             }
           />
         )}
-      </SettingsSection>
+      </Section>
 
       {/* The switch lives inside TelemetrySettings and goes through
           `window.telemetry.setEnabled`, not `handleChange`: main owns the upload
           timers and has to hear about the change, and the generic settings
           bridge tells it nothing. */}
-      <SettingsSection title="數據統計">
+      <Section title="數據統計">
         <TelemetrySettings />
-      </SettingsSection>
+      </Section>
 
       {/* Brings its own section, and renders nothing in a build without a
           Google client. */}
@@ -189,7 +189,7 @@ const Settings: React.FC = () => {
       {/* 「資料來源」 and 「卡片語言」 sections were removed on purpose: see
           `main/data/provenance.ts`; `cardLang` still defaults to 'cht'. */}
 
-      <SettingsSection title="更新">
+      <Section title="更新">
         <UpdateSettings />
         {/* Not mounted until the saved values are in, so the switches appear
             in their real state instead of sliding there from the defaults. */}
@@ -208,21 +208,21 @@ const Settings: React.FC = () => {
             onChange={(checked) => handleChange('autoDownloadUpdates', checked)}
           />
         )}
-      </SettingsSection>
+      </Section>
 
-      <SettingsSection title="辨識診斷">
+      <Section title="辨識診斷">
         <DiagnosticsSettings
           enabled={s.diagnostics}
           onToggle={(checked) => handleChange('diagnostics', checked)}
         />
-      </SettingsSection>
+      </Section>
 
       {/* Last on the page: the one section here that removes the user's records,
           kept apart from 辨識診斷's log-clearing button. */}
-      <SettingsSection title="資料管理">
+      <Section title="資料管理">
         <ClearDataSettings onCleared={bumpData} />
         <BackupSettings dataVersion={dataVersion} onDataChanged={bumpData} />
-      </SettingsSection>
+      </Section>
 
       <Box component={'footer'} sx={{ mt: 4, px: 0.5 }}>
         <Disclaimer />

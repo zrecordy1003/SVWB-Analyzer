@@ -1,12 +1,15 @@
 import { Box, Paper, Typography } from '@mui/material'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import React from 'react'
-import { PANEL_SX } from '../Common/surfaces'
-import IOSSwitch from '../Common/IOSSwitch'
+import { PANEL_SX } from './surfaces'
+import IOSSwitch from './IOSSwitch'
 
 /**
- * The settings page's building blocks, in the layout current desktop apps use:
- * a small section label, then one card of rows, each row a name (with an
- * optional one-line explanation) on the left and its control on the right.
+ * The building blocks of the app's text pages (設定, 關於), in the layout current
+ * desktop apps use: a small section label, then one card of rows, each row a
+ * name (with an optional one-line explanation) on the left and its control on
+ * the right. Shared rather than copied per page, so the two pages cannot drift
+ * into two slightly different row heights, separators and type sizes.
  *
  * The page used to be headings and loose switches with their labels trailing
  * after them, so every control sat at a different x and nothing told you where
@@ -14,10 +17,10 @@ import IOSSwitch from '../Common/IOSSwitch'
  * draws the group.
  */
 
-/** Max width of the settings column; rows wider than this are hard to scan across. */
-export const SETTINGS_WIDTH = 720
+/** Max width of a text page's column; rows wider than this are hard to scan across. */
+export const PAGE_COLUMN_WIDTH = 720
 
-export const SettingsSection: React.FC<{ title: string; children: React.ReactNode }> = ({
+export const Section: React.FC<{ title: string; children: React.ReactNode }> = ({
   title,
   children
 }) => (
@@ -37,7 +40,9 @@ export const SettingsSection: React.FC<{ title: string; children: React.ReactNod
         // Rows are separated here rather than by a `Divider` in every caller, so
         // a section whose rows come and go (a child that renders null) never
         // shows a doubled or dangling line.
-        '& > * + *': { borderTop: '1px solid rgba(255,255,255,0.06)' }
+        // `&&` so it outranks a row's own reset - `LinkRow`'s `all: unset`
+        // would otherwise wipe the separator off every link row.
+        '&& > * + *': { borderTop: '1px solid rgba(255,255,255,0.06)' }
       }}
     >
       {children}
@@ -45,7 +50,7 @@ export const SettingsSection: React.FC<{ title: string; children: React.ReactNod
   </Box>
 )
 
-export const SettingRow: React.FC<{
+export const SectionRow: React.FC<{
   title: React.ReactNode
   /** One line under the title. Longer explanations belong in an `InfoHint`. */
   description?: React.ReactNode
@@ -95,7 +100,7 @@ export const SwitchRow: React.FC<{
   disabled?: boolean
   onChange: (checked: boolean) => void
 }> = ({ title, description, adornment, checked, disabled, onChange }) => (
-  <SettingRow
+  <SectionRow
     asLabel
     title={title}
     description={description}
@@ -111,4 +116,36 @@ export const SwitchRow: React.FC<{
       />
     }
   />
+)
+
+/**
+ * A whole row that opens a page in the browser. The arrow is the control, and
+ * says the click leaves the app.
+ */
+export const LinkRow: React.FC<{
+  title: string
+  description?: React.ReactNode
+  onOpen: () => void
+}> = ({ title, description, onOpen }) => (
+  <Box
+    component="button"
+    type="button"
+    onClick={onOpen}
+    sx={{
+      all: 'unset',
+      boxSizing: 'border-box',
+      display: 'block',
+      width: '100%',
+      cursor: 'pointer',
+      transition: 'background-color 120ms',
+      '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
+      '&:focus-visible': { boxShadow: 'inset 0 0 0 2px rgba(144,202,249,0.6)' }
+    }}
+  >
+    <SectionRow
+      title={title}
+      description={description}
+      control={<OpenInNewIcon sx={{ fontSize: 16, color: 'text.secondary' }} />}
+    />
+  </Box>
 )

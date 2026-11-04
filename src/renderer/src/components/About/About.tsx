@@ -10,33 +10,40 @@
  * help (paying, and reporting problems), and three checkable commitments - the
  * features stay free, the payment never passes through this app, and what the
  * money is for.
+ *
+ * Built only from shared pieces - `SectionLayout`'s sections and rows and
+ * `SoftButton` - so it reads as the same app as 設定, not as a page of its own.
  */
-import { Box, Button, Paper, Typography } from '@mui/material'
-import OpenInNewIcon from '@mui/icons-material/OpenInNew'
-import LocalCafeOutlinedIcon from '@mui/icons-material/LocalCafeOutlined'
+import { Box, Typography } from '@mui/material'
+import CodeRoundedIcon from '@mui/icons-material/CodeRounded'
 import BugReportOutlinedIcon from '@mui/icons-material/BugReportOutlined'
+import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
+import LocalCafeOutlinedIcon from '@mui/icons-material/LocalCafeOutlined'
+import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import React from 'react'
 
+import SoftButton from '@renderer/components/Common/SoftButton'
+import {
+  LinkRow,
+  PAGE_COLUMN_WIDTH,
+  Section,
+  SectionRow
+} from '@renderer/components/Common/SectionLayout'
 import { useUpdateStatus } from '@renderer/components/Update/updateContext'
-import { PANEL_SX } from '@renderer/components/Common/surfaces'
 import { PRIMARY_SUPPORT_LINK, supportUrl } from '@shared/support'
 
 const REPOSITORY_URL = 'https://github.com/zrecordy1003/SVWB-Analyzer'
+const ISSUES_URL = `${REPOSITORY_URL}/issues`
 const CYGAMES_GUIDELINES_URL = 'https://shadowverse-wb.com/en/guideline/'
-
-/** Same column as 設定, so the two text-heavy pages line up. */
-const PAGE_WIDTH = 720
 
 const open = (url: string): void => window.electronAPI.openLink(url)
 
-const SECTION_LABEL_SX = {
-  fontSize: 13,
-  fontWeight: 600,
-  color: 'text.secondary',
-  px: 0.5,
-  letterSpacing: 0.2
-} as const
+// `HEAD` rather than a branch name: these once pointed at `main`, which this
+// repository does not have. HEAD resolves to the default branch and survives a
+// rename.
+const repoFile = (path: string): string => `${REPOSITORY_URL}/blob/HEAD/${path}`
 
 /** Commitments, stated where the button is - each one is checkable. */
 const PROMISES = [
@@ -50,8 +57,8 @@ const SupportTile: React.FC<{
   icon: React.ReactNode
   title: string
   description: string
-  action: React.ReactNode
-}> = ({ icon, title, description, action }) => (
+  actions: React.ReactNode
+}> = ({ icon, title, description, actions }) => (
   <Box
     sx={{
       display: 'flex',
@@ -70,79 +77,7 @@ const SupportTile: React.FC<{
     <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6, flex: 1 }}>
       {description}
     </Typography>
-    <Box>{action}</Box>
-  </Box>
-)
-
-// `HEAD` rather than a branch name: these once pointed at `main`, which this
-// repository does not have. HEAD resolves to the default branch and survives a
-// rename.
-const repoFile = (path: string): string => `${REPOSITORY_URL}/blob/HEAD/${path}`
-
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <Box component="section" sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-    <Typography component="h2" sx={SECTION_LABEL_SX}>
-      {title}
-    </Typography>
-    <Paper
-      elevation={0}
-      sx={{
-        ...PANEL_SX,
-        borderRadius: '12px',
-        overflow: 'hidden',
-        // `&&` outranks the `all: unset` on a LinkRow's button, which would
-        // otherwise wipe this separator off every link row.
-        '&& > * + *': { borderTop: '1px solid rgba(255,255,255,0.06)' }
-      }}
-    >
-      {children}
-    </Paper>
-  </Box>
-)
-
-const Row: React.FC<{
-  title: string
-  description?: React.ReactNode
-  control?: React.ReactNode
-}> = ({ title, description, control }) => (
-  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, px: 2, py: 1.5, minHeight: 56 }}>
-    <Box sx={{ flex: 1, minWidth: 0 }}>
-      <Typography sx={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4 }}>{title}</Typography>
-      {description && (
-        <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.55, mt: 0.25 }}>
-          {description}
-        </Typography>
-      )}
-    </Box>
-    {control && <Box sx={{ flexShrink: 0 }}>{control}</Box>}
-  </Box>
-)
-
-/** A whole row that opens a page in the browser; the arrow says it leaves the app. */
-const LinkRow: React.FC<{ title: string; description: string; url: string }> = ({
-  title,
-  description,
-  url
-}) => (
-  <Box
-    component="button"
-    type="button"
-    onClick={() => open(url)}
-    sx={{
-      all: 'unset',
-      boxSizing: 'border-box',
-      width: '100%',
-      cursor: 'pointer',
-      display: 'block',
-      '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
-      '&:focus-visible': { boxShadow: 'inset 0 0 0 2px rgba(144,202,249,0.6)' }
-    }}
-  >
-    <Row
-      title={title}
-      description={description}
-      control={<OpenInNewIcon sx={{ fontSize: 16, color: 'text.secondary', display: 'block' }} />}
-    />
+    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>{actions}</Box>
   </Box>
 )
 
@@ -153,7 +88,7 @@ const About = (): React.JSX.Element => {
     <Box
       sx={{
         width: '100%',
-        maxWidth: PAGE_WIDTH,
+        maxWidth: PAGE_COLUMN_WIDTH,
         mx: 'auto',
         display: 'flex',
         flexDirection: 'column',
@@ -176,30 +111,26 @@ const About = (): React.JSX.Element => {
           的對局紀錄工具。在你的電腦上讀取遊戲畫面，自動記下每一場對局，整理成戰績與對位勝率。
         </Typography>
         <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
-          <Button size="small" variant="outlined" onClick={() => open(REPOSITORY_URL)}>
+          <SoftButton startIcon={<CodeRoundedIcon />} onClick={() => open(REPOSITORY_URL)}>
             原始碼
-          </Button>
-          <Button size="small" variant="outlined" onClick={() => open(`${REPOSITORY_URL}/issues`)}>
+          </SoftButton>
+          <SoftButton startIcon={<BugReportOutlinedIcon />} onClick={() => open(ISSUES_URL)}>
             回報問題
-          </Button>
-          <Button
-            size="small"
-            variant="outlined"
+          </SoftButton>
+          <SoftButton
+            startIcon={<HistoryRoundedIcon />}
             onClick={() => open(`${REPOSITORY_URL}/releases`)}
           >
             更新紀錄
-          </Button>
+          </SoftButton>
         </Box>
       </Box>
 
       {/* ---------- 支持開發 ---------- */}
       {/* 兩條路並排、一樣大：付錢和回報問題對這個專案一樣有用，而只給「付錢」
           一條路的支持說明，讀起來就是在要錢。底下三條是承諾，不是行銷。 */}
-      <Box component="section" sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <Typography component="h2" sx={SECTION_LABEL_SX}>
-          支持開發
-        </Typography>
-        <Paper elevation={0} sx={{ ...PANEL_SX, borderRadius: '12px', p: 2.5 }}>
+      <Section title="支持開發">
+        <Box sx={{ p: 2.5 }}>
           <Typography sx={{ fontSize: 14, lineHeight: 1.7 }}>
             SVWB Analyzer
             由個人開發與維護。如果它幫你省下了記錄和整理的時間，可以用下面任一種方式支持它繼續更新。
@@ -217,35 +148,38 @@ const About = (): React.JSX.Element => {
               icon={<LocalCafeOutlinedIcon fontSize="small" />}
               title="贊助開發"
               description={`透過歐付寶，金額由你決定。${PRIMARY_SUPPORT_LINK.note}。`}
-              action={
-                <Button
-                  size="small"
-                  variant="contained"
-                  disableElevation
-                  endIcon={<OpenInNewIcon sx={{ fontSize: 16 }} />}
+              actions={
+                // `primary` but `soft`: the one accent on the page, still the
+                // same quiet button as everywhere else. `solid` is kept for the
+                // button that commits a dialog.
+                <SoftButton
+                  tone="primary"
+                  startIcon={<OpenInNewIcon />}
                   onClick={() => open(supportUrl(PRIMARY_SUPPORT_LINK, 'about'))}
                 >
                   前往歐付寶
-                </Button>
+                </SoftButton>
               }
             />
             <SupportTile
               icon={<BugReportOutlinedIcon fontSize="small" />}
               title="回報與建議"
               description="回報辨識錯誤、提出想要的功能，或在 GitHub 給個星星，都是很實在的幫助。"
-              action={
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => open(`${REPOSITORY_URL}/issues`)}
+              actions={
+                <>
+                  <SoftButton
+                    startIcon={<BugReportOutlinedIcon />}
+                    onClick={() => open(ISSUES_URL)}
                   >
                     回報問題
-                  </Button>
-                  <Button size="small" onClick={() => open(REPOSITORY_URL)}>
+                  </SoftButton>
+                  <SoftButton
+                    startIcon={<StarBorderRoundedIcon />}
+                    onClick={() => open(REPOSITORY_URL)}
+                  >
                     GitHub
-                  </Button>
-                </Box>
+                  </SoftButton>
+                </>
               }
             />
           </Box>
@@ -267,16 +201,16 @@ const About = (): React.JSX.Element => {
               </Box>
             ))}
           </Box>
-        </Paper>
-      </Box>
+        </Box>
+      </Section>
 
       {/* ---------- 使用界線 ---------- */}
       <Section title="使用界線">
-        <Row
+        <SectionRow
           title="只看畫面，不碰遊戲"
           description="只分析本機擷取的遊戲畫面。不與遊戲互動、不自動操作，也不讀取遊戲記憶體。"
         />
-        <Row
+        <SectionRow
           title="資料存在你的電腦上"
           description="對局紀錄存在本機。「設定 → 數據統計」會上傳整天合併過、不含任何個人資訊的對局計數，可以隨時關閉。"
         />
@@ -287,22 +221,22 @@ const About = (): React.JSX.Element => {
         <LinkRow
           title="授權條款"
           description="原創程式碼採 Apache License 2.0；不涵蓋 Cygames 素材、遊戲衍生範本與第三方套件。"
-          url={repoFile('LICENSE')}
+          onOpen={() => open(repoFile('LICENSE'))}
         />
         <LinkRow
           title="第三方聲明"
           description="使用的第三方套件與必要聲明。"
-          url={repoFile('NOTICE')}
+          onOpen={() => open(repoFile('NOTICE'))}
         />
         <LinkRow
           title="素材政策"
           description="遊戲素材的來源與使用範圍。"
-          url={repoFile('ASSETS_POLICY.md')}
+          onOpen={() => open(repoFile('ASSETS_POLICY.md'))}
         />
         <LinkRow
           title="Cygames 內容使用指引"
           description="Shadowverse: Worlds Beyond 官方的二次創作與素材使用規範。"
-          url={CYGAMES_GUIDELINES_URL}
+          onOpen={() => open(CYGAMES_GUIDELINES_URL)}
         />
       </Section>
 

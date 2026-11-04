@@ -2,7 +2,7 @@ import { Box } from '@mui/material'
 import React, { useCallback, useEffect, useState } from 'react'
 import type { TelemetryStatus } from '@shared/telemetry'
 import InfoHint from '@renderer/components/Common/InfoHint'
-import { SwitchRow } from './SettingsLayout'
+import { SwitchRow } from '../Common/SectionLayout'
 
 /**
  * The switch for anonymous usage statistics.

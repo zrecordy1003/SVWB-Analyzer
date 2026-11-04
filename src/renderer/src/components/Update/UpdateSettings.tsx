@@ -7,7 +7,7 @@ import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import type { UpdateProgress, UpdateSummary } from '@shared/updates'
 import UpdateDialog, { type UpdatePhase } from './UpdateDialog'
 import SoftButton from '../Common/SoftButton'
-import { SettingRow } from '../Settings/SettingsLayout'
+import { SectionRow } from '../Common/SectionLayout'
 
 const UpdateSettings: React.FC = () => {
   const [phase, setPhase] = useState<UpdatePhase>('available')
@@ -111,7 +111,7 @@ const UpdateSettings: React.FC = () => {
 
   return (
     <>
-      <SettingRow
+      <SectionRow
         title="版本"
         description={
           upToDate ? (

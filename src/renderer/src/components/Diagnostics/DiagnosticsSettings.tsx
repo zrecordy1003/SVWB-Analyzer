@@ -4,7 +4,7 @@ import IosShareIcon from '@mui/icons-material/IosShare'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import React, { useCallback, useEffect, useState } from 'react'
 import InfoHint from '@renderer/components/Common/InfoHint'
-import { SettingRow, SwitchRow } from '../Settings/SettingsLayout'
+import { SectionRow, SwitchRow } from '../Common/SectionLayout'
 import SoftButton from '../Common/SoftButton'
 
 type Summary = {
@@ -119,7 +119,7 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
           />
         }
       />
-      <SettingRow
+      <SectionRow
         title="診斷包"
         description={statusLine}
         control={

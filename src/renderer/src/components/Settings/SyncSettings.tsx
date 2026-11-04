@@ -14,7 +14,7 @@ import {
 import React, { useCallback, useEffect, useState } from 'react'
 import type { SyncAccountInfo, SyncDevice, SyncFirstChoice, SyncStatus } from '@shared/sync'
 import IOSSwitch from '../Common/IOSSwitch'
-import { SettingsSection } from './SettingsLayout'
+import { Section } from '../Common/SectionLayout'
 
 /**
  * Cross-device sync: sign in with Google, turn it on, see how it went.
@@ -135,7 +135,7 @@ const SyncSettings: React.FC<{ dataVersion: number; onDataChanged(): void }> = (
   })()
 
   return (
-    <SettingsSection title="跨裝置同步">
+    <Section title="跨裝置同步">
       <Box>
         <Box display="flex" flexDirection="column" gap={1.5} sx={{ px: 2, py: 1.75 }}>
           {!status.signedIn ? (
@@ -300,7 +300,7 @@ const SyncSettings: React.FC<{ dataVersion: number; onDataChanged(): void }> = (
           </Dialog>
         </Box>
       </Box>
-    </SettingsSection>
+    </Section>
   )
 }
 
