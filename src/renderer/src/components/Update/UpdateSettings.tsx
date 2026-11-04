@@ -1,12 +1,13 @@
 /* UpdateSettings.tsx - 設定頁的「檢查更新」，回報使用者問到的每一種結果。 */
 
 import React, { useEffect, useRef, useState } from 'react'
-import { CircularProgress, Stack, Typography } from '@mui/material'
+import { Box, CircularProgress } from '@mui/material'
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded'
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import type { UpdateProgress, UpdateSummary } from '@shared/updates'
 import UpdateDialog, { type UpdatePhase } from './UpdateDialog'
 import SoftButton from '../Common/SoftButton'
+import { SettingRow } from '../Settings/SettingsLayout'
 
 const UpdateSettings: React.FC = () => {
   const [phase, setPhase] = useState<UpdatePhase>('available')
@@ -110,35 +111,34 @@ const UpdateSettings: React.FC = () => {
 
   return (
     <>
-      <Stack direction="row" alignItems="center" spacing={1.5}>
-        {/*
-          A pill with a translucent fill instead of MUI's outlined default: on a
-          dark surface a 1px outline reads as a disabled control, and this button
-          sits in a column of settings rows where it has to look pressable
-          without shouting louder than the update dialog's primary action.
-        */}
-        <SoftButton
-          onClick={onCheck}
-          disabled={checking}
-          startIcon={
-            checking ? (
-              <CircularProgress size={15} thickness={5} color="inherit" />
-            ) : (
-              <RefreshRoundedIcon />
-            )
-          }
-        >
-          {checking ? '檢查中…' : '檢查更新'}
-        </SoftButton>
-        {upToDate && (
-          <Stack direction="row" spacing={0.5} alignItems="center">
-            <CheckCircleRoundedIcon fontSize="small" color="success" />
-            <Typography variant="caption" color="text.secondary">
+      <SettingRow
+        title="版本"
+        description={
+          upToDate ? (
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+              <CheckCircleRoundedIcon sx={{ fontSize: 14, color: 'success.main' }} />
               已是最新版本（v{appVersion}）
-            </Typography>
-          </Stack>
-        )}
-      </Stack>
+            </Box>
+          ) : (
+            `目前版本 v${appVersion}`
+          )
+        }
+        control={
+          <SoftButton
+            onClick={onCheck}
+            disabled={checking}
+            startIcon={
+              checking ? (
+                <CircularProgress size={15} thickness={5} color="inherit" />
+              ) : (
+                <RefreshRoundedIcon />
+              )
+            }
+          >
+            {checking ? '檢查中…' : '檢查更新'}
+          </SoftButton>
+        }
+      />
 
       <UpdateDialog
         open={open}

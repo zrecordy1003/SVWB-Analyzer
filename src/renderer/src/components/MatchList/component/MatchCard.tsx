@@ -5,10 +5,9 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import NotesIcon from '@mui/icons-material/Notes'
 
-import { classesMap, isDecklessMode } from '@renderer/map/classMap'
+import { classesMap, isDecklessMode, modesMap } from '@renderer/map/classMap'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
-import ModeLabel from '@renderer/components/Common/ModeLabel'
-import PlayOrderMark from '@renderer/components/Common/PlayOrderMark'
+import { playOrderOf } from '@renderer/map/playOrder'
 import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
 import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
 import { toPngDataUrl } from '@renderer/utils/pngDataUrl'
@@ -154,6 +153,55 @@ const OpponentNameplate: React.FC<{ crop: Uint8Array | null }> = ({ crop }) => {
 }
 
 /**
+ * Play order and mode, said quietly.
+ *
+ * The shared `PlayOrderMark` / `ModeLabel` are built for the HUD, where they sit
+ * over the game and have to shout: a solid pill, an 850-weight word with a glow.
+ * In a list of dozens of cards that is dozens of pills and glows competing with
+ * the result and the matchup, which are what the list is for. Here the tone
+ * shrinks to a dot and the word goes to the secondary text colour.
+ */
+const ToneDot: React.FC<{ color: string }> = ({ color }) => (
+  <Box
+    component="span"
+    sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: color, flexShrink: 0 }}
+  />
+)
+
+const QuietPlayOrder: React.FC<{ order: string | null | undefined }> = ({ order }) => {
+  const tone = playOrderOf(order)
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+      <ToneDot color={tone.color} />
+      <Typography component="span" sx={{ fontSize: 12, fontWeight: 500, color: 'text.secondary' }}>
+        {tone.label}
+      </Typography>
+    </Box>
+  )
+}
+
+const QuietMode: React.FC<{ mode: string | null | undefined }> = ({ mode }) => {
+  const option = mode ? modesMap[mode] : undefined
+  return (
+    <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+      {option && <ToneDot color={option.tone} />}
+      <Typography
+        component="span"
+        noWrap
+        sx={{
+          fontSize: 12.5,
+          fontWeight: 500,
+          color: option ? 'text.secondary' : 'text.disabled',
+          fontStyle: option ? undefined : 'italic'
+        }}
+      >
+        {option?.label ?? '未記錄'}
+      </Typography>
+    </Box>
+  )
+}
+
+/**
  * One side of the matchup as a stacked pair: the class carries the colour and
  * the weight, the deck sits underneath it as context. Keeping the deck out of
  * the meta row stops it competing with the mode and the timings for the same
@@ -195,13 +243,15 @@ const Side: React.FC<{
         overflow: 'hidden'
       }}
     >
+      {/* The emblem carries the class colour; the name stays in the text
+          colour, so a column of cards is not a column of seven hues. */}
       <Typography
-        fontWeight={800}
+        fontWeight={600}
         noWrap
         sx={{
-          fontSize: 15,
+          fontSize: 14.5,
           lineHeight: 1.35,
-          color: classesMap[className]?.color,
+          color: 'text.primary',
           maxWidth: '100%'
         }}
       >
@@ -242,12 +292,6 @@ const MatchCard: React.FC<Props> = ({
   const isWin = m.result === true
   const resultLabel = m.result == null ? '未定' : isWin ? '勝利' : '敗北'
   const resultColor = m.result == null ? '#7d8490' : isWin ? '#69d8a8' : '#f0829a'
-  const resultBackground =
-    m.result == null
-      ? 'rgba(125, 132, 144, 0.16)'
-      : isWin
-        ? 'rgba(105, 216, 168, 0.16)'
-        : 'rgba(240, 130, 154, 0.16)'
 
   const visibleTags = m.tags.slice(0, VISIBLE_TAGS)
   const hiddenTagCount = m.tags.length - visibleTags.length
@@ -275,11 +319,15 @@ const MatchCard: React.FC<Props> = ({
       sx={{
         position: 'relative',
         overflow: 'hidden',
-        borderColor: 'rgba(255,255,255,0.1)',
-        transition: 'background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
+        borderRadius: '10px',
+        bgcolor: '#151a22',
+        borderColor: 'rgba(255,255,255,0.07)',
+        transition: 'background-color 150ms ease, border-color 150ms ease',
+        // Hover only lifts the surface a step; the result colour stays in the
+        // result column instead of outlining the whole card.
         '&:hover': {
-          borderColor: resultColor,
-          boxShadow: '0 10px 24px rgba(0,0,0,0.2)'
+          bgcolor: '#19202a',
+          borderColor: 'rgba(255,255,255,0.12)'
         },
         // Editing and deleting are deliberate acts, not things to scan for, so
         // they stay out of the card until the pointer or the keyboard arrives.
@@ -338,18 +386,33 @@ const MatchCard: React.FC<Props> = ({
 
       <CardContent sx={{ p: 0, height: MATCH_CARD_CONTENT_HEIGHT, '&:last-child': { pb: 0 } }}>
         <Box display="flex" height="100%">
+          {/* The result: a thin bar of its colour on the edge, and the word.
+              The bar is what you scan down the list; a full tinted slab said
+              the same thing at five times the area. */}
           <Box
             sx={{
-              width: 88,
+              width: 76,
               flexShrink: 0,
-              bgcolor: resultBackground,
+              position: 'relative',
               color: resultColor,
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center'
+              justifyContent: 'center',
+              background: `linear-gradient(90deg, ${resultColor}1f 0%, ${resultColor}00 100%)`,
+              '&::before': {
+                content: '""',
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 3,
+                bgcolor: resultColor
+              }
             }}
           >
-            <Typography variant="h5" fontWeight={800} lineHeight={1}>
+            <Typography
+              sx={{ fontSize: 17, fontWeight: 700, lineHeight: 1, letterSpacing: '0.04em' }}
+            >
               {resultLabel}
             </Typography>
           </Box>
@@ -369,7 +432,7 @@ const MatchCard: React.FC<Props> = ({
                 對手名牌接在同一列的最右邊：它跟先後攻一樣是「這一場是誰、怎麼
                 開的」，而且這一列本來就空著半條。 */}
             <Box display="flex" alignItems="center" height={18} gap={1} minWidth={0}>
-              <PlayOrderMark order={m.play_order} dense />
+              <QuietPlayOrder order={m.play_order} />
               <OpponentNameplate crop={m.oppo_name_crop} />
             </Box>
 
@@ -417,7 +480,7 @@ const MatchCard: React.FC<Props> = ({
                   很多（「2Pick」對「週末廣場賽」），跟著內容走的話後面整條 meta
                   列會隨每一列左右跳，而這條列是拿來往下掃的。 */}
               <Box sx={{ width: MODE_COLUMN_WIDTH, flexShrink: 0 }}>
-                <ModeLabel mode={m.mode} />
+                <QuietMode mode={m.mode} />
               </Box>
               <PlayedAtLabel playedAt={m.playedAt} />
               <Box

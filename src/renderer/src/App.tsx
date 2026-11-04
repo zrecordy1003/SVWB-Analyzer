@@ -210,17 +210,76 @@ function App(): React.JSX.Element {
 
     return createTheme({
       palette: {
-        mode: 'dark'
-        // primary: { main: '#1976d2' },
-        // secondary: { main: '#dc004e' }
+        mode: 'dark',
+        // A cool near-black instead of MUI's neutral #121212, matching the
+        // surface ramp in `Common/surfaces.ts` that dialogs and drawers use.
+        background: { default: '#0f1217', paper: '#161b23' },
+        divider: 'rgba(255,255,255,0.08)',
+        text: { secondary: 'rgba(255,255,255,0.62)' }
+      },
+      typography: {
+        // Segoe UI Variable for Latin and digits (it is what Windows 11 itself
+        // uses), JhengHei UI for CJK. MUI's default stack is Roboto-first, and
+        // with no Roboto installed every glyph fell to whatever Chrome picked.
+        fontFamily:
+          '"Segoe UI Variable Text", "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", sans-serif',
+        button: { textTransform: 'none', fontWeight: 500 }
       },
       components: {
+        // No ripple anywhere: the click feedback is each control's own hover
+        // and pressed state. Keyboard focus gets the ring below instead.
+        MuiButtonBase: { defaultProps: { disableRipple: true } },
+        MuiAppBar: {
+          defaultProps: { elevation: 0 },
+          styleOverrides: {
+            root: {
+              backgroundColor: 'rgba(15,18,23,0.82)',
+              backgroundImage: 'none',
+              backdropFilter: 'blur(12px)',
+              borderBottom: '1px solid rgba(255,255,255,0.06)'
+            }
+          }
+        },
+        MuiDrawer: {
+          styleOverrides: {
+            paper: {
+              backgroundColor: '#0f1217',
+              backgroundImage: 'none',
+              borderRight: '1px solid rgba(255,255,255,0.06)'
+            }
+          }
+        },
+        MuiTooltip: {
+          styleOverrides: {
+            tooltip: {
+              backgroundColor: '#262d3a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 6,
+              fontSize: 12,
+              padding: '6px 10px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.45)'
+            },
+            arrow: { color: '#262d3a' }
+          }
+        },
+        MuiPopover: {
+          styleOverrides: {
+            paper: {
+              backgroundColor: '#1b212c',
+              backgroundImage: 'none',
+              border: '1px solid rgba(255,255,255,0.08)',
+              boxShadow: '0 16px 40px rgba(0,0,0,0.55)'
+            }
+          }
+        },
         MuiCssBaseline: {
           styleOverrides: {
-            // Global background and text color transition
             body: {
-              fontFamily: '"Noto Sans TC", "Roboto", sans-serif',
-              transition: 'background-color 0.3s, color 0.3s'
+              WebkitFontSmoothing: 'antialiased'
+            },
+            '.MuiButtonBase-root.Mui-focusVisible': {
+              outline: '2px solid rgba(144,202,249,0.6)',
+              outlineOffset: 2
             },
             // Custom scrollbar styling with transition
             '*::-webkit-scrollbar': {
@@ -353,7 +412,7 @@ function App(): React.JSX.Element {
                     height: navMark.height,
                     transform: `translateY(${navMark.top}px)`,
                     borderRadius: 1.5,
-                    bgcolor: 'action.selected',
+                    bgcolor: 'rgba(144,202,249,0.1)',
                     pointerEvents: 'none',
                     transition: (t) =>
                       t.transitions.create(['transform', 'height'], {
@@ -389,6 +448,7 @@ function App(): React.JSX.Element {
                     '&.Mui-selected:hover': { bgcolor: 'action.hover' },
                     '&.Mui-focusVisible': {
                       bgcolor: 'transparent',
+                      outline: 'none',
                       boxShadow: 'inset 0 0 0 2px rgba(144,202,249,0.6)'
                     }
                   }}

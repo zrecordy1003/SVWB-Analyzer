@@ -1,8 +1,8 @@
-import { Box, FormControlLabel, Typography } from '@mui/material'
+import { Box } from '@mui/material'
 import React, { useCallback, useEffect, useState } from 'react'
 import type { TelemetryStatus } from '@shared/telemetry'
 import InfoHint from '@renderer/components/Common/InfoHint'
-import IOSSwitch from '../Common/IOSSwitch'
+import { SwitchRow } from './SettingsLayout'
 
 /**
  * The switch for anonymous usage statistics.
@@ -71,57 +71,44 @@ const TelemetrySettings: React.FC = () => {
   if (status === null) return null
 
   return (
-    <Box display="flex" flexDirection="column" gap={1.5}>
-      <FormControlLabel
-        control={
-          <IOSSwitch
-            checked={enabled}
-            disabled={busy || !configured}
-            onChange={(_, checked) => void handleToggle(checked)}
-          />
-        }
-        label={
-          <Box display="flex" alignItems="center" gap={0.5}>
-            <span>分享對局數據</span>
-            <InfoHint
-              title={
-                <Box display="flex" flexDirection="column" gap={0.75}>
-                  <span>開啟後定期上傳，內容只有這些，而且是整天合併過的計數：</span>
-                  {/*
-                    起手那一行在 1.4.0 曾經被拿掉，因為當時沒有在上傳它——
-                    文案是照計畫先寫的，而 schema 3 還沒做。現在做了，它回來了。
+    <SwitchRow
+      title="分享對局數據"
+      checked={enabled}
+      disabled={busy || !configured}
+      onChange={(checked) => void handleToggle(checked)}
+      description={!configured && '這個版本沒有設定統計伺服器，開關暫時無法使用。'}
+      adornment={
+        <InfoHint
+          title={
+            <Box display="flex" flexDirection="column" gap={0.75}>
+              <span>開啟後定期上傳，內容只有這些，而且是整天合併過的計數：</span>
+              {/*
+                起手那一行在 1.4.0 曾經被拿掉，因為當時沒有在上傳它——
+                文案是照計畫先寫的，而 schema 3 還沒做。現在做了，它回來了。
 
-                    這一行不是可選的。`docs/mulligan-advisor-plan.md` 記著：
-                    加卡片資料而不重新徵求同意，是專案擁有者判斷過的決定
-                    （「這本質上就是對局數據的一環」），而那個判斷成立的前提
-                    就是**說明要具體到讓人知道多了什麼**。拿掉這一行，
-                    那個決定就變成沒有交代。
-                  */}
-                  <Box component="ul" sx={{ m: 0, pl: 2.25 }}>
-                    <li>職業、對手職業、先攻或後攻、模式、分數段、勝負</li>
-                    <li>起手四張的卡號，以及各自有沒有被換掉</li>
-                  </Box>
-                  <span>
-                    不含帳號、暱稱、牌組名稱、對手名字或任何可以認出你的東西，也不會上傳
-                    單場紀錄——伺服器收到的是「這一天這種組合出現幾次」。
-                  </span>
-                  {enabled && <span>{lastUploadLine}</span>}
-                </Box>
-              }
-              label="說明：分享對局數據會上傳什麼"
-              size={18}
-              color="text.secondary"
-            />
-          </Box>
-        }
-      />
-
-      {!configured && (
-        <Typography variant="body2" color="warning.main">
-          這個版本沒有設定統計伺服器，開關暫時無法使用。
-        </Typography>
-      )}
-    </Box>
+                這一行不是可選的。`docs/mulligan-advisor-plan.md` 記著：
+                加卡片資料而不重新徵求同意，是專案擁有者判斷過的決定
+                （「這本質上就是對局數據的一環」），而那個判斷成立的前提
+                就是**說明要具體到讓人知道多了什麼**。拿掉這一行，
+                那個決定就變成沒有交代。
+              */}
+              <Box component="ul" sx={{ m: 0, pl: 2.25 }}>
+                <li>職業、對手職業、先攻或後攻、模式、分數段、勝負</li>
+                <li>起手四張的卡號，以及各自有沒有被換掉</li>
+              </Box>
+              <span>
+                不含帳號、暱稱、牌組名稱、對手名字或任何可以認出你的東西，也不會上傳
+                單場紀錄——伺服器收到的是「這一天這種組合出現幾次」。
+              </span>
+              {enabled && <span>{lastUploadLine}</span>}
+            </Box>
+          }
+          label="說明：分享對局數據會上傳什麼"
+          size={18}
+          color="text.secondary"
+        />
+      }
+    />
   )
 }
 

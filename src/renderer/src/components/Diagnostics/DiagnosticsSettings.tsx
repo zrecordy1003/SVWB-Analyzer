@@ -1,10 +1,10 @@
-import { Alert, Box, CircularProgress, FormControlLabel, Snackbar } from '@mui/material'
+import { Alert, Box, CircularProgress, Snackbar, Tooltip } from '@mui/material'
 import FolderOpenIcon from '@mui/icons-material/FolderOpen'
 import IosShareIcon from '@mui/icons-material/IosShare'
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep'
 import React, { useCallback, useEffect, useState } from 'react'
 import InfoHint from '@renderer/components/Common/InfoHint'
-import IOSSwitch from '../Common/IOSSwitch'
+import { SettingRow, SwitchRow } from '../Settings/SettingsLayout'
 import SoftButton from '../Common/SoftButton'
 
 type Summary = {
@@ -100,63 +100,76 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
     : '目前已關閉，不會記錄辨識異常（引擎啟動記錄仍會保留）。'
 
   return (
-    <Box display="flex" flexDirection="column" gap={1.5}>
-      <FormControlLabel
-        control={<IOSSwitch checked={enabled} onChange={(_, checked) => onToggle(checked)} />}
-        label={
-          <Box display="flex" alignItems="center" gap={0.5}>
-            <span>記錄辨識異常（僅存本機）</span>
-            <InfoHint
-              title={
-                <Box display="flex" flexDirection="column" gap={0.5}>
-                  <span>
-                    辨識失敗大多不會有明顯症狀——例如比對分數悄悄掉到門檻邊緣、OCR
-                    讀出無效內容、或結算畫面無法歸因到任何模式。開啟後，程式會把這些「自己也不確定」的情況記錄在本機，方便你回報問題時一併提供。紀錄只存在你的電腦上，不會自動上傳。
-                  </span>
-                  <span>{statusLine}</span>
-                </Box>
-              }
-              label="說明：記錄辨識異常會記錄什麼"
-              size={18}
-              color="text.secondary"
-            />
+    <>
+      <SwitchRow
+        title="記錄辨識異常（僅存本機）"
+        checked={enabled}
+        onChange={onToggle}
+        adornment={
+          <InfoHint
+            title={
+              <span>
+                辨識失敗大多不會有明顯症狀——例如比對分數悄悄掉到門檻邊緣、OCR
+                讀出無效內容、或結算畫面無法歸因到任何模式。開啟後，程式會把這些「自己也不確定」的情況記錄在本機，方便你回報問題時一併提供。紀錄只存在你的電腦上，不會自動上傳。
+              </span>
+            }
+            label="說明：記錄辨識異常會記錄什麼"
+            size={15}
+            color="text.secondary"
+          />
+        }
+      />
+      <SettingRow
+        title="診斷包"
+        description={statusLine}
+        control={
+          <Box display="flex" gap={1} alignItems="center">
+            <SoftButton
+              tone="primary"
+              startIcon={busy ? <CircularProgress size={15} color="inherit" /> : <IosShareIcon />}
+              onClick={handleExport}
+              disabled={busy || nothingToExport}
+            >
+              匯出
+            </SoftButton>
+            <Tooltip title="開啟資料夾">
+              <SoftButton
+                aria-label="開啟資料夾"
+                onClick={() => window.diagnostics.openFolder()}
+                sx={{ px: 1 }}
+              >
+                <FolderOpenIcon sx={{ fontSize: 17 }} />
+              </SoftButton>
+            </Tooltip>
+            <Tooltip title="清除紀錄">
+              <span>
+                <SoftButton
+                  tone="danger"
+                  aria-label="清除紀錄"
+                  onClick={handleClear}
+                  disabled={busy || nothingToExport}
+                  sx={{ px: 1 }}
+                >
+                  <DeleteSweepIcon sx={{ fontSize: 17 }} />
+                </SoftButton>
+              </span>
+            </Tooltip>
+            {/* Inside the row so the section's row separators never touch it;
+                it is fixed-position and draws at the bottom of the window. */}
+            <Snackbar
+              open={toast !== null}
+              autoHideDuration={6000}
+              onClose={() => setToast(null)}
+              anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+              <Alert severity={toast?.severity ?? 'info'} onClose={() => setToast(null)}>
+                {toast?.text}
+              </Alert>
+            </Snackbar>
           </Box>
         }
       />
-
-      <Box display="flex" gap={1} flexWrap="wrap" alignItems="center">
-        <SoftButton
-          tone="primary"
-          startIcon={busy ? <CircularProgress size={15} color="inherit" /> : <IosShareIcon />}
-          onClick={handleExport}
-          disabled={busy || nothingToExport}
-        >
-          匯出診斷包
-        </SoftButton>
-        <SoftButton startIcon={<FolderOpenIcon />} onClick={() => window.diagnostics.openFolder()}>
-          開啟資料夾
-        </SoftButton>
-        <SoftButton
-          tone="danger"
-          startIcon={<DeleteSweepIcon />}
-          onClick={handleClear}
-          disabled={busy || nothingToExport}
-        >
-          清除紀錄
-        </SoftButton>
-      </Box>
-
-      <Snackbar
-        open={toast !== null}
-        autoHideDuration={6000}
-        onClose={() => setToast(null)}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert severity={toast?.severity ?? 'info'} onClose={() => setToast(null)}>
-          {toast?.text}
-        </Alert>
-      </Snackbar>
-    </Box>
+    </>
   )
 }
 

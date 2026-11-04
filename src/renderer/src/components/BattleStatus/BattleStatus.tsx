@@ -156,9 +156,9 @@ const BattleStatus = (): React.JSX.Element => {
       return (
         <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
           <Box display={'flex'}>
-            <SearchOffOutlinedIcon fontSize="large" color="error" sx={{ opacity: 0.9 }} />
+            <SearchOffOutlinedIcon color="error" sx={{ fontSize: 22, opacity: 0.85 }} />
           </Box>
-          <Typography variant="h6" sx={{ color: 'grey.500', fontWeight: 600 }}>
+          <Typography sx={{ color: 'text.secondary', fontSize: 14, fontWeight: 600 }}>
             偵測暫停中
           </Typography>
         </Stack>
@@ -169,9 +169,9 @@ const BattleStatus = (): React.JSX.Element => {
       return (
         <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
           <Box sx={rippleSx} display={'flex'}>
-            <CenterFocusStrongIcon fontSize="large" />
+            <CenterFocusStrongIcon sx={{ fontSize: 22 }} />
           </Box>
-          <Typography variant="h6">偵測中</Typography>
+          <Typography sx={{ fontSize: 14, fontWeight: 600 }}>偵測中</Typography>
         </Stack>
       )
     }

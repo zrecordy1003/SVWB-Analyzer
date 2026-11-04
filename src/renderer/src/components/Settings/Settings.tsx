@@ -1,4 +1,4 @@
-import { Box, FormControlLabel, Divider, Paper, Typography, RadioGroup, Radio } from '@mui/material'
+import { Box, FormControlLabel, RadioGroup, Radio } from '@mui/material'
 import React, { useEffect, useState } from 'react'
 import Disclaimer from '../Disclaimer'
 import UpdateSettings from '../Update/UpdateSettings'
@@ -7,8 +7,7 @@ import TelemetrySettings from './TelemetrySettings'
 import SyncSettings from './SyncSettings'
 import ClearDataSettings from './ClearDataSettings'
 import BackupSettings from './BackupSettings'
-import { PANEL_SX } from '../Common/surfaces'
-import IOSSwitch from '../Common/IOSSwitch'
+import { SETTINGS_WIDTH, SettingRow, SettingsSection, SwitchRow } from './SettingsLayout'
 import type { AppSettings as SharedAppSettings, ClosePref } from '@shared/settings'
 
 /**
@@ -109,226 +108,123 @@ const Settings: React.FC = () => {
   if (!loaded) return null
 
   return (
-    <Box>
-      {/* <h2 style={{ marginTop: 0 }}>一般</h2> */}
+    <Box
+      sx={{
+        width: '100%',
+        maxWidth: SETTINGS_WIDTH,
+        mx: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3.5,
+        pb: 2
+      }}
+    >
+      {/* `reduceAnimations` / `theme` controls and 開機時自動啟動 used to sit here
+          commented out; see git history. 開機時自動啟動 needs `sendIpc` with
+          'settings:startOnBoot' when it comes back (main/ipc/settings.ts). */}
 
-      {/* <FormControlLabel
-        control={
-          <IOSSwitch
-            checked={s.reduceAnimations}
-            onChange={(_, checked) => handleChange('reduceAnimations', checked)}
+      <SettingsSection title="一般">
+        <SwitchRow
+          title="只在遊戲畫面聚焦時顯示 HUD"
+          checked={s.hudFollowGame}
+          onChange={(checked) => handleChange('hudFollowGame', checked)}
+        />
+        <SwitchRow
+          title="啟動時顯示 HUD"
+          description={s.hudFollowGame ? '跟隨遊戲畫面時不適用' : undefined}
+          checked={s.hudShow}
+          disabled={s.hudFollowGame}
+          onChange={(checked) => handleChange('hudShow', checked)}
+        />
+        <SwitchRow
+          title="開啟應用通知"
+          checked={s.enableNotifications}
+          onChange={(checked) => handleChange('enableNotifications', checked)}
+        />
+        <SwitchRow
+          title="關閉應用前詢問"
+          checked={s.askBeforeExit}
+          onChange={(checked) => handleChange('askBeforeExit', checked)}
+        />
+        {!s.askBeforeExit && (
+          <SettingRow
+            title="關閉視窗時"
+            control={
+              <RadioGroup
+                row
+                value={s.onCloseBehavior}
+                onChange={(e) => handleChange('onCloseBehavior', e.target.value as OnCloseBehavior)}
+                sx={{ gap: 1.5, '& .MuiFormControlLabel-label': { fontSize: 13.5 } }}
+              >
+                <FormControlLabel
+                  value="minimize"
+                  control={<Radio size="small" />}
+                  label="最小化至系統匣"
+                  sx={{ m: 0 }}
+                />
+                <FormControlLabel
+                  value="exit"
+                  control={<Radio size="small" />}
+                  label="關閉應用"
+                  sx={{ m: 0 }}
+                />
+              </RadioGroup>
+            }
           />
-        }
-        label="Reduce Animations"
-      /> */}
-
-      {/* <Box mt={1}>
-        <label>Theme: </label>
-        <Select
-          value={s.theme}
-          onChange={(e) => handleChange('theme', e.target.value as ThemeType)}
-          size="small"
-        >
-          <MenuItem value="system">System</MenuItem>
-          <MenuItem value="light">Light</MenuItem>
-          <MenuItem value="dark">Dark</MenuItem>
-        </Select>
-      </Box> */}
-
-      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
-        <Typography variant="h5">一般</Typography>
-        <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.hudFollowGame}
-              onChange={(_, checked) => handleChange('hudFollowGame', checked)}
-            />
-          }
-          label="只在遊戲畫面聚焦時顯示 HUD"
-        />
-        <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.hudShow}
-              disabled={s.hudFollowGame}
-              onChange={(_, checked) => handleChange('hudShow', checked)}
-            />
-          }
-          label="啟動時顯示 HUD"
-        />
-      </Box>
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
+        )}
+      </SettingsSection>
 
       {/* The switch lives inside TelemetrySettings and goes through
           `window.telemetry.setEnabled`, not `handleChange`: main owns the upload
           timers and has to hear about the change, and the generic settings
           bridge tells it nothing. */}
-      <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">數據統計</Typography>
+      <SettingsSection title="數據統計">
         <TelemetrySettings />
-      </Box>
+      </SettingsSection>
 
-      {/* Brings its own divider and heading, and renders nothing in a build
-          without a Google client. */}
+      {/* Brings its own section, and renders nothing in a build without a
+          Google client. */}
       <SyncSettings dataVersion={dataVersion} onDataChanged={bumpData} />
 
-      {/* There used to be a 「資料來源」 section here, reporting how many matches
-          carried provenance and how many the user had edited. It was accurate
-          and nobody wanted it: it explained an internal measurement rather than
-          answering a question a player has. Recording still happens - see
-          `main/data/provenance.ts` - it just has no settings surface.
+      {/* 「資料來源」 and 「卡片語言」 sections were removed on purpose: see
+          `main/data/provenance.ts`; `cardLang` still defaults to 'cht'. */}
 
-          The 「卡片語言」 section that followed it is gone the same way: the
-          language selector and cache-clear button now have no settings
-          surface. `cardLang` still exists in AppSettingsInner and still
-          defaults to 'cht' - it simply has no UI any more. */}
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-
-      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
-        <Typography variant="h5">通知</Typography>
-        <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.enableNotifications}
-              onChange={(_, checked) => handleChange('enableNotifications', checked)}
-            />
-          }
-          label="開啟應用通知"
-        />
-      </Box>
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
-        <Typography variant="h5">啟動與關閉</Typography>
-        {/* <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.startOnBoot}
-              onChange={(_, checked) => {
-                handleChange('startOnBoot', checked)
-                // Was `'s:startOnBoot'`, which main never listened on. Use
-                // `sendIpc` from `@renderer/ipc` when re-enabling this, so the
-                // name is checked; see the handler in main/ipc/settings.ts.
-                window.electron.ipcRenderer.send('settings:startOnBoot', checked)
-              }}
-            />
-          }
-          label="開機時自動啟動"
-        /> */}
-
-        <Box display="flex" alignItems="center" gap={2} sx={{ minHeight: 40 }}>
-          <FormControlLabel
-            control={
-              <IOSSwitch
-                checked={s.askBeforeExit}
-                onChange={(_, checked) => handleChange('askBeforeExit', checked)}
-              />
-            }
-            label="關閉應用前詢問"
-          />
-
-          {/* 右側容器「保持掛載」，用 visibility 隱藏，避免高度變化 */}
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              visibility: s.askBeforeExit ? 'hidden' : 'visible'
-            }}
-          >
-            {/* 用 FormControlLabel 做純 label，會和其他 label 高度一致 */}
-            <FormControlLabel control={<></>} label="應用關閉時" sx={{ m: 0 }} />
-
-            <RadioGroup
-              row
-              value={s.onCloseBehavior}
-              onChange={(e) => handleChange('onCloseBehavior', e.target.value as OnCloseBehavior)}
-              sx={{ m: 0 }}
-            >
-              <FormControlLabel
-                value="minimize"
-                control={<Radio size="small" />}
-                label="最小化至系統匣"
-                sx={{ m: 0 }}
-              />
-              <FormControlLabel
-                value="exit"
-                control={<Radio size="small" />}
-                label="關閉應用"
-                sx={{ m: 0 }}
-              />
-            </RadioGroup>
-          </Box>
-        </Box>
-      </Box>
-
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-
-      <Box display={'flex'} flexDirection={'column'} width={'max-content'} gap={1}>
-        <Typography variant="h5">更新</Typography>
+      <SettingsSection title="更新">
         <UpdateSettings />
+        {/* Not mounted until the saved values are in, so the switches appear
+            in their real state instead of sliding there from the defaults. */}
         {loaded && (
-          <>
-            <FormControlLabel
-              control={
-                <IOSSwitch
-                  checked={s.autoCheckUpdates}
-                  onChange={(_, checked) => handleChange('autoCheckUpdates', checked)}
-                />
-              }
-              label="自動檢查更新"
-            />
-            <FormControlLabel
-              disabled={!s.autoCheckUpdates}
-              control={
-                <IOSSwitch
-                  checked={s.autoDownloadUpdates}
-                  onChange={(_, checked) => handleChange('autoDownloadUpdates', checked)}
-                />
-              }
-              label="自動下載更新"
-            />
-          </>
+          <SwitchRow
+            title="自動檢查更新"
+            checked={s.autoCheckUpdates}
+            onChange={(checked) => handleChange('autoCheckUpdates', checked)}
+          />
         )}
-        {/* <FormControlLabel
-          control={
-            <IOSSwitch
-              checked={s.autoInstallUpdates}
-              onChange={(_, checked) => handleChange('autoInstallUpdates', checked)}
-            />
-          }
-          label="自動安裝更新"
-        /> */}
-      </Box>
+        {loaded && (
+          <SwitchRow
+            title="自動下載更新"
+            checked={s.autoDownloadUpdates}
+            disabled={!s.autoCheckUpdates}
+            onChange={(checked) => handleChange('autoDownloadUpdates', checked)}
+          />
+        )}
+      </SettingsSection>
 
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
-
-      <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">辨識診斷</Typography>
+      <SettingsSection title="辨識診斷">
         <DiagnosticsSettings
           enabled={s.diagnostics}
           onToggle={(checked) => handleChange('diagnostics', checked)}
         />
-      </Box>
+      </SettingsSection>
 
-      <Divider sx={{ mt: '10px', mb: '20px' }} />
+      {/* Last on the page: the one section here that removes the user's records,
+          kept apart from 辨識診斷's log-clearing button. */}
+      <SettingsSection title="資料管理">
+        <ClearDataSettings onCleared={bumpData} />
+        <BackupSettings dataVersion={dataVersion} onDataChanged={bumpData} />
+      </SettingsSection>
 
-      {/* Last on the page, in a card of its own: the one section here that removes
-          the user's records, kept apart from 辨識診斷's log-clearing button. */}
-      <Box display={'flex'} flexDirection={'column'} gap={1}>
-        <Typography variant="h5">資料管理</Typography>
-        <Paper
-          elevation={0}
-          sx={{ ...PANEL_SX, borderRadius: '12px', overflow: 'hidden', maxWidth: 600 }}
-        >
-          <ClearDataSettings onCleared={bumpData} />
-          <Divider />
-          <BackupSettings dataVersion={dataVersion} onDataChanged={bumpData} />
-        </Paper>
-      </Box>
-
-      <Box component={'footer'} sx={{ mt: 10 }}>
+      <Box component={'footer'} sx={{ mt: 4, px: 0.5 }}>
         <Disclaimer />
       </Box>
     </Box>
