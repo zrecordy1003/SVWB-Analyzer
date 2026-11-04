@@ -1,347 +1,181 @@
+/**
+ * The header's recognition status: one pill, toolbar height.
+ *
+ * It used to be a red 「偵測暫停中」 whenever no frame was arriving - with the
+ * game simply closed too, which is the normal state - a forever-pulsing ring
+ * for 「偵測中」, and in battle two 150×50 slanted class slabs taller than the
+ * toolbar with a 先攻 chip pinned on by pixel offsets. Now:
+ *
+ * - Outside a battle: a dot in the state's tone and a short label. The reason
+ *   and the next step are in the tooltip. The state comes from
+ *   `captureStateOf`, the same function behind the sidebar badge, so the two
+ *   can no longer disagree.
+ * - In a battle: the matchup itself - both class emblems, 先攻 or 後攻, and the
+ *   mode once it is known - at the same height as everything else in the bar.
+ */
 import React, { useEffect, useState } from 'react'
-import ClassIcon from '@renderer/components/Common/ClassIcon'
-import { classesMap, classTextSx } from '@renderer/map/classMap'
-import { Box, Typography, Stack, Chip } from '@mui/material'
+import { Box, Tooltip, Typography } from '@mui/material'
 
-import CenterFocusStrongIcon from '@mui/icons-material/CenterFocusStrong'
-import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined'
+import ClassIcon from '@renderer/components/Common/ClassIcon'
+import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
+import { captureStateOf, type CaptureTone } from '@renderer/components/captureState'
+import { useSvwbStatus } from '@renderer/hooks/useSvwbStatus'
 import { invokeIpc } from '@renderer/ipc'
-import type { BattleStatus } from '@shared/types'
+import { classesMap, modesMap } from '@renderer/map/classMap'
+import type { BattleStatus as BattleState } from '@shared/types'
+
+const TONE_COLOR: Record<CaptureTone, string> = {
+  idle: 'rgba(255,255,255,0.38)',
+  ok: '#5cc98a',
+  warn: '#f0b450',
+  error: '#f2545b'
+}
+
+const IDLE_BATTLE: BattleState = {
+  inBattle: false,
+  ownClass: null,
+  enemyClass: null,
+  playOrder: null,
+  // `null` is the correct resting value and a meaningful one: see the field's
+  // own comment in `@shared/types`.
+  mode: null
+}
+
+const PILL_SX = {
+  height: 36,
+  px: 1.5,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 1,
+  borderRadius: 999,
+  border: '1px solid rgba(255,255,255,0.08)',
+  bgcolor: 'rgba(255,255,255,0.04)',
+  whiteSpace: 'nowrap'
+} as const
 
 /**
- * The shared shape, not a local restatement.
- *
- * There used to be an `interface BattleState` here with `ownClass`,
- * `enemyClass` and `playOrder` all typed `string | null` - wider than the real
- * `ClassName | null` and `PlayOrder | null` - and it did not have `mode` at
- * all. It only compiled because the channel returned `any`.
+ * The state dot. Only 偵測中 breathes - it is the one state where something is
+ * actively happening - and it stops for anyone who asked for less motion.
  */
-type BattleState = BattleStatus
+const Dot: React.FC<{ tone: CaptureTone }> = ({ tone }) => (
+  <Box
+    component="span"
+    sx={{
+      width: 8,
+      height: 8,
+      borderRadius: '50%',
+      flexShrink: 0,
+      bgcolor: TONE_COLOR[tone],
+      ...(tone === 'ok'
+        ? {
+            animation: 'svwbStatusBreathe 2.4s ease-in-out infinite',
+            '@keyframes svwbStatusBreathe': {
+              '0%, 100%': { boxShadow: '0 0 0 0 rgba(92,201,138,0.45)' },
+              '50%': { boxShadow: '0 0 0 4px rgba(92,201,138,0)' }
+            },
+            '@media (prefers-reduced-motion: reduce)': { animation: 'none' }
+          }
+        : null)
+    }}
+  />
+)
 
-// interface StatusHeaderProps {
-//   inBattle: boolean
-//   recognizing: boolean
-// }
+const Side: React.FC<{ id: BattleState['ownClass'] }> = ({ id }) => (
+  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+    <ClassIcon id={id} size={22} />
+    <Typography component="span" sx={{ fontSize: 14, fontWeight: 600 }}>
+      {id ? (classesMap[id]?.label ?? '—') : '辨識中'}
+    </Typography>
+  </Box>
+)
 
 const BattleStatus = (): React.JSX.Element => {
-  const [isRecognizing, setIsRecognizing] = useState<boolean>(false)
-  const [battleState, setBattleState] = useState<BattleState>({
-    inBattle: false,
-    ownClass: null,
-    enemyClass: null,
-    playOrder: null,
-    // The initial value was missing this, which the local `BattleState` did not
-    // have either - so nothing noticed. `null` is the correct resting value and
-    // a meaningful one: see the field's own comment in `@shared/types`.
-    mode: null
-  })
-
-  const rippleSx = {
-    position: 'relative',
-    '&::before': {
-      content: '""',
-      position: 'absolute',
-      inset: -6,
-      borderRadius: '50%',
-      border: '2px solid rgba(76,175,80,0.35)', // 可換主題色
-      animation: 'ripple 1.8s infinite ease-out'
-    },
-    '@keyframes ripple': {
-      '0%': { transform: 'scale(0.85)', opacity: 0.8 },
-      // '0%': { transform: 'scale(1)', opacity: 0.15 },
-      '100%': { transform: 'scale(1.2)', opacity: 0 }
-    }
-  }
-
-  // const pulseSx = {
-  //   animation: 'pulse 6s infinite',
-  //   '@keyframes pulse': {
-  //     '0%': { transform: 'scale(1)', filter: 'drop-shadow(0 0 0px rgba(255,255,255,0))' },
-  //     '50%': { transform: 'scale(1.06)', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.35))' },
-  //     '100%': { transform: 'scale(1)', filter: 'drop-shadow(0 0 0px rgba(255,255,255,0))' }
-  //   }
-  // }
+  const status = useSvwbStatus()
+  const capture = captureStateOf(status)
+  const capturing = capture.kind === 'watching' || capture.kind === 'badResolution'
+  const [battle, setBattle] = useState<BattleState>(IDLE_BATTLE)
 
   useEffect(() => {
-    const unsubBattleInfo = window.electron?.ipcRenderer.on(
-      'battle:status',
-      (_e, msg: BattleState) => {
-        setBattleState(msg)
-      }
+    return window.electron?.ipcRenderer.on('battle:status', (_e, msg: BattleState) =>
+      setBattle(msg)
     )
-
-    /**
-     * Whether recognition is running is `gameStatus.capturing`, and it arrives
-     * on `game:status` - the broadcast that only fires on a change. There used
-     * to be a `battle:recog` message carrying the same boolean on every
-     * one-second poll; it was deleted, not replaced.
-     *
-     * The catch-up matters because of that change gating: this component can
-     * mount well after the last transition (a reload, or the user opening this
-     * page later), so it asks once for the current value instead of waiting
-     * for the game's next state change.
-     */
-    const unsubGameStatus = window.electron?.ipcRenderer.on(
-      'game:status',
-      (_e, status: { capturing?: boolean } | null) => {
-        setIsRecognizing(!!status?.capturing)
-      }
-    )
-    // `game:status` is polled once per second; this engine-owned signal flips
-    // immediately when the first real frame arrives or capture ends.
-    const unsubCaptureStatus = window.electron?.ipcRenderer.on(
-      'capture:status',
-      (_e, capturing: boolean) => setIsRecognizing(capturing)
-    )
-    void invokeIpc('game:getStatus')
-      .then((status: { capturing?: boolean } | null) => setIsRecognizing(!!status?.capturing))
-      .catch(() => setIsRecognizing(false))
-
-    return () => {
-      unsubBattleInfo()
-      unsubGameStatus()
-      unsubCaptureStatus()
-    }
   }, [])
 
+  // `battle:status` only fires on a change, so a header that mounts mid-battle
+  // (a reload) asks once instead of waiting for the next one.
   useEffect(() => {
-    if (isRecognizing) {
-      invokeIpc('battle:getStatus').then((state) => {
-        // `undefined` when the analyzer has not been started - there is no
-        // battle to describe, so leave what is on screen alone rather than
-        // blanking it. The typed contract is what surfaced that this was being
-        // handed straight to `setState`.
-        if (state) setBattleState(state)
+    if (!capturing) return
+    void invokeIpc('battle:getStatus')
+      .then((state) => {
+        // `undefined` when the analyzer has not started: nothing to describe.
+        if (state) setBattle(state)
       })
-    }
-  }, [isRecognizing])
+      .catch(() => {})
+  }, [capturing])
 
-  // const StatusHeader: React.FC<StatusHeaderProps> = ({
-  //   inBattle,
-  //   recognizing
-  // }: StatusHeaderProps) => {
-  //   if (recognizing === false) {
-  //     return (
-  //       <Stack direction="row" spacing={1.5} alignItems="center">
-  //         <PauseCircle fontSize="large" />
-  //         <Typography variant="h6">辨識暫停</Typography>
-  //       </Stack>
-  //     )
-  //   }
+  const inBattle = capturing && battle.inBattle
+  const mode = battle.mode ? modesMap[battle.mode]?.label : null
+  const order =
+    battle.playOrder === 'first' ? '先攻' : battle.playOrder === 'second' ? '後攻' : null
 
-  //   if (!inBattle) {
-  //     return (
-  //       <Stack direction="row" spacing={1.5} alignItems="center">
-  //         <Typography variant="h6">偵測中</Typography>
-  //         <Box sx={rippleSx}>
-  //           <Radar fontSize="large" />
-  //         </Box>
-  //       </Stack>
-  //     )
-  //   }
-
-  //   return (
-  //     // <Stack direction="row" spacing={1.5} alignItems="center">
-  //     //   <Box>
-  //     //     <SportsEsportsOutlinedIcon fontSize="large" />
-  //     //   </Box>
-  //     //   <Typography variant="h6">對戰進行中</Typography>
-  //     // </Stack>
-  //     <></>
-  //   )
-  // }
-
-  const renderBattleInfo = (): React.JSX.Element => {
-    if (isRecognizing === false) {
-      return (
-        <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
-          <Box display={'flex'}>
-            <SearchOffOutlinedIcon color="error" sx={{ fontSize: 22, opacity: 0.85 }} />
-          </Box>
-          <Typography sx={{ color: 'text.secondary', fontSize: 14, fontWeight: 600 }}>
-            偵測暫停中
-          </Typography>
-        </Stack>
-      )
-    }
-
-    if (isRecognizing === true && !battleState.inBattle) {
-      return (
-        <Stack direction="row" spacing={1} alignItems="center" height={'3rem'}>
-          <Box sx={rippleSx} display={'flex'}>
-            <CenterFocusStrongIcon sx={{ fontSize: 22 }} />
-          </Box>
-          <Typography sx={{ fontSize: 14, fontWeight: 600 }}>偵測中</Typography>
-        </Stack>
-      )
-    }
-
-    const TurnOrder = ({ order }: { order: 'first' | 'second' }): React.JSX.Element => {
-      return (
-        <Box
-          position={'absolute'}
-          sx={{ transform: 'translateX(109px) translateY(8px)', zIndex: 10 }}
-        >
-          {/* <Typography variant="caption" color="text.secondary">
-            順序
-          </Typography> */}
-          {order === 'first' ? (
-            <Chip
-              sx={{ p: 1 }}
-              variant="filled"
-              label="先攻"
-              // color="info"
-            />
-          ) : (
-            // <Typography>我方先攻</Typography>
-            <Chip
-              sx={{ p: 1 }}
-              variant="filled"
-              label="後攻"
-              // color="info"
-            />
-            // <Typography>我方後攻</Typography>
-          )}
-        </Box>
-      )
-    }
-
-    return (
-      <Box>
-        {battleState.inBattle && (
-          <Box
-            display="flex"
-            // flexDirection="column"
-            alignItems="center"
-            justifyContent="center"
-            // mt={1}
-            gap={2}
-          >
-            {/* <StatusHeader inBattle={battleState.inBattle} recognizing={isRecognizing} /> */}
-            <Box display="flex">
-              <Box
-                position={'relative'}
-                display={'flex'}
-                justifyContent={'center'}
-                alignItems={'center'}
-                width={'150px'}
-                height={'50px'}
-                bgcolor={battleState.ownClass ? classesMap[battleState.ownClass]?.bgColor : 'null'}
-                sx={{
-                  clipPath: 'polygon(0 0, 100% 0, 75% 100%, 0% 100%)',
-                  borderRadius: '5px'
-                }}
-              >
-                {/* 這兩塊是整個畫面上職業最該被一眼認出來的地方，也是唯一一次
-                    只會出現一兩個徽章的地方，所以尺寸放到 34 - 深色底上不靠底板
-                    就夠亮。斜切的 clipPath 會吃掉右緣，所以徽章和字一起靠左推。 */}
-                <Box display="flex" alignItems="center" gap={1} marginRight={'15px'}>
-                  <ClassIcon id={battleState.ownClass} size={34} />
-                  <Typography variant="h6" sx={classTextSx(battleState.ownClass)}>
-                    {battleState.ownClass ? (classesMap[battleState.ownClass]?.label ?? '') : null}
-                  </Typography>
-                </Box>
-              </Box>
-
-              <TurnOrder order={battleState.playOrder === 'first' ? 'first' : 'second'} />
-
-              <Box
-                display={'flex'}
-                justifyContent={'center'}
-                alignItems={'center'}
-                width={'150px'}
-                height={'50px'}
-                bgcolor={
-                  battleState.enemyClass ? classesMap[battleState.enemyClass]?.bgColor : 'null'
-                }
-                sx={{
-                  clipPath: 'polygon(25% 0, 100% 0, 100% 100%, 0% 100%)',
-                  ml: '-30px',
-                  borderRadius: '5px'
-                }}
-              >
-                <Box display="flex" alignItems="center" gap={1} marginLeft={'15px'}>
-                  <ClassIcon id={battleState.enemyClass} size={34} />
-                  <Typography variant="h6" sx={classTextSx(battleState.enemyClass)}>
-                    {battleState.enemyClass
-                      ? (classesMap[battleState.enemyClass]?.label ?? '')
-                      : null}
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-          </Box>
-        )}
-      </Box>
-    )
-  }
-
-  // const classNames = ['elf', 'royal', 'witch', 'dragon', 'bishop', 'nightmare', 'nemesis']
-  // const playOrders = ['first', 'second']
+  const tooltip = inBattle ? (
+    <Box sx={{ maxWidth: 280 }}>
+      <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+        對戰中
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        對戰結束後會自動記下這一場
+        {battle.mode ? '' : '；天梯的模式要到結算畫面才會確定'}。
+      </Typography>
+    </Box>
+  ) : (
+    <Box sx={{ maxWidth: 300 }}>
+      <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+        {capture.label}
+      </Typography>
+      <Typography variant="body2" color="text.secondary">
+        {capture.detail}
+      </Typography>
+    </Box>
+  )
 
   return (
-    <Box mb={2}>
-      {/* <Stack direction="row" spacing={2} mb={2}>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={() => {
-            // 隨機選自己和對手（不重複）
-            const ownClass = classNames[Math.floor(Math.random() * classNames.length)]
-            const enemyClass = classNames[Math.floor(Math.random() * classNames.length)]
-
-            // 隨機選先攻後攻
-            const playOrder = playOrders[Math.floor(Math.random() * playOrders.length)]
-
-            setBattleState({
-              inBattle: true,
-              ownClass,
-              enemyClass,
-              playOrder
-            })
-          }}
-        >
-          隨機測試資料
-        </Button>
-        <Button
-          variant="contained"
-          color="primary"
-          onClick={() =>
-            setBattleState({
-              inBattle: true,
-              ownClass: 'elf',
-              enemyClass: 'nemesis',
-              playOrder: 'first'
-            })
-          }
-        >
-          測試資料
-        </Button>
-        <Button
-          variant="outlined"
-          color="secondary"
-          onClick={() =>
-            setBattleState({
-              inBattle: false,
-              ownClass: null,
-              enemyClass: null,
-              playOrder: null
-            })
-          }
-        >
-          清空資料
-        </Button>
-
-        <Button variant="outlined" color="secondary" onClick={() => setIsRecognizing(true)}>
-          開始辨識
-        </Button>
-        <Button variant="outlined" color="secondary" onClick={() => setIsRecognizing(false)}>
-          暫停辨識
-        </Button>
-      </Stack> */}
-
-      {renderBattleInfo()}
-    </Box>
+    <Tooltip
+      title={tooltip}
+      placement="bottom-end"
+      slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
+    >
+      <Box role="status" aria-live="polite" sx={PILL_SX}>
+        <Dot tone={inBattle ? 'ok' : capture.tone} />
+        {inBattle ? (
+          <>
+            <Side id={battle.ownClass} />
+            <Typography component="span" sx={{ fontSize: 12, color: 'text.secondary' }}>
+              vs
+            </Typography>
+            <Side id={battle.enemyClass} />
+            {(order || mode) && (
+              <Typography
+                component="span"
+                sx={{
+                  fontSize: 12,
+                  color: 'text.secondary',
+                  pl: 1,
+                  ml: 0.25,
+                  borderLeft: '1px solid rgba(255,255,255,0.12)'
+                }}
+              >
+                {[order, mode].filter(Boolean).join(' · ')}
+              </Typography>
+            )}
+          </>
+        ) : (
+          <Typography component="span" sx={{ fontSize: 13, fontWeight: 600 }}>
+            {capture.label}
+          </Typography>
+        )}
+      </Box>
+    </Tooltip>
   )
 }
 

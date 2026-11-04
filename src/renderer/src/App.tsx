@@ -374,8 +374,11 @@ function App(): React.JSX.Element {
             <Box
               sx={{
                 position: 'absolute',
-                right: '25px',
-                transform: 'translateY(7px)'
+                right: 16,
+                top: 0,
+                bottom: 0,
+                display: 'flex',
+                alignItems: 'center'
               }}
             >
               {battleStatusEl}

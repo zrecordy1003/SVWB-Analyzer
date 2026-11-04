@@ -6,13 +6,16 @@
  * called 贊助. On a page whose job is to establish trust, leading with a payment
  * button reads like a sales page - the opposite of what a free, local tool
  * should feel like. So the page now leads with what the tool is and where its
- * source lives, and support is one quiet card among the others, in the same
- * row layout the settings page uses: a plain sentence about what the money
- * pays for, an ordinary outlined button, and an equally prominent way to help
- * that costs nothing.
+ * source lives. Support is one card: a sentence of context, two equal ways to
+ * help (paying, and reporting problems), and three checkable commitments - the
+ * features stay free, the payment never passes through this app, and what the
+ * money is for.
  */
 import { Box, Button, Paper, Typography } from '@mui/material'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
+import LocalCafeOutlinedIcon from '@mui/icons-material/LocalCafeOutlined'
+import BugReportOutlinedIcon from '@mui/icons-material/BugReportOutlined'
+import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import React from 'react'
 
 import { useUpdateStatus } from '@renderer/components/Update/updateContext'
@@ -27,6 +30,50 @@ const PAGE_WIDTH = 720
 
 const open = (url: string): void => window.electronAPI.openLink(url)
 
+const SECTION_LABEL_SX = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'text.secondary',
+  px: 0.5,
+  letterSpacing: 0.2
+} as const
+
+/** Commitments, stated where the button is - each one is checkable. */
+const PROMISES = [
+  '所有功能都免費，以後也是。贊助不會解鎖任何功能或內容。',
+  '付款在歐付寶的網頁上完成，這個 app 不會經手任何付款資訊。',
+  '贊助用於維護、修正錯誤，以及遊戲改版後重新製作辨識範本。'
+] as const
+
+/** One of the two ways to help, as equals. */
+const SupportTile: React.FC<{
+  icon: React.ReactNode
+  title: string
+  description: string
+  action: React.ReactNode
+}> = ({ icon, title, description, action }) => (
+  <Box
+    sx={{
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 1,
+      p: 2,
+      borderRadius: '10px',
+      border: '1px solid rgba(255,255,255,0.08)',
+      bgcolor: 'rgba(255,255,255,0.025)'
+    }}
+  >
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+      {icon}
+      <Typography sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary' }}>{title}</Typography>
+    </Box>
+    <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6, flex: 1 }}>
+      {description}
+    </Typography>
+    <Box>{action}</Box>
+  </Box>
+)
+
 // `HEAD` rather than a branch name: these once pointed at `main`, which this
 // repository does not have. HEAD resolves to the default branch and survives a
 // rename.
@@ -34,10 +81,7 @@ const repoFile = (path: string): string => `${REPOSITORY_URL}/blob/HEAD/${path}`
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
   <Box component="section" sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-    <Typography
-      component="h2"
-      sx={{ fontSize: 13, fontWeight: 600, color: 'text.secondary', px: 0.5, letterSpacing: 0.2 }}
-    >
+    <Typography component="h2" sx={SECTION_LABEL_SX}>
       {title}
     </Typography>
     <Paper
@@ -149,41 +193,82 @@ const About = (): React.JSX.Element => {
       </Box>
 
       {/* ---------- 支持開發 ---------- */}
-      <Section title="支持開發">
-        <Row
-          title="這是個人維護的免費工具"
-          description="所有功能都免費，以後也是。沒有付費功能，也不會有贊助者限定的內容。"
-        />
-        <Row
-          title="贊助用在哪裡"
-          description="維護與修正錯誤的時間，以及遊戲改版後重新製作辨識範本。"
-        />
-        <Row
-          title="透過歐付寶贊助"
-          description={`會在瀏覽器開啟歐付寶的付款頁面，金額由你決定。${PRIMARY_SUPPORT_LINK.note}。`}
-          control={
-            <Button
-              size="small"
-              variant="outlined"
-              endIcon={<OpenInNewIcon sx={{ fontSize: 16 }} />}
-              onClick={() => open(supportUrl(PRIMARY_SUPPORT_LINK, 'about'))}
-            >
-              前往贊助
-            </Button>
-          }
-        />
-        {/* 和贊助同樣顯眼：不花錢的幫忙對這個專案一樣有用，而一頁只給「付錢」
-            一條路的支持說明，讀起來就是在要錢。 */}
-        <Row
-          title="不方便贊助也沒關係"
-          description="回報辨識錯誤、提出建議，或在 GitHub 給個星星，對這個專案一樣是很大的幫助。"
-          control={
-            <Button size="small" onClick={() => open(REPOSITORY_URL)}>
-              GitHub
-            </Button>
-          }
-        />
-      </Section>
+      {/* 兩條路並排、一樣大：付錢和回報問題對這個專案一樣有用，而只給「付錢」
+          一條路的支持說明，讀起來就是在要錢。底下三條是承諾，不是行銷。 */}
+      <Box component="section" sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Typography component="h2" sx={SECTION_LABEL_SX}>
+          支持開發
+        </Typography>
+        <Paper elevation={0} sx={{ ...PANEL_SX, borderRadius: '12px', p: 2.5 }}>
+          <Typography sx={{ fontSize: 14, lineHeight: 1.7 }}>
+            SVWB Analyzer
+            由個人開發與維護。如果它幫你省下了記錄和整理的時間，可以用下面任一種方式支持它繼續更新。
+          </Typography>
+
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+              gap: 1.5,
+              mt: 2
+            }}
+          >
+            <SupportTile
+              icon={<LocalCafeOutlinedIcon fontSize="small" />}
+              title="贊助開發"
+              description={`透過歐付寶，金額由你決定。${PRIMARY_SUPPORT_LINK.note}。`}
+              action={
+                <Button
+                  size="small"
+                  variant="contained"
+                  disableElevation
+                  endIcon={<OpenInNewIcon sx={{ fontSize: 16 }} />}
+                  onClick={() => open(supportUrl(PRIMARY_SUPPORT_LINK, 'about'))}
+                >
+                  前往歐付寶
+                </Button>
+              }
+            />
+            <SupportTile
+              icon={<BugReportOutlinedIcon fontSize="small" />}
+              title="回報與建議"
+              description="回報辨識錯誤、提出想要的功能，或在 GitHub 給個星星，都是很實在的幫助。"
+              action={
+                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => open(`${REPOSITORY_URL}/issues`)}
+                  >
+                    回報問題
+                  </Button>
+                  <Button size="small" onClick={() => open(REPOSITORY_URL)}>
+                    GitHub
+                  </Button>
+                </Box>
+              }
+            />
+          </Box>
+
+          <Box
+            component="ul"
+            sx={{ listStyle: 'none', m: 0, p: 0, mt: 2, display: 'grid', gap: 0.75 }}
+          >
+            {PROMISES.map((line) => (
+              <Box
+                component="li"
+                key={line}
+                sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}
+              >
+                <CheckRoundedIcon sx={{ fontSize: 16, color: 'text.secondary', mt: '2px' }} />
+                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6 }}>
+                  {line}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </Paper>
+      </Box>
 
       {/* ---------- 使用界線 ---------- */}
       <Section title="使用界線">
