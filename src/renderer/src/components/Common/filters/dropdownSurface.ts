@@ -8,6 +8,7 @@
  * and the items run edge to edge with a full-bleed hover. These override both.
  */
 import type { SxProps, Theme } from '@mui/material'
+import { motion } from '../motion'
 
 export const DROPDOWN_PAPER_SX: SxProps<Theme> = {
   mt: 0.75,
@@ -29,7 +30,7 @@ export const DROPDOWN_ITEM_SX: SxProps<Theme> = {
   px: 1,
   gap: 1,
   my: 0.25,
-  transition: 'background-color .15s'
+  transition: motion(['background-color'], 'fast')
 }
 
 /**
@@ -49,10 +50,10 @@ export const CONTROL_SX = {
   height: 36,
   borderRadius: 2,
   bgcolor: 'action.hover',
-  transition: 'background-color .15s',
+  transition: motion(['background-color'], 'fast'),
   '&:hover': { bgcolor: 'action.selected' },
   '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
   '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.disabled' },
   '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderWidth: 1 },
-  '& .MuiSelect-icon': { transition: 'transform .2s', color: 'text.secondary' }
+  '& .MuiSelect-icon': { transition: motion(['transform'], 'base'), color: 'text.secondary' }
 } as const

@@ -73,6 +73,7 @@ import {
 
 import type { ClassName } from '@shared/domain'
 import type { BattleStatus, RankedWinrateByOpponent } from '@shared/types'
+import { motion } from '../Common/motion'
 
 /**
  * 同一組篩選的兩種畫法：對手職業 × 先後攻的表格與長條。卡片維度不在這裡 -
@@ -725,7 +726,13 @@ const Analyzer: React.FC = () => {
           )
         ) : (
           // 換條件時舊的圖先壓淡，而不是換成轉圈：版面不動，眼睛還停在原本那一列。
-          <Box sx={{ height: '100%', opacity: stale ? 0.5 : 1, transition: 'opacity 150ms' }}>
+          <Box
+            sx={{
+              height: '100%',
+              opacity: stale ? 0.5 : 1,
+              transition: motion(['opacity'], 'base')
+            }}
+          >
             {chartKind === 'heatmap' ? (
               <MatchupHeatmap data={analyzeData} />
             ) : (

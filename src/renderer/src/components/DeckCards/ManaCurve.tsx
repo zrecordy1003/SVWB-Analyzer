@@ -23,6 +23,7 @@
  */
 import { Box, Stack, Tooltip, Typography } from '@mui/material'
 import React from 'react'
+import { motion } from '../Common/motion'
 
 /** From the portal's own `.graph-bar` gradient. */
 const BAR_GRADIENT = 'linear-gradient(0deg, #a0d244 0%, #b8ce40 100%)'
@@ -167,7 +168,7 @@ export default function ManaCurve({
             cursor: 'help',
             fontVariantNumeric: 'tabular-nums',
             color: sizeState(total, deckSize).colour,
-            transition: 'color .2s',
+            transition: motion(['color'], 'base'),
             textDecoration: 'underline dotted',
             textUnderlineOffset: 3,
             textDecorationColor: 'rgba(255,255,255,0.25)'
@@ -213,7 +214,7 @@ export default function ManaCurve({
                 width: '100%',
                 height: `${(bucket.count / peak) * 100}%`,
                 backgroundImage: BAR_GRADIENT,
-                transition: 'height .3s'
+                transition: motion(['height'], 'slow')
               }}
             />
           </Box>

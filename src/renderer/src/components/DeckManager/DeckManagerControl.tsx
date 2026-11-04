@@ -60,6 +60,7 @@ import {
 import type { ClassName } from '@shared/domain'
 import { useDecksTags, type DeckLite } from '@renderer/hooks/useDecksTags'
 import { invokeIpc } from '@renderer/ipc'
+import { motion } from '../Common/motion'
 
 /** BattleState 介面（來自事件） */
 interface BattleState {
@@ -1042,7 +1043,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                                   // 排 icon 按鈕撐出來的，所以收行高不動版面。
                                   lineHeight: 1.25,
                                   borderBottom: '1px solid transparent',
-                                  transition: 'border-color .15s'
+                                  transition: motion(['border-color'], 'fast')
                                 },
                                 '&:hover .deck-name, &:focus-visible .deck-name': {
                                   borderColor: 'rgba(255,255,255,0.5)'
@@ -1066,7 +1067,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                                   fontSize: 13,
                                   flexShrink: 0,
                                   color: 'text.disabled',
-                                  transition: 'color .15s'
+                                  transition: motion(['color'], 'fast')
                                 }}
                               />
                             </Box>

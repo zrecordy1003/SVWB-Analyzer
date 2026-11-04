@@ -36,6 +36,7 @@ import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import { deckSavedMessage } from './deckVersions'
 import { invokeIpc } from '@renderer/ipc'
 import { setCardImages, useCardImages } from '@renderer/hooks/useCardImages'
+import { motion } from '../Common/motion'
 
 /** 標題列、內容與動作列對齊用的同一個左邊界，和其他抽屜一致。 */
 const GUTTER = 2.5
@@ -190,7 +191,7 @@ export default function DeckContentsDrawer({
                       px: 1.75,
                       color: 'text.secondary',
                       borderColor: 'rgba(255,255,255,0.16)',
-                      transition: 'border-color .15s, background-color .15s, color .15s',
+                      transition: motion(['border-color', 'background-color', 'color'], 'fast'),
                       '&:hover': {
                         borderColor: 'rgba(255,255,255,0.32)',
                         bgcolor: 'rgba(255,255,255,0.05)',
@@ -212,7 +213,7 @@ export default function DeckContentsDrawer({
                       fontWeight: 800,
                       px: 1.75,
                       boxShadow: '0 4px 16px -6px rgba(122,162,247,0.65)',
-                      transition: 'box-shadow .15s, transform .15s',
+                      transition: motion(['box-shadow', 'transform'], 'fast'),
                       '&:hover': {
                         boxShadow: '0 6px 20px -6px rgba(122,162,247,0.8)',
                         transform: 'translateY(-1px)'

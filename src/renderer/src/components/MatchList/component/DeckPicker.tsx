@@ -18,6 +18,7 @@ import { classesMap } from '@renderer/map/classMap'
 import { CONTROL_SX, DROPDOWN_PAPER_SX } from '@renderer/components/Common/filters/dropdownSurface'
 import AddIcon from '@mui/icons-material/Add'
 import { invokeIpc } from '@renderer/ipc'
+import { motion } from '../../Common/motion'
 
 /* ================================
  * Types
@@ -349,7 +350,7 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
                   borderRadius: 2,
                   border: '1px dashed rgba(255,255,255,0.22)',
                   backgroundColor: 'rgba(255,255,255,0.015)',
-                  transition: 'border-color .14s, background-color .14s, color .14s',
+                  transition: motion(['border-color', 'background-color', 'color'], 'fast'),
                   '&.MuiAutocomplete-option': { justifyContent: 'flex-start' },
                   '&:hover, &[aria-selected="true"], &.Mui-focused': {
                     borderColor: 'rgba(140,180,255,0.55)',

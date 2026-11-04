@@ -8,6 +8,7 @@ import PlayOrderMark from '@renderer/components/Common/PlayOrderMark'
 import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
 import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
 import React from 'react'
+import { motion } from '../../../components/Common/motion'
 
 interface RecentProps {
   fetchData: Match[]
@@ -202,7 +203,7 @@ const Recent: React.FC<RecentProps> = ({
               overflow: 'hidden',
               bgcolor: 'rgba(214,226,244,0.055)',
               border: '1px solid rgba(214,226,244,0.08)',
-              transition: 'background-color 160ms ease-out, border-color 160ms ease-out',
+              transition: motion(['background-color', 'border-color'], 'fast'),
               '&:hover': {
                 bgcolor: 'rgba(214,226,244,0.085)',
                 borderColor: 'rgba(214,226,244,0.15)'

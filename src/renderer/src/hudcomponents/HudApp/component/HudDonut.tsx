@@ -14,6 +14,7 @@
 import React from 'react'
 import { Doughnut } from 'react-chartjs-2'
 import { ArcElement, Chart as ChartJS, DoughnutController } from 'chart.js'
+import { MOTION } from '../../../components/Common/motion'
 
 ChartJS.register(ArcElement, DoughnutController)
 
@@ -72,7 +73,10 @@ const HudDonut: React.FC<HudDonutProps> = ({ wins, losses, winColor, lossColor }
       responsive: true,
       maintainAspectRatio: false,
       cutout: '72%',
-      animation: { duration: 360 },
+      // Chart.js animates in JS, so the CSS reduced-motion rule cannot reach it.
+      animation: {
+        duration: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : MOTION.slow
+      },
       events: [],
       plugins: { legend: { display: false }, tooltip: { enabled: false } }
     }}

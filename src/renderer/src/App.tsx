@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState 
 
 import { ThemeProvider, createTheme, styled } from '@mui/material/styles'
 import CircularProgress from '@mui/material/CircularProgress'
+import Fade from '@mui/material/Fade'
 import CssBaseline from '@mui/material/CssBaseline'
 import AppBar from '@mui/material/AppBar'
 import Toolbar from '@mui/material/Toolbar'
@@ -38,6 +39,7 @@ import About from './components/About/About'
 import SupportPrompt from './components/Common/SupportPrompt'
 import TelemetryPrompt from './components/Common/TelemetryPrompt'
 import { preloadableLazy } from './components/Common/preloadableLazy'
+import { EASE, MOTION } from './components/Common/motion'
 const Analyzer = preloadableLazy(() => import('./components/Analyzer/Analyzer'))
 const MatchList = preloadableLazy(() => import('./components/MatchList/MatchList'))
 const DeckPerformance = preloadableLazy(
@@ -209,6 +211,20 @@ function App(): React.JSX.Element {
     const thumbHoverColor = 'rgba(255,255,255,0.28)'
 
     return createTheme({
+      // MUI's own durations (dialogs, drawers, menus, collapses) on the same
+      // three speeds as everything else - see `Common/motion.ts`.
+      transitions: {
+        duration: {
+          shortest: MOTION.fast,
+          shorter: MOTION.fast,
+          short: MOTION.base,
+          standard: MOTION.base,
+          complex: MOTION.slow,
+          enteringScreen: MOTION.base,
+          leavingScreen: MOTION.fast
+        },
+        easing: { easeOut: EASE }
+      },
       palette: {
         mode: 'dark',
         // A cool near-black instead of MUI's neutral #121212, matching the
@@ -250,6 +266,18 @@ function App(): React.JSX.Element {
           }
         },
         MuiTooltip: {
+          // A short fade instead of MUI's grow: moving across a chart opens a
+          // new tooltip on every cell, and a zoom on each one reads as the
+          // cards popping at you. Closing is faster than opening, so the next
+          // card is never fighting the last one on the way out.
+          // Non-interactive: a tooltip is something to read, never something to
+          // click, and an interactive one sitting over the next chart cell
+          // catches the pointer and keeps the stale card open.
+          defaultProps: {
+            disableInteractive: true,
+            slots: { transition: Fade },
+            slotProps: { transition: { timeout: { enter: MOTION.base, exit: MOTION.fast } } }
+          },
           styleOverrides: {
             tooltip: {
               backgroundColor: '#262d3a',
@@ -277,6 +305,17 @@ function App(): React.JSX.Element {
             body: {
               WebkitFontSmoothing: 'antialiased'
             },
+            // One switch for everyone who asked the system for less motion:
+            // transitions and animations become instant everywhere, including
+            // the inline ones MUI's transition components set from JS.
+            '@media (prefers-reduced-motion: reduce)': {
+              '*, *::before, *::after': {
+                animationDuration: '0.01ms !important',
+                animationIterationCount: '1 !important',
+                transitionDuration: '0.01ms !important',
+                scrollBehavior: 'auto !important'
+              }
+            },
             '.MuiButtonBase-root.Mui-focusVisible': {
               outline: '2px solid rgba(144,202,249,0.6)',
               outlineOffset: 2
@@ -296,7 +335,7 @@ function App(): React.JSX.Element {
               // groove keeps its hit area while the visible thumb stays slim.
               border: '3px solid transparent',
               backgroundClip: 'content-box',
-              transition: 'background-color 0.2s'
+              transition: `background-color ${MOTION.fast}ms`
             },
             '*::-webkit-scrollbar-thumb:hover': {
               backgroundColor: thumbHoverColor
@@ -419,7 +458,7 @@ function App(): React.JSX.Element {
                     pointerEvents: 'none',
                     transition: (t) =>
                       t.transitions.create(['transform', 'height'], {
-                        duration: 250,
+                        duration: MOTION.slow,
                         easing: t.transitions.easing.easeInOut
                       }),
                     '@media (prefers-reduced-motion: reduce)': { transition: 'none' }
@@ -460,7 +499,7 @@ function App(): React.JSX.Element {
                     sx={{
                       minWidth: 0,
                       color: currentPage === key ? 'primary.main' : 'text.secondary',
-                      transition: (t) => t.transitions.create('color', { duration: 250 })
+                      transition: (t) => t.transitions.create('color', { duration: MOTION.slow })
                     }}
                   >
                     {icon}

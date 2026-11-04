@@ -1,6 +1,7 @@
 import { Button, type ButtonProps } from '@mui/material'
 import { alpha, type Theme } from '@mui/material/styles'
 import React from 'react'
+import { MOTION } from './motion'
 
 /**
  * The app's button, in the restrained style of current desktop software: a
@@ -89,7 +90,7 @@ const SoftButton = React.forwardRef<HTMLButtonElement, Props>(function SoftButto
             lineHeight: 1,
             whiteSpace: 'nowrap',
             transition: t.transitions.create(['background-color', 'border-color', 'color'], {
-              duration: 120
+              duration: MOTION.fast
             }),
             ...base,
             '&.Mui-focusVisible': {

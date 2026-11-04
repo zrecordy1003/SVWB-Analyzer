@@ -41,6 +41,7 @@ import {
 } from './deckSelection'
 
 import type { RangeKey } from '@shared/types'
+import { motion } from '../motion'
 
 /**
  * 時間區間送回去的補丁。刻意只描述這三個欄位，不綁哪一頁的 filters 型別 -
@@ -433,7 +434,7 @@ export function DeckEditor({
                   <ExpandMoreRoundedIcon
                     fontSize="small"
                     sx={{
-                      transition: 'transform .16s',
+                      transition: motion(['transform'], 'base'),
                       transform: isOpen ? 'rotate(180deg)' : 'none'
                     }}
                   />

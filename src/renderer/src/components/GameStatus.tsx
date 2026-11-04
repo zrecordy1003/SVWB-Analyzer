@@ -2,7 +2,7 @@ import { useSvwbStatus } from '@renderer/hooks/useSvwbStatus'
 
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
-import { CircularProgress, Zoom } from '@mui/material'
+import { CircularProgress } from '@mui/material'
 import type { SvgIconComponent } from '@mui/icons-material'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined'
@@ -63,7 +63,6 @@ const GameStatus: React.FC<Props> = () => {
       title={`${state.label}：${state.detail}`}
       placement="right"
       slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
-      slots={{ transition: Zoom }}
     >
       <Box
         width="100%"

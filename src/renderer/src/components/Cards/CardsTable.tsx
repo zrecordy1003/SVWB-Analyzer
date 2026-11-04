@@ -30,6 +30,7 @@ import EmptyState from '@renderer/components/Common/EmptyState'
 
 import type { CardRow, CardsSort, CardsSortKey } from './cardsFilterState'
 import { fmtDelta, fmtRate, KIND_LABEL, RARITY_LABEL } from './cardsFormat'
+import { motion } from '../Common/motion'
 
 const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
@@ -266,7 +267,7 @@ function CardLine({
         // 開了「顯示樣本不足的卡」才看得到的列：灰階，還在，但先別把它讀成結論。
         opacity: row.lowSample ? 0.55 : 1,
         filter: row.lowSample ? 'grayscale(0.6)' : 'none',
-        transition: 'background-color .14s',
+        transition: motion(['background-color'], 'fast'),
         '&:hover': { bgcolor: selected ? 'action.selected' : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
         '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 }
@@ -431,7 +432,7 @@ function HeaderCell({
           sx={{
             fontSize: 13,
             flexShrink: 0,
-            transition: 'transform .18s',
+            transition: motion(['transform'], 'base'),
             transform: sort.descending ? 'none' : 'rotate(180deg)'
           }}
         />

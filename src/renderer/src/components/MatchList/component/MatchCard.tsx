@@ -15,6 +15,7 @@ import InlineDeckSelect, { type InlineDeckOption } from './InlineDeckSelect'
 import OpeningHandStrip from './OpeningHandStrip'
 import type { OpeningHandView } from '@shared/ipc'
 import type { MatchRow } from '../types'
+import { motion } from '../../Common/motion'
 
 /**
  * A compact play-order header, matchup block (class over deck), and one meta row, so every card is this
@@ -322,7 +323,7 @@ const MatchCard: React.FC<Props> = ({
         borderRadius: '10px',
         bgcolor: '#151a22',
         borderColor: 'rgba(255,255,255,0.07)',
-        transition: 'background-color 150ms ease, border-color 150ms ease',
+        transition: motion(['background-color', 'border-color'], 'fast'),
         // Hover only lifts the surface a step; the result colour stays in the
         // result column instead of outlining the whole card.
         '&:hover': {
@@ -353,7 +354,7 @@ const MatchCard: React.FC<Props> = ({
           zIndex: 2,
           opacity: 0,
           pointerEvents: 'none',
-          transition: 'opacity 160ms ease-out',
+          transition: motion(['opacity'], 'fast'),
           '@media (prefers-reduced-motion: reduce)': { transition: 'none' }
         }}
       >

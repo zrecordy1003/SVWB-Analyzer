@@ -1,6 +1,7 @@
 import React from 'react'
 import { Box } from '@mui/material'
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded'
+import { motion } from '../../../components/Common/motion'
 
 /**
  * The list is deliberately only five rows, so it has to say where the rest
@@ -30,13 +31,13 @@ const MatchHistoryLink: React.FC = () => (
       textDecoration: 'underline',
       textDecorationColor: 'rgba(181,192,204,0.4)',
       textUnderlineOffset: '3px',
-      transition: 'color 160ms ease-out',
+      transition: motion(['color'], 'fast'),
       '&:hover, &:focus-visible': {
         color: '#66D8F5',
         textDecorationColor: '#66D8F5'
       },
       '&:hover svg, &:focus-visible svg': { transform: 'translateX(2px)' },
-      '& svg': { fontSize: 13, transition: 'transform 160ms ease-out' },
+      '& svg': { fontSize: 13, transition: motion(['transform'], 'fast') },
       '@media (prefers-reduced-motion: reduce)': {
         transition: 'none',
         '& svg': { transition: 'none' }

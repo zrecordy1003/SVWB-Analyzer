@@ -1,6 +1,7 @@
 import React from 'react'
 import { ButtonBase, ListSubheader, Menu, MenuItem, Typography } from '@mui/material'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
+import { motion } from '../../Common/motion'
 
 /**
  * 卡片上牌組欄的固定字串，也是這個下拉的觸發區。短到只有三個字，是為了讓整個
@@ -67,7 +68,7 @@ const InlineDeckSelect: React.FC<Props> = ({ klass, options, onSelect }) => {
           px: 0.25,
           ml: -0.25,
           color: 'text.disabled',
-          transition: 'color 140ms ease-out, background-color 140ms ease-out',
+          transition: motion(['color', 'background-color'], 'fast'),
           '&:hover, &.Mui-focusVisible': {
             color: 'text.secondary',
             backgroundColor: 'rgba(255,255,255,0.06)'

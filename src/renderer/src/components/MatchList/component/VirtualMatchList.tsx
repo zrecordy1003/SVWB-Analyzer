@@ -10,6 +10,7 @@ import MatchCard, { MATCH_CARD_CONTENT_HEIGHT } from './MatchCard'
 import type { InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
 import type { OpeningHandMap } from '../hooks/useInfiniteMatches'
+import { EASE, MOTION, motion } from '../../Common/motion'
 
 const LOAD_MORE_THRESHOLD = 5
 /** 卡片內容 + 上下框線 + 列間距，每張卡片都一樣高 */
@@ -190,7 +191,7 @@ const VirtualMatchList: React.FC<Props> = ({
         sx={{
           height: '100%',
           opacity: refreshing ? 0.55 : 1,
-          transition: 'opacity 160ms ease-out',
+          transition: motion(['opacity'], 'base'),
           overflowY: 'auto',
           overscrollBehaviorY: 'contain',
           scrollbarWidth: 'none',
@@ -247,7 +248,7 @@ const VirtualMatchList: React.FC<Props> = ({
             display="flex"
             justifyContent="center"
             py={2}
-            sx={{ animation: 'match-list-loading-in 180ms ease-out both' }}
+            sx={{ animation: `match-list-loading-in ${MOTION.base}ms ${EASE} both` }}
           >
             <CircularProgress size={20} />
           </Box>
@@ -297,7 +298,7 @@ const VirtualMatchList: React.FC<Props> = ({
             backgroundColor: 'rgba(197, 215, 238, 0.72)',
             boxShadow: '0 1px 5px rgba(0,0,0,0.28)',
             willChange: 'transform, opacity',
-            transition: 'opacity 360ms ease-out, background-color 140ms ease-out'
+            transition: `${motion(['opacity'], 'base')}, ${motion(['background-color'], 'fast')}`
           }}
         />
       </Box>

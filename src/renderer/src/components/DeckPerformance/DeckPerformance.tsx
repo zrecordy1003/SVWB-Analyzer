@@ -43,6 +43,7 @@ import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import { readSetting } from '@renderer/components/Analyzer/filterState'
 import { useDecksTags, type DeckLite } from '../../hooks/useDecksTags'
 import { deckStatsResource } from '@renderer/resources'
+import { motion } from '../Common/motion'
 
 type SplitRecord = { total: number; wins: number }
 type DeckStat = {
@@ -622,7 +623,7 @@ const DeckPerformance = (): React.JSX.Element => {
                     color: 'text.secondary',
                     borderBottom: '1px solid',
                     borderColor: 'divider',
-                    transition: 'background-color .14s, color .14s',
+                    transition: motion(['background-color', 'color'], 'fast'),
                     '&:hover': { color: 'primary.light', bgcolor: 'action.hover' }
                   }}
                 >

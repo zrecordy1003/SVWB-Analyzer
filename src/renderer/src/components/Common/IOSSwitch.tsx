@@ -11,6 +11,7 @@
  */
 import { Switch, type SwitchProps } from '@mui/material'
 import { alpha, styled } from '@mui/material/styles'
+import { MOTION } from './motion'
 
 /** iOS 的系統綠。刻意不用 primary：按鈕與 chip 已經是藍的，開關再用藍色，
  *  「這是可按的東西」和「這項是開著的」就會長得一樣。 */
@@ -30,7 +31,7 @@ export const IOSSwitch = styled((props: SwitchProps) => (
   margin: '0 10px 0 12px',
   '& .MuiSwitch-switchBase': {
     padding: 3,
-    transitionDuration: '220ms',
+    transitionDuration: `${MOTION.base}ms`,
     '&.Mui-checked': {
       transform: 'translateX(18px)',
       color: '#fff',
@@ -64,7 +65,7 @@ export const IOSSwitch = styled((props: SwitchProps) => (
     borderRadius: 13,
     backgroundColor: alpha(theme.palette.common.white, 0.2),
     opacity: 1,
-    transition: theme.transitions.create(['background-color'], { duration: 220 })
+    transition: theme.transitions.create(['background-color'], { duration: MOTION.base })
   }
 }))
 

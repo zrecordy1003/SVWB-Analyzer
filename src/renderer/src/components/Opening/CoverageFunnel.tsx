@@ -26,6 +26,7 @@ import type { OpeningSummary } from '@shared/openingStats'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 
 import { NUMERIC } from './openingFormat'
+import { motion } from '../Common/motion'
 
 type Step = {
   key: 'matches' | 'preComplete' | 'complete' | 'withDeck'
@@ -142,7 +143,7 @@ export default function CoverageFunnel({
                       // Each nested step a shade quieter than the one above,
                       // so the funnel also reads top-to-bottom by weight.
                       opacity: isDeck ? 0.55 : 0.85 - i * 0.15,
-                      transition: 'width .3s'
+                      transition: motion(['width'], 'slow')
                     }}
                   />
                 </Box>

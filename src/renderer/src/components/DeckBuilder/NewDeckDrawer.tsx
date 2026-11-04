@@ -59,6 +59,7 @@ import {
   HAIRLINE_BOTTOM,
   HAIRLINE_TOP
 } from '@renderer/components/Common/surfaces'
+import { motion } from '../Common/motion'
 
 function importErrorMessage(raw: string): string {
   if (raw.startsWith('INVALID_INPUT')) return '請貼上 4 碼牌組代碼、分享連結，或牌組 hash。'
@@ -338,7 +339,7 @@ export default function NewDeckDrawer({
                   borderRadius: 2.5,
                   bgcolor: 'rgba(255,255,255,0.04)',
                   pr: 0.75,
-                  transition: 'background-color .15s, box-shadow .15s',
+                  transition: motion(['background-color', 'box-shadow'], 'fast'),
                   '& fieldset': { borderColor: 'rgba(255,255,255,0.10)' },
                   '&:hover fieldset': { borderColor: 'rgba(255,255,255,0.20)' },
                   '&.Mui-focused': {
@@ -387,7 +388,7 @@ export default function NewDeckDrawer({
                     border: '1px solid rgba(122,162,247,0.35)',
                     bgcolor: 'rgba(122,162,247,0.10)',
                     color: 'primary.light',
-                    transition: 'background-color .15s, border-color .15s',
+                    transition: motion(['background-color', 'border-color'], 'fast'),
                     '&:hover': {
                       bgcolor: 'rgba(122,162,247,0.2)',
                       borderColor: 'rgba(122,162,247,0.6)'
@@ -461,7 +462,7 @@ export default function NewDeckDrawer({
               cursor: busy ? 'default' : 'pointer',
               border: '1px dashed rgba(255,255,255,0.22)',
               backgroundColor: 'rgba(255,255,255,0.015)',
-              transition: 'border-color .15s, background-color .15s, color .15s',
+              transition: motion(['border-color', 'background-color', 'color'], 'fast'),
               '&:hover': {
                 borderColor: 'rgba(140,180,255,0.55)',
                 backgroundColor: 'rgba(122,162,247,0.07)'

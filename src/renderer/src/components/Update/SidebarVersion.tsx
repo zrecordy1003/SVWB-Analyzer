@@ -27,6 +27,7 @@ import { alpha } from '@mui/material/styles'
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import { useUpdateStatus } from './updateContext'
+import { MOTION } from '../Common/motion'
 
 /** Reserved for the status line, so the version above it cannot be nudged. */
 const STATUS_SLOT_HEIGHT = 20
@@ -94,7 +95,7 @@ const SidebarVersion: React.FC = () => {
         py: 0.5,
         borderRadius: 1.5,
         cursor: clickable ? 'pointer' : 'default',
-        transition: t.transitions.create(['background-color'], { duration: 160 }),
+        transition: t.transitions.create(['background-color'], { duration: MOTION.fast }),
         // A disabled ButtonBase dims itself; the geometry has to stay identical
         // across all three states, and so does the text.
         '&.Mui-disabled': { opacity: 1 },

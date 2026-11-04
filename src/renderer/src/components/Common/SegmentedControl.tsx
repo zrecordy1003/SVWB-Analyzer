@@ -12,6 +12,7 @@
  */
 import React from 'react'
 import { Box, ButtonBase, Typography } from '@mui/material'
+import { motion } from './motion'
 
 export type Segment<T extends string> = {
   id: T
@@ -59,7 +60,7 @@ export function SegmentedControl<T extends string>({
         bgcolor: 'action.hover',
         border: '1px solid',
         borderColor: error ? 'error.main' : 'divider',
-        transition: 'border-color .15s'
+        transition: motion(['border-color'], 'fast')
       }}
     >
       {/* 浮片。用 transform 移動而不是換每段的底色：位置本身就是動畫，
@@ -74,7 +75,7 @@ export function SegmentedControl<T extends string>({
             left: '3px',
             width: `calc(${segmentWidth}% - 3px)`,
             transform: `translateX(${index * 100}%)`,
-            transition: 'transform .22s cubic-bezier(.32,.72,0,1)',
+            transition: motion(['transform'], 'slow'),
             '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
             borderRadius: 1.5,
             bgcolor: 'rgba(255,255,255,0.12)',
@@ -100,7 +101,8 @@ export function SegmentedControl<T extends string>({
               gap: 0.75,
               borderRadius: 1.5,
               color: selected ? 'text.primary' : 'text.secondary',
-              transition: 'color .18s',
+              // Same speed as the indicator, so the label lights up as it arrives.
+              transition: motion(['color'], 'slow'),
               '&:hover': { color: 'text.primary' }
             }}
           >

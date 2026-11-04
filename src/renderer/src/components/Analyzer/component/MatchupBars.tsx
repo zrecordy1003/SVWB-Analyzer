@@ -40,6 +40,7 @@ import {
 } from '../matchupRows'
 
 import type { RankedWinrateByOpponent } from '@shared/types'
+import { motion } from '../../Common/motion'
 
 /**
  * 尺規是完整的 0% – 100%，長度因此就是勝率本身，不需要換算。
@@ -147,7 +148,7 @@ function SideBar({
               borderRadius: '2px',
               bgcolor: color,
               opacity: 0.85,
-              transition: 'width .3s ease',
+              transition: motion(['width'], 'slow'),
               '@media (prefers-reduced-motion: reduce)': { transition: 'none' }
             }}
           />
@@ -326,7 +327,7 @@ function MatchupBarRow({
           py: 0.75,
           borderRadius: 1,
           cursor: onClick ? 'pointer' : 'default',
-          transition: 'background-color .12s',
+          transition: motion(['background-color'], 'fast'),
           '&:hover': { bgcolor: 'rgba(255,255,255,0.035)' }
         }}
       >

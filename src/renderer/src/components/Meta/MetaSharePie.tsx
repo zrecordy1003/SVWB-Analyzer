@@ -35,6 +35,7 @@ import { Box, Tooltip, Typography, useTheme } from '@mui/material'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 
 import type { MetaClassRow } from './metaModel'
+import { motion } from '../Common/motion'
 
 const SIZE = 200
 const CX = SIZE / 2
@@ -198,7 +199,7 @@ export default function MetaSharePie({
                   stroke={gap}
                   strokeWidth={1.5}
                   opacity={isHighlighted ? 1 : dimmed ? 0.4 : 0.85}
-                  style={{ transition: 'opacity .15s' }}
+                  style={{ transition: motion(['opacity'], 'fast') }}
                 />
                 {row.share >= LABEL_MIN_SHARE && (
                   <text
@@ -210,7 +211,11 @@ export default function MetaSharePie({
                     fontWeight={700}
                     fill="rgba(0,0,0,0.78)"
                     opacity={dimmed ? 0.4 : 1}
-                    style={{ ...NUMERIC, pointerEvents: 'none', transition: 'opacity .15s' }}
+                    style={{
+                      ...NUMERIC,
+                      pointerEvents: 'none',
+                      transition: motion(['opacity'], 'fast')
+                    }}
                   >
                     {row.share.toFixed(1)}%
                   </text>

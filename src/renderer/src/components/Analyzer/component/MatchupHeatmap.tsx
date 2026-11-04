@@ -45,6 +45,7 @@ import {
 } from '../matchupRows'
 
 import type { RankedWinrateByOpponent } from '@shared/types'
+import { motion } from '../../Common/motion'
 
 type MatchupHeatmapProps = {
   data: RankedWinrateByOpponent | null | undefined
@@ -204,7 +205,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
           cursor: 'pointer',
           userSelect: 'none',
           color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)',
-          transition: 'color .15s',
+          transition: motion(['color'], 'fast'),
           '&:hover': { color: 'rgba(255,255,255,0.9)' }
         }}
       >
@@ -442,7 +443,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
                 px: 1,
                 py: 0.5,
                 borderRadius: 1,
-                transition: 'background-color .12s',
+                transition: motion(['background-color'], 'fast'),
                 '&:hover': { bgcolor: 'rgba(255,255,255,0.035)' }
               }}
             >

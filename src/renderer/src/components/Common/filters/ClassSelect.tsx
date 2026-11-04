@@ -16,6 +16,7 @@ import { NEUTRAL_TONE } from '@renderer/components/Common/classTone'
 import { DROPDOWN_ITEM_SX, DROPDOWN_PAPER_SX } from './dropdownSurface'
 
 import type { ClassName } from '@shared/domain'
+import { motion } from '../motion'
 
 /** 不篩職業。牌組戰績要得到它，分析器沒有 - 那裡沒有職業就畫不出圖。 */
 export type ClassChoiceId = ClassName | 'all'
@@ -69,13 +70,13 @@ export function ClassSelect<T extends ClassChoiceId = ClassName>({
         minWidth: 156,
         borderRadius: 2,
         bgcolor: 'action.hover',
-        transition: 'background-color .15s, box-shadow .15s',
+        transition: motion(['background-color', 'box-shadow'], 'fast'),
         '&:hover': { bgcolor: 'action.selected' },
         '& .MuiSelect-select': { display: 'flex', alignItems: 'center', py: 0, pl: 1.5 },
         '& .MuiOutlinedInput-notchedOutline': { borderColor: 'divider' },
         '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: 'text.disabled' },
         '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderWidth: 1 },
-        '& .MuiSelect-icon': { transition: 'transform .2s', color: 'text.secondary' }
+        '& .MuiSelect-icon': { transition: motion(['transform'], 'base'), color: 'text.secondary' }
       }}
     >
       {options.map((option) => (

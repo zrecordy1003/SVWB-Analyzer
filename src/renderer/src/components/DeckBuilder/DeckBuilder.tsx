@@ -66,6 +66,7 @@ import { invokeIpc } from '@renderer/ipc'
 import ConfirmDialog from '@renderer/components/Common/ConfirmDialog'
 import { deckErrorMessage } from '@renderer/components/DeckCards/deckErrorMessage'
 import type { DeckSaveLocalResult } from '@shared/decks'
+import { motion } from '../Common/motion'
 
 /** A full deck is 40 cards; the portal enforces the same number. */
 const DECK_SIZE = 40
@@ -107,7 +108,7 @@ function DeckNameField({
         bgcolor: 'action.hover',
         border: '1px solid',
         borderColor: 'divider',
-        transition: 'background-color .15s, border-color .15s',
+        transition: motion(['background-color', 'border-color'], 'fast'),
         '&:hover': { bgcolor: 'action.selected', borderColor: 'text.disabled' },
         '&:focus-within': { borderColor: 'primary.main', bgcolor: 'action.selected' }
       }}
@@ -168,7 +169,7 @@ function CountStepper({
     fontWeight: 900,
     lineHeight: 1,
     color: onBanner ? '#fff' : 'text.secondary',
-    transition: 'background-color .12s, color .12s',
+    transition: motion(['background-color', 'color'], 'fast'),
     '&:hover': {
       bgcolor: onBanner ? 'rgba(255,255,255,0.22)' : 'action.selected',
       color: 'text.primary'
@@ -1057,7 +1058,7 @@ function PoolGrid({
                     : 'none',
                 cursor: disabled ? 'default' : 'pointer',
                 opacity: disabled ? 0.4 : 1,
-                transition: 'transform .12s, box-shadow .12s, border-color .12s',
+                transition: motion(['transform', 'box-shadow', 'border-color'], 'fast'),
                 '&:hover': disabled ? undefined : { transform: 'translateY(-2px)' },
                 // The art's own proportions, so nothing is cropped or stretched.
                 aspectRatio: showImages ? '530 / 687' : undefined,

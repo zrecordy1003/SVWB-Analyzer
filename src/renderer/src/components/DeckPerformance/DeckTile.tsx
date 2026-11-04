@@ -25,6 +25,7 @@ import React from 'react'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classTone } from '@renderer/components/Common/classTone'
 import { classesMap } from '@renderer/map/classMap'
+import { motion } from '../Common/motion'
 
 /**
  * Recognise the common archetypes in a free-text category name.
@@ -104,7 +105,7 @@ export default function DeckTile({
         // as its class rather than as an empty box.
         backgroundColor: '#141926',
         backgroundImage: `linear-gradient(100deg, ${tone}26 0%, ${tone}0a 45%, rgba(0,0,0,0) 70%)`,
-        transition: 'transform .14s, box-shadow .14s, border-color .14s',
+        transition: motion(['transform', 'box-shadow', 'border-color'], 'fast'),
         '&:hover': {
           transform: 'translateY(-2px)',
           borderColor: `${tone}66`,

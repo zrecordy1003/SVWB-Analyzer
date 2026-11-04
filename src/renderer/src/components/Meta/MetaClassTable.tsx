@@ -36,6 +36,7 @@ import { classTextSx } from '@renderer/map/classMap'
 import { SWING_THRESHOLD, rateColor } from '@renderer/components/Analyzer/matchupRows'
 
 import type { MetaClassRow, MetaSideSplit } from './metaModel'
+import { motion } from '../Common/motion'
 
 const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
@@ -256,7 +257,7 @@ export default function MetaClassTable({
                 // 被選是底色，被滑到是 hover 色 - 兩者疊在同一列時被選的贏，
                 // 因為那是會影響下方那張圖的狀態。
                 bgcolor: active ? 'action.selected' : lit ? 'action.hover' : 'transparent',
-                transition: 'background-color .15s',
+                transition: motion(['background-color'], 'fast'),
                 '&:focus-visible': { boxShadow: '0 0 0 2px rgba(144,202,249,0.5) inset' }
               }}
             >

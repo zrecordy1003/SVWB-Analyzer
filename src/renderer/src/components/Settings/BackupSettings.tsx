@@ -7,6 +7,7 @@ import DataRow from './DataRow'
 import SoftButton from '../Common/SoftButton'
 import AppDialog from '../Common/AppDialog'
 import { PANEL_SX, noteSx } from '../Common/surfaces'
+import { motion } from '../Common/motion'
 
 /**
  * The automatic local backups, and putting one back: a row in the 資料管理 card
@@ -171,7 +172,7 @@ const BackupSettings: React.FC<{ dataVersion: number; onDataChanged(): void }> =
                       outline: 'none',
                       borderTop: i === 0 ? 'none' : '1px solid rgba(255,255,255,0.06)',
                       bgcolor: on ? 'rgba(240,180,80,0.08)' : 'transparent',
-                      transition: 'background-color 120ms',
+                      transition: motion(['background-color'], 'fast'),
                       '&:hover': {
                         bgcolor: on ? 'rgba(240,180,80,0.11)' : 'rgba(255,255,255,0.03)'
                       },
@@ -191,7 +192,7 @@ const BackupSettings: React.FC<{ dataVersion: number; onDataChanged(): void }> =
                         fontSize: 18,
                         color: '#f0b450',
                         opacity: on ? 1 : 0,
-                        transition: 'opacity 120ms'
+                        transition: motion(['opacity'], 'fast')
                       }}
                     />
                   </Box>

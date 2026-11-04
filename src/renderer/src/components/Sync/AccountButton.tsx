@@ -18,6 +18,7 @@ import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined'
 import LogoutIcon from '@mui/icons-material/Logout'
 import React, { useCallback, useEffect, useState } from 'react'
 import type { SyncStatus } from '@shared/sync'
+import { motion } from '../Common/motion'
 
 /**
  * The account card at the top-left of the title bar.
@@ -48,7 +49,7 @@ const cardSx = {
   borderRadius: 2,
   bgcolor: 'rgba(255,255,255,0.12)',
   border: '1px solid rgba(255,255,255,0.22)',
-  transition: 'background-color .15s, border-color .15s',
+  transition: motion(['background-color', 'border-color'], 'fast'),
   '&:hover': { bgcolor: 'rgba(255,255,255,0.2)', borderColor: 'rgba(255,255,255,0.35)' },
   '&.Mui-disabled': { opacity: 0.6, color: 'inherit' }
 } as const

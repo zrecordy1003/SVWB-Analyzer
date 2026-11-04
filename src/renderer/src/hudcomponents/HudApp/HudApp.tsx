@@ -38,6 +38,7 @@ import { classesMap } from '@renderer/map/classMap'
 import type { GameMode } from '@shared/domain'
 import type { BattleStatus, GameStatus } from '@shared/types'
 import { invokeIpc } from '@renderer/ipc'
+import { EASE, MOTION, motion } from '../../components/Common/motion'
 
 /**
  * The header buttons are chrome, not content: at the default size they were the
@@ -82,6 +83,19 @@ const HudApp: React.FC = () => {
     const thumbColor = '#555'
 
     return createTheme({
+      // Same speeds as the main window, so MUI's own transitions match ours.
+      transitions: {
+        duration: {
+          shortest: MOTION.fast,
+          shorter: MOTION.fast,
+          short: MOTION.base,
+          standard: MOTION.base,
+          complex: MOTION.slow,
+          enteringScreen: MOTION.base,
+          leavingScreen: MOTION.fast
+        },
+        easing: { easeOut: EASE }
+      },
       palette: {
         mode: 'dark',
         background: {
@@ -100,12 +114,23 @@ const HudApp: React.FC = () => {
       components: {
         MuiCssBaseline: {
           styleOverrides: {
+            // One switch for everyone who asked the system for less motion:
+            // transitions and animations become instant everywhere, including
+            // the inline ones MUI's transition components set from JS.
+            '@media (prefers-reduced-motion: reduce)': {
+              '*, *::before, *::after': {
+                animationDuration: '0.01ms !important',
+                animationIterationCount: '1 !important',
+                transitionDuration: '0.01ms !important',
+                scrollBehavior: 'auto !important'
+              }
+            },
             // Global background and text color transition
             body: {
               fontFamily:
                 '"Noto Sans TC", "Segoe UI", -apple-system, BlinkMacSystemFont, system-ui, sans-serif',
               backgroundColor: 'transparent',
-              transition: 'background-color 180ms ease-out, color 180ms ease-out'
+              transition: motion(['background-color', 'color'], 'base')
             },
             // Custom scrollbar styling with transition
             '*::-webkit-scrollbar': {
@@ -114,12 +139,12 @@ const HudApp: React.FC = () => {
             },
             '*::-webkit-scrollbar-track': {
               backgroundColor: trackColor,
-              transition: 'background-color 0.3s'
+              transition: motion(['background-color'], 'fast')
             },
             '*::-webkit-scrollbar-thumb': {
               backgroundColor: thumbColor,
               borderRadius: '4px',
-              transition: 'background-color 0.3s'
+              transition: motion(['background-color'], 'fast')
             }
           }
         }
@@ -502,7 +527,7 @@ const HudApp: React.FC = () => {
                 '& svg': {
                   ...HEADER_BUTTON_SX['& svg'],
                   transform: 'rotate(0deg)',
-                  transition: 'transform 180ms ease-out'
+                  transition: motion(['transform'], 'base')
                 },
                 '&:hover svg, &:focus-visible svg': { transform: 'rotate(90deg)' },
                 '@media (prefers-reduced-motion: reduce)': { '& svg': { transition: 'none' } }

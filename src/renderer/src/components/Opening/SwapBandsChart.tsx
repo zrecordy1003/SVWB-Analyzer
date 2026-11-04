@@ -28,6 +28,7 @@ import { wilsonInterval } from '@renderer/components/Analyzer/confidence'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 
 import { fmtN, NUMERIC, rateTone } from './openingFormat'
+import { motion } from '../Common/motion'
 
 type Split = 'all' | 'first' | 'second'
 
@@ -182,7 +183,7 @@ export default function SwapBandsChart({
                         borderRadius: 0.75,
                         bgcolor: 'primary.main',
                         opacity: 0.7,
-                        transition: 'width .3s',
+                        transition: motion(['width'], 'slow'),
                         flexShrink: 1
                       }}
                     />

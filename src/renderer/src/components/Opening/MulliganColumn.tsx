@@ -86,6 +86,7 @@ import {
 } from './mulliganState'
 import { ART_WINDOW_RATIO, artWindowImageSx } from '@renderer/components/Common/cardArtWindow'
 import { fmtDelta, fmtPct, fmtRate, NUMERIC } from './openingFormat'
+import { motion } from '../Common/motion'
 
 /* ------------------------------------------------------------------- art */
 
@@ -209,7 +210,7 @@ function RowShell({
         minHeight: dense ? 36 : 52,
         borderRadius: 1.5,
         bgcolor: selected ? 'action.selected' : 'transparent',
-        transition: 'background-color .14s',
+        transition: motion(['background-color'], 'fast'),
         '&:hover': { bgcolor: selected ? 'action.selected' : 'action.hover' },
         '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 }
       }}
@@ -598,7 +599,7 @@ function RestLine({
           sx={{
             fontSize: 18,
             color: 'text.disabled',
-            transition: 'transform .18s',
+            transition: motion(['transform'], 'base'),
             transform: open ? 'rotate(180deg)' : 'none'
           }}
         />

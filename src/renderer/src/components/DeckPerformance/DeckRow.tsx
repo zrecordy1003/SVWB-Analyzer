@@ -26,6 +26,7 @@ import { classTone } from '@renderer/components/Common/classTone'
 import { rateColor } from '@renderer/components/Analyzer/matchupRows'
 import { playOrders } from '@renderer/map/playOrder'
 import type { DeckTileData } from './DeckTile'
+import { motion } from '../Common/motion'
 
 /** 一半的成績：先攻或後攻。 */
 export type SplitRecord = { total: number; wins: number }
@@ -227,7 +228,7 @@ export default function DeckRow({
         overflow: 'hidden',
         borderBottom: expanded ? 'none' : '1px solid',
         borderColor: 'divider',
-        transition: 'background-color .14s',
+        transition: motion(['background-color'], 'fast'),
         // 封存的牌組灰階：還在清單裡（戰績要看得到），但已經不是一副在打的牌。
         opacity: deck.archived ? 0.6 : 1,
         filter: deck.archived ? 'grayscale(0.7)' : 'none',
@@ -250,7 +251,7 @@ export default function DeckRow({
             sx={{
               ml: -1,
               color: 'text.secondary',
-              transition: 'transform .18s',
+              transition: motion(['transform'], 'base'),
               transform: expanded ? 'rotate(180deg)' : 'none'
             }}
           >

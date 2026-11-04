@@ -51,6 +51,7 @@ import {
   remainingFor,
   sampleFor
 } from './openingFormat'
+import { motion } from '../Common/motion'
 
 /**
  * Column widths, in px. The card column takes what is left.
@@ -259,7 +260,7 @@ function CardLine({
         borderBottom: '1px solid',
         borderColor: 'divider',
         bgcolor: selected ? 'action.selected' : 'transparent',
-        transition: 'background-color .14s',
+        transition: motion(['background-color'], 'fast'),
         '&:hover': { bgcolor: selected ? 'action.selected' : 'action.hover' },
         '&:last-of-type': { borderBottom: 'none' },
         '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: -2 }
@@ -385,7 +386,7 @@ function HeaderCell({
             sx={{
               fontSize: 13,
               flexShrink: 0,
-              transition: 'transform .18s',
+              transition: motion(['transform'], 'base'),
               transform: sort.descending ? 'none' : 'rotate(180deg)'
             }}
           />

@@ -12,6 +12,7 @@
 import { Box, Stack, Typography } from '@mui/material'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import React from 'react'
+import { motion } from '../Common/motion'
 
 export default function AddDeckTile({ onClick }: { onClick: () => void }): React.JSX.Element {
   return (
@@ -34,7 +35,7 @@ export default function AddDeckTile({ onClick }: { onClick: () => void }): React
         color: 'text.secondary',
         border: '1px dashed rgba(255,255,255,0.22)',
         backgroundColor: 'rgba(255,255,255,0.015)',
-        transition: 'border-color .14s, background-color .14s, color .14s, transform .14s',
+        transition: motion(['border-color', 'background-color', 'color', 'transform'], 'fast'),
         '&:hover': {
           transform: 'translateY(-2px)',
           color: 'primary.light',

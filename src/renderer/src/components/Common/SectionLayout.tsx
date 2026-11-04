@@ -3,6 +3,7 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import React from 'react'
 import { PANEL_SX } from './surfaces'
 import IOSSwitch from './IOSSwitch'
+import { motion } from './motion'
 
 /**
  * The building blocks of the app's text pages (設定, 關於), in the layout current
@@ -72,7 +73,7 @@ export const SectionRow: React.FC<{
       minHeight: 56,
       cursor: asLabel && !disabled ? 'pointer' : undefined,
       opacity: disabled ? 0.5 : 1,
-      transition: 'opacity 150ms'
+      transition: motion(['opacity'], 'base')
     }}
   >
     <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -137,7 +138,7 @@ export const LinkRow: React.FC<{
       display: 'block',
       width: '100%',
       cursor: 'pointer',
-      transition: 'background-color 120ms',
+      transition: motion(['background-color'], 'fast'),
       '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
       '&:focus-visible': { boxShadow: 'inset 0 0 0 2px rgba(144,202,249,0.6)' }
     }}

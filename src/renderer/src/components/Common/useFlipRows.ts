@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from 'react'
+import { motion } from './motion'
 
 /**
  * 重新排序時讓每一列從舊位置滑到新位置（FLIP）。
@@ -36,7 +37,7 @@ export function useFlipRows(order: readonly string[]): (key: string) => (node: a
         node.style.transition = 'none'
         node.style.transform = `translateY(${delta}px)`
         requestAnimationFrame(() => {
-          node.style.transition = 'transform .32s cubic-bezier(.2,.8,.2,1)'
+          node.style.transition = motion(['transform'], 'slow')
           node.style.transform = ''
         })
       })

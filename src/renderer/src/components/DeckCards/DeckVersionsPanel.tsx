@@ -74,6 +74,7 @@ import {
   type DiffChip,
   type VersionLike
 } from './deckVersions'
+import { motion } from '../Common/motion'
 
 export type VersionDeckLike = VersionLike & {
   name: string
@@ -174,7 +175,7 @@ function ChangeChip({
         color: theme.palette[tone].light,
         fontSize: 12,
         fontWeight: 700,
-        transition: 'background-color .14s, border-color .14s',
+        transition: motion(['background-color', 'border-color'], 'fast'),
         '&:hover': {
           bgcolor: alpha(theme.palette[tone].main, 0.18),
           borderColor: alpha(theme.palette[tone].main, 0.7)
@@ -633,7 +634,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
                 // 刪掉的版本灰階：還在（戰績要看得到），但已經不是選項。
                 opacity: version.archived ? 0.6 : 1,
                 filter: version.archived ? 'grayscale(0.6)' : 'none',
-                transition: 'background-color .14s',
+                transition: motion(['background-color'], 'fast'),
                 '&:hover': {
                   bgcolor: isCurrent
                     ? alpha(theme.palette.primary.main, 0.1)

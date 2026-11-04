@@ -14,6 +14,7 @@ import DataRow from './DataRow'
 import SoftButton from '../Common/SoftButton'
 import AppDialog, { DANGER_ACCENT } from '../Common/AppDialog'
 import { noteSx } from '../Common/surfaces'
+import { motion } from '../Common/motion'
 
 /**
  * Clear recorded data: a row in the 資料管理 card, and a dialog to choose what goes.
@@ -98,7 +99,7 @@ const KindTile: React.FC<{
       border: '1px solid',
       borderColor: checked ? `${RED}8c` : 'rgba(255,255,255,0.08)',
       bgcolor: checked ? `${RED}14` : 'rgba(255,255,255,0.025)',
-      transition: 'background-color 140ms, border-color 140ms, box-shadow 140ms',
+      transition: motion(['background-color', 'border-color', 'box-shadow'], 'fast'),
       '&:hover': {
         bgcolor: checked ? `${RED}1c` : 'rgba(255,255,255,0.05)',
         borderColor: checked ? `${RED}b3` : 'rgba(255,255,255,0.16)'
@@ -113,7 +114,7 @@ const KindTile: React.FC<{
         sx={{
           display: 'grid',
           color: checked ? RED : 'text.secondary',
-          transition: 'color 140ms',
+          transition: motion(['color'], 'fast'),
           '& svg': { fontSize: 18 }
         }}
       >
@@ -131,8 +132,12 @@ const KindTile: React.FC<{
           borderColor: checked ? RED : 'rgba(255,255,255,0.28)',
           bgcolor: checked ? RED : 'transparent',
           color: '#fff',
-          transition: 'background-color 140ms, border-color 140ms',
-          '& svg': { fontSize: 13, opacity: checked ? 1 : 0, transition: 'opacity 140ms' }
+          transition: motion(['background-color', 'border-color'], 'fast'),
+          '& svg': {
+            fontSize: 13,
+            opacity: checked ? 1 : 0,
+            transition: motion(['opacity'], 'fast')
+          }
         }}
       >
         <CheckRoundedIcon />
