@@ -203,7 +203,9 @@ const VirtualMatchList: React.FC<Props> = ({
           }
         }}
       >
-        <Box sx={{ position: 'relative', height: virtualizer.getTotalSize() }}>
+        {/* Height in `style` for the same reason as each row's position below:
+            it changes with every page loaded, and `sx` would keep each value. */}
+        <Box sx={{ position: 'relative' }} style={{ height: virtualizer.getTotalSize() }}>
           {virtualItems.map((item) => {
             const match = rows[item.index]
             return (
@@ -211,12 +213,16 @@ const VirtualMatchList: React.FC<Props> = ({
                 key={match.id}
                 ref={virtualizer.measureElement}
                 data-index={item.index}
+                // The position goes in `style`, not `sx`: every value in `sx`
+                // becomes a CSS class that is never removed, so each new scroll
+                // offset left one more rule behind - about one per row scrolled
+                // past, for as long as the window stayed open.
+                style={{ transform: `translate3d(0, ${item.start}px, 0)` }}
                 sx={{
                   position: 'absolute',
                   top: 0,
                   left: 0,
                   width: '100%',
-                  transform: `translate3d(0, ${item.start}px, 0)`,
                   pb: 1.5,
                   willChange: 'transform',
                   contain: 'layout paint style',
