@@ -149,28 +149,34 @@ pub fn read(
     let no_hit = Hit { name: String::new(), score: -1.0, x: 0, y: 0 };
     let scored = |hit: Option<Hit>| hit.unwrap_or_else(|| no_hit.clone());
 
-    let own_class = scored(probe(cal::templates::CLASSES, cal::CLASSES_OWN));
-    let enemy_class = scored(probe(cal::templates::CLASSES, cal::CLASSES_ENEMY));
-    let own_emblem = scored(probe(cal::templates::EMBLEMS, cal::EMBLEMS_OWN));
-    let enemy_emblem = scored(probe(cal::templates::EMBLEMS, cal::EMBLEMS_ENEMY));
     let own_order = scored(probe(cal::templates::PLAY_ORDER, cal::PLAY_ORDER_OWN));
     let enemy_order = scored(probe(cal::templates::PLAY_ORDER, cal::PLAY_ORDER_ENEMY));
-
-    // Class and emblem are two views of the same fact, so either may carry it.
-    let my_class = best_above(&[&own_class, &own_emblem], threshold::CLASS)
-        .and_then(|hit| ClassName::from_template(&hit.name));
-    let oppo_class = best_above(&[&enemy_class, &enemy_emblem], threshold::CLASS)
-        .and_then(|hit| ClassName::from_template(&hit.name));
     let play_order = read_play_order(&own_order, &enemy_order);
 
     // All three or nothing: a match may only start when the whole screen was
     // read, and a partial versus screen is a frame caught mid-transition.
-    let versus = match (my_class, oppo_class, play_order) {
-        (Some(my_class), Some(oppo_class), Some(play_order)) => {
-            Some(VersusScreen { my_class, oppo_class, play_order })
-        }
-        _ => None,
-    };
+    //
+    // That rule is also what makes the class probes conditional. The four
+    // class/emblem windows were about half of a whole read (2026-11), and their
+    // only consumer is this versus screen - which cannot exist on a frame with
+    // no play-order overlay. So they run only once the overlay was read: the
+    // result is the same `versus` on every frame, at a fraction of the cost on
+    // all the frames that are not the versus screen. Gating on the frame rather
+    // than on the machine's phase keeps `read` phase-blind (see module docs),
+    // and keeps the preempt path in `Resolving` seeing every versus screen.
+    let versus = play_order.and_then(|play_order| {
+        let own_class = scored(probe(cal::templates::CLASSES, cal::CLASSES_OWN));
+        let enemy_class = scored(probe(cal::templates::CLASSES, cal::CLASSES_ENEMY));
+        let own_emblem = scored(probe(cal::templates::EMBLEMS, cal::EMBLEMS_OWN));
+        let enemy_emblem = scored(probe(cal::templates::EMBLEMS, cal::EMBLEMS_ENEMY));
+
+        // Class and emblem are two views of the same fact, so either may carry it.
+        let my_class = best_above(&[&own_class, &own_emblem], threshold::CLASS)
+            .and_then(|hit| ClassName::from_template(&hit.name))?;
+        let oppo_class = best_above(&[&enemy_class, &enemy_emblem], threshold::CLASS)
+            .and_then(|hit| ClassName::from_template(&hit.name))?;
+        Some(VersusScreen { my_class, oppo_class, play_order })
+    });
 
     // The mulligan panel, and which of its eight slots hold a card. Measured at
     // 1.31-1.38ms against a whole read of ~49ms, so it runs unconditionally like
