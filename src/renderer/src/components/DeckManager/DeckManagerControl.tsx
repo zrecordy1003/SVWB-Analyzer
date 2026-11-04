@@ -968,6 +968,9 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                                   }
                                   if (e.key === 'Escape') {
                                     e.preventDefault()
+                                    // 只取消改名：不攔的話這顆 Esc 會一路傳到抽屜，
+                                    // 連整個牌組管理一起關掉。
+                                    e.stopPropagation()
                                     cancelRename()
                                   }
                                 }}

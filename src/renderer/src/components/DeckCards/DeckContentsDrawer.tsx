@@ -84,8 +84,15 @@ export default function DeckContentsDrawer({
    * saved row rather than re-reading the frozen one.
    */
   const [viewDeckId, setViewDeckId] = React.useState<number | null>(deckId)
+  /**
+   * The name as last saved from here. `deckName` comes from the page that opened
+   * the drawer and is not re-read after an edit, so a rename in the builder left
+   * the old name in this header while the list behind it already had the new one.
+   */
+  const [savedName, setSavedName] = React.useState<string | null>(null)
   React.useEffect(() => {
     setViewDeckId(deckId)
+    setSavedName(null)
   }, [deckId, open])
 
   React.useEffect(() => {
@@ -164,7 +171,7 @@ export default function DeckContentsDrawer({
                 noWrap
                 sx={{ fontWeight: 800, fontSize: 17, lineHeight: 1.3 }}
               >
-                {deckName}
+                {savedName ?? deckName}
               </Typography>
               {/* 這副牌真的會動到的兩件事，貼著標題一起先看到 - 原本擠在底部
                   動作列，離牌名最遠、離視線最後，而它們才是打開這個抽屜最常見
@@ -298,6 +305,7 @@ export default function DeckContentsDrawer({
           // changed, and leaving the old one up would read as a failed save.
           // Follow the saved row - a fork is a new id.
           setViewDeckId(saved.id)
+          setSavedName(saved.name)
           setReloadKey((n) => n + 1)
           setSavedNotice(deckSavedMessage(saved))
           onSaved?.()
@@ -318,7 +326,7 @@ export default function DeckContentsDrawer({
       <DeckCodeDialog
         open={publishing}
         deckId={viewDeckId}
-        deckName={deckName}
+        deckName={savedName ?? deckName}
         zIndex={zIndex === undefined ? undefined : zIndex + 10}
         onClose={() => setPublishing(false)}
       />

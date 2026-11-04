@@ -225,7 +225,7 @@ const COST_BUCKETS = [0, 1, 2, 3, 4, 5, 6, 7] as const
 type Category = { id: string; name: string }
 
 /** 存檔後交給呼叫端的：寫到哪一列、是覆寫還是另存新版本（由 main 決定）。 */
-export type DeckSaved = Pick<DeckSaveLocalResult, 'id' | 'saveOutcome' | 'versionNumber'>
+export type DeckSaved = Pick<DeckSaveLocalResult, 'id' | 'name' | 'saveOutcome' | 'versionNumber'>
 
 /**
  * 「有沒有改過」的比較鍵：卡表、名稱、分類。職業與賽制不必另外算——換了它們
@@ -593,6 +593,7 @@ export default function DeckBuilder({
       if (!res?.ok) throw new Error(deckErrorMessage(res?.error))
       onSaved({
         id: Number(res.data.id),
+        name: res.data.name,
         saveOutcome: res.data.saveOutcome,
         versionNumber: res.data.versionNumber
       })
