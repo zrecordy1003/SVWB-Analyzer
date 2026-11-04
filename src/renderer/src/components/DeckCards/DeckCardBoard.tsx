@@ -227,7 +227,7 @@ export default function DeckCardBoard({
     return (
       <Box ref={containerRef} sx={{ height: '100%' }}>
         <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
-          {emptyText ?? '這副牌組沒有卡表資料。用「新增牌組」貼上牌組代碼或分享連結就會有。'}
+          {emptyText ?? '這副牌組沒有卡表。用「新增牌組」貼上牌組代碼或分享連結即可取得。'}
         </Typography>
       </Box>
     )

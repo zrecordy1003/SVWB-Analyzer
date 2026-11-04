@@ -247,7 +247,7 @@ function VerdictRow({
         <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 0.25, minWidth: 0 }}>
           {/* Copies, not matches - the handler's unit. The tooltip says so. */}
           <Tooltip
-            title={`換前手牌裡有它 ${advice.dealt} 張：留下 ${advice.kept}、換掉 ${swapped}。算的是張數不是場數。`}
+            title={`換牌前出現 ${advice.dealt} 張：留下 ${advice.kept} 張、換掉 ${swapped} 張（以張數計算）。`}
             placement="top"
             disableInteractive
           >
@@ -401,7 +401,7 @@ function LeaningRow({
         </Stack>
       </Box>
       <Tooltip
-        title={`估計 ${fmtDelta(advice.diff, 0)} 點，但區間仍跨過零：往${up ? '下' : '上'}還有 ${Math.round(gap)} 點在另一側。要成為建議，整個區間都得落在同一側。`}
+        title={`估計 ${fmtDelta(advice.diff, 0)} 個百分點，但區間仍跨過零，往${up ? '下' : '上'}還有 ${Math.round(gap)} 個百分點在另一側。整個區間落在同一側才會成為建議。`}
         placement="top"
         disableInteractive
       >
@@ -469,7 +469,7 @@ function RestRow({
         <MissingPill kind={advice.missing ?? 'unidentified'} />
       ) : (
         <Tooltip
-          title={`換前手牌裡出現 ${advice.dealt} 張，留下 ${advice.kept} 張。這是你的選擇紀錄，不是勝率——這張卡兩側其中一側不到 ${KEEP_THRESHOLDS.show} 張，還不能比勝率。`}
+          title={`換牌前出現 ${advice.dealt} 張，留下 ${advice.kept} 張。留下或換掉其中一邊不到 ${KEEP_THRESHOLDS.show} 張，還不能比較勝率。`}
           placement="top"
           disableInteractive
         >
@@ -654,7 +654,7 @@ function SoftHeader({
         <Box component="span" sx={{ ...NUMERIC, fontWeight: 800, color: 'text.primary' }}>
           {result.matches}
         </Box>{' '}
-        場，還沒有一張站得住的建議。
+        場，目前還沒有建議。
         {hasLeaning ? '以下是目前的傾向：' : '以下是你留牌的紀錄：'}
       </Typography>
       <InfoHint
@@ -662,7 +662,7 @@ function SoftHeader({
         title={
           <Hint>
             建議只在整個區間都落在零的同一側、而且差距超過 {KEEP_THRESHOLDS.minEffect}{' '}
-            個百分點時才出現。在那之前，下面這些數字是真的，但它們和「沒有差別」還分不開——把它們當成排序，不要當成結論。多打幾場，區間會收窄。
+            個百分點時才會出現。目前的數字還無法排除「沒有差別」，只能當作排序。多打幾場，區間會變窄。
           </Hint>
         }
       />
@@ -674,10 +674,10 @@ function SoftHeader({
 function NoCards({ result, pins }: { result: MulliganResult; pins: Pins }): React.JSX.Element {
   const text =
     result.matches === 0
-      ? `${questionLabel(pins)}還沒有讀到四張全認出的起手。只有換牌畫面有被讀到的對局才會進來，較早的對局沒有記錄換牌畫面${
-          pins.oppo ? '；換個對手看看，或多打幾場再回來。' : '；多打幾場再回來。'
+      ? `${questionLabel(pins)}還沒有四張都辨識出來的起手。較早的對局沒有換牌紀錄${
+          pins.oppo ? '。可以換個對手，或多打幾場再來看。' : '。多打幾場再來看。'
         }`
-      : `${questionLabel(pins)} ${result.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`
+      : `${questionLabel(pins)} ${result.matches} 場有讀到換牌畫面，但還沒辨識出任何卡片。卡圖資料建立完成後會自動補上。`
   return (
     <Typography
       variant="caption"
@@ -772,7 +772,7 @@ export default function MulliganColumn({
           title={
             <Hint>
               只列出整個 95%
-              區間都在零同一側的卡：全在零以上是「建議留」，全在零以下是「建議換」。旁邊的數字是留下時比換掉時的勝率差（百分點，已向零收縮）；小字是留與換各幾張。點一張卡看它的區間、兩側勝率和分段。
+              區間都在零同一側的卡：高於零為「建議留」，低於零為「建議換」。數字是留下比換掉高出的勝率（百分點，已向零收縮），小字是留與換各幾張。點選卡片可查看區間、兩側勝率與分段。
             </Hint>
           }
         />
@@ -782,7 +782,7 @@ export default function MulliganColumn({
         <Box sx={{ p: 1.5 }}>
           <EmptyState
             title="無法讀取統計"
-            description={`讀取${tone.label}的換牌建議時出錯了。再試一次；如果一直失敗，重新開啟 app。`}
+            description={`${tone.label}的換牌建議載入失敗，請再試一次。如果一直失敗，請重新開啟 SVWB Analyzer。`}
             icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
             action={
               <Button variant="outlined" size="small" onClick={onRetry}>
@@ -857,7 +857,7 @@ export default function MulliganColumn({
                       label="「傾向」是什麼"
                       title={
                         <Hint>
-                          有數字、但區間還跨過零：方向是目前資料偏的那一邊，還沒到能當建議的程度。右邊那條線畫的就是區間，中間那道是零——線跨過它，就表示「沒有差別」還在可能範圍內。
+                          區間還跨過零，只代表目前資料偏向的方向，還不足以當作建議。右側的線是區間，中間的直線是零；線跨過零，表示可能沒有差別。
                         </Hint>
                       }
                     />
@@ -905,7 +905,7 @@ export default function MulliganColumn({
                   title={
                     <Hint>
                       這幾張{pins.oppo ? `對上${pins.oppo}` : ''}
-                      的場數還不夠比，所以數字是把所有對手合起來算的：**如果這個對手跟其他對手沒兩樣**，才會是這個答案。同一批卡會出現在每一欄，數字也一樣；等這個對位的場次夠了，站得住的那些會自己移上去。
+                      的場數還不夠，數字是合併所有對手計算的，只在這個對手和其他對手差不多時適用。同一批卡會出現在每一欄，數字也相同；這個對位場數足夠後，結果明確的卡會自動移到上方。
                     </Hint>
                   }
                 />
@@ -922,7 +922,7 @@ export default function MulliganColumn({
                 <Typography
                   sx={{ px: 1.5, pb: 0.75, fontSize: 11, color: 'warning.light', lineHeight: 1.6 }}
                 >
-                  裡面的「換」要特別小心：一張只對某個對手有用的牌，合起來算本來就難看，
+                  其中的「換」請特別留意：只對某個對手有用的卡，合併計算時數字會偏低，
                   而那個對手可能就是這一欄。
                 </Typography>
               )}

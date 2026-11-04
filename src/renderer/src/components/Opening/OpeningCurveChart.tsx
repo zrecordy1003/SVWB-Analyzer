@@ -175,7 +175,7 @@ export default function OpeningCurveChart({
           </>
         ) : (
           <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 360 }}>
-            場數夠了，但卡片費用還沒進到快取；之後會自動補上。
+            場數已足夠，但卡片費用資料還沒載入，稍後會自動補上。
           </Typography>
         )}
       </Box>

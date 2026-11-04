@@ -10,9 +10,9 @@ import type { StatsRange } from './statsRange'
  * since the last balance patch" is a number only the player knows.
  */
 const PRESETS: { label: string; value: StatsRange }[] = [
-  { label: '7天', value: 7 },
-  { label: '30天', value: 30 },
-  { label: '全部', value: null }
+  { label: '7 天', value: 7 },
+  { label: '30 天', value: 30 },
+  { label: '生涯', value: null }
 ]
 
 const MIN_DAYS = 1
@@ -101,7 +101,7 @@ const StatsRangeControl: React.FC<{
       ))}
       <Tooltip title="自訂天數" placement="bottom">
         <Box onClick={() => setEditing(true)} sx={chipSx(!isPreset)}>
-          {isPreset ? '自訂' : `${value}天`}
+          {isPreset ? '自訂' : `${value} 天`}
         </Box>
       </Tooltip>
     </Box>

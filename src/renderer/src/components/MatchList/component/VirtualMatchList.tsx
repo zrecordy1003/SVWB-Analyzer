@@ -157,9 +157,9 @@ const VirtualMatchList: React.FC<Props> = ({
     if (hasAnyMatch === false) {
       return (
         <EmptyState
-          title="還沒有對局紀錄"
+          title="還沒有對局"
           icon={<ListAltIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
-          description="開著遊戲對戰，每一場會自動記下來；也可以手動補一筆。"
+          description="開啟遊戲對戰後會自動記錄每一場，也可以手動新增。"
           action={
             <SoftButton
               size="small"
@@ -175,7 +175,7 @@ const VirtualMatchList: React.FC<Props> = ({
     }
     // 和分析器共用同一塊空狀態：兩頁問的是同一個問題，答案不該長得不一樣。
     return (
-      <EmptyState description="這段時間沒有符合條件的對局。放寬上方的時間範圍，或清掉幾條進階條件再看看。" />
+      <EmptyState description="這段時間沒有符合條件的對局。請放寬時間範圍，或移除部分進階條件。" />
     )
   }
 

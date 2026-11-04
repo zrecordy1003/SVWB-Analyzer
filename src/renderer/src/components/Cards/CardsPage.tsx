@@ -302,11 +302,11 @@ export default function CardsPage(): React.JSX.Element {
   /* ---------- 空狀態文案 ---------- */
   const emptyText = (() => {
     if (!data) return ''
-    if (data.coverage.total === 0) return '這個範圍內沒有對局。放寬時間區間，或清掉牌組條件再看看。'
+    if (data.coverage.total === 0) return '沒有符合條件的對局。可以放寬時間區間，或清除牌組條件。'
     if (allRows.length === 0) {
-      return '這個範圍內沒有任何一場對局指向有卡表的牌組。用牌組代碼匯入或在建構器裡補上卡表後，之後的對局就會進到這裡。'
+      return '這些對局的牌組都沒有卡表。用牌組代碼匯入或在建構器補上卡表後，之後的對局就會列在這裡。'
     }
-    return `每張卡都不到 ${CARD_STATS_LOW_SAMPLE} 場。開啟「顯示樣本不足的卡」就看得到它們。`
+    return `每張卡都不到 ${CARD_STATS_LOW_SAMPLE} 場。開啟「顯示樣本不足的卡」即可查看。`
   })()
   // 只有「全都被樣本線藏起來」這一種空，下一步是明確的：把它們放出來。
   const emptyAction =
@@ -317,7 +317,7 @@ export default function CardsPage(): React.JSX.Element {
     ) : undefined
 
   const coverageTip = summary
-    ? `卡片統計涵蓋 ${summary.covered}/${summary.total} 場對局：只有指向可查卡表的對局才算得出來，更早之前被覆寫過的舊卡表已無法追回。這些數字是牌組的成績，不是卡片本身的——沒有抽牌／出牌資料，看不出這張卡在手上時打得怎樣。`
+    ? `卡片統計涵蓋 ${summary.covered}/${summary.total} 場對局，只計算有卡表的牌組，已被覆寫的舊卡表無法計入。數字是牌組的勝率，沒有抽牌與出牌資料。`
     : ''
 
   return (
@@ -391,14 +391,14 @@ export default function CardsPage(): React.JSX.Element {
             </Button>
           }
         >
-          無法更新卡片統計，以下是上一次成功讀到的數字。
+          卡片統計更新失敗，以下是上一次的結果。
         </Alert>
       )}
 
       {failed ? (
         <EmptyState
           title="無法讀取統計"
-          description="讀取這組條件的卡片統計時出錯了。再試一次；如果一直失敗，重新開啟 app。"
+          description="卡片統計載入失敗，請再試一次。如果一直失敗，請重新開啟 SVWB Analyzer。"
           icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
           action={
             <Button variant="outlined" size="small" onClick={retry}>

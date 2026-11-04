@@ -219,7 +219,7 @@ function CardLine({
       </Typography>
       {row.deltaLowSample && card.without.total > 0 && (
         <Typography variant="caption" component="div" sx={{ mt: 0.5, color: 'warning.light' }}>
-          對照組不足 {CARD_STATS_LOW_SAMPLE} 場，差值只供參考。
+          對照組不足 {CARD_STATS_LOW_SAMPLE} 場，差值僅供參考。
         </Typography>
       )}
     </Box>
@@ -501,14 +501,14 @@ export default function CardsTable({
             onSort={onSort}
             tooltip="有幾副牌組、幾個版本的卡表帶了這張卡"
           />
-          <HeaderCell label="場次" sortKey="total" align="right" sort={sort} onSort={onSort} />
+          <HeaderCell label="場數" sortKey="total" align="right" sort={sort} onSort={onSort} />
           <HeaderCell
             label="勝率"
             sortKey="winRate"
             align="left"
             sort={sort}
             onSort={onSort}
-            tooltip="帶著這張卡的牌組在這些對局裡的勝率。這是牌組的成績，不是卡片本身的 - 沒有抽牌資料。"
+            tooltip="帶這張卡的牌組在這些對局的勝率。沒有抽牌資料，無法反映卡片本身的表現。"
           />
           <HeaderCell
             label="相對不帶它"
@@ -516,7 +516,7 @@ export default function CardsTable({
             align="left"
             sort={sort}
             onSort={onSort}
-            tooltip={`帶入時的勝率，減去同職業「沒帶這張卡」的牌組在同範圍內的勝率。對照組不足 ${CARD_STATS_LOW_SAMPLE} 場時灰階。`}
+            tooltip={`帶這張卡時的勝率，減去同職業沒帶這張卡的牌組的勝率。對照組不到 ${CARD_STATS_LOW_SAMPLE} 場時以灰色顯示。`}
           />
         </Box>
 

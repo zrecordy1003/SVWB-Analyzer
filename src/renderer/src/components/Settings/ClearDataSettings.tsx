@@ -41,28 +41,28 @@ const KINDS: Array<{
     key: 'matches',
     label: '對局資料',
     unit: '場',
-    hint: '連同每場的起手手牌',
+    hint: '包含每場的起手手牌',
     icon: <SportsEsportsOutlinedIcon />
   },
   {
     key: 'decks',
     label: '牌組',
     unit: '副',
-    hint: '對局保留，牌組欄位變空白',
+    hint: '對局會保留，牌組欄位會清空',
     icon: <StyleOutlinedIcon />
   },
   {
     key: 'tags',
     label: '標籤',
     unit: '個',
-    hint: '從所有對局上拿掉',
+    hint: '從所有對局移除',
     icon: <LocalOfferOutlinedIcon />
   },
   {
     key: 'categories',
     label: '牌組分類',
     unit: '個',
-    hint: '只刪自訂的，牌組變成未分類',
+    hint: '只刪除自訂分類，牌組改為未分類',
     icon: <FolderOutlinedIcon />
   }
 ]
@@ -276,7 +276,7 @@ const ClearDataSettings: React.FC<{ onCleared(): void }> = ({ onCleared }) => {
               已清除{deleted}
             </Typography>
             <Typography fontSize={13} color="text.secondary">
-              需要的話，可以在「還原備份」退回清除前的狀態。
+              可以在「還原備份」還原到清除前的狀態。
               {result.syncs && '其他裝置也會在下次同步時一併清除。'}
             </Typography>
           </Box>
@@ -344,7 +344,7 @@ const ClearDataSettings: React.FC<{ onCleared(): void }> = ({ onCleared }) => {
         )}
         {error && (
           <Alert severity="error" sx={{ ...noteSx('error'), mt: 2 }}>
-            {error === 'NOTHING_SELECTED' ? '請至少選一項。' : error}
+            {error === 'NOTHING_SELECTED' ? '請至少選擇一項。' : error}
           </Alert>
         )}
       </AppDialog>

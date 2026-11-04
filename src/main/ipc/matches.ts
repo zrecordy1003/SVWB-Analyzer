@@ -736,16 +736,16 @@ export function registerMatchesIpc(): void {
 
     const my_class = asClass(input.my_class)
     const oppo_class = asClass(input.oppo_class)
-    if (!my_class || !oppo_class) throw invalid('MISSING_CLASS', '雙方職業都要選')
+    if (!my_class || !oppo_class) throw invalid('MISSING_CLASS', '請選擇雙方職業')
 
     const play_order =
       input.play_order === 'first' || input.play_order === 'second'
         ? (input.play_order as PlayOrder)
         : null
-    if (!play_order) throw invalid('MISSING_PLAY_ORDER', '先攻／後攻要選一個')
+    if (!play_order) throw invalid('MISSING_PLAY_ORDER', '請選擇先攻或後攻')
 
     const playedAtMs = input.playedAt == null ? nowMs() : toMs(input.playedAt as string | number)
-    if (!Number.isFinite(playedAtMs)) throw invalid('BAD_PLAYED_AT', '對戰時間看不出來是什麼時候')
+    if (!Number.isFinite(playedAtMs)) throw invalid('BAD_PLAYED_AT', '對局時間格式不正確')
     const playedAt = new Date(playedAtMs)
 
     const mode = (typeof input.mode === 'string' ? input.mode : null) as GameMode | null

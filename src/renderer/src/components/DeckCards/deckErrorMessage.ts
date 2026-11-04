@@ -8,7 +8,7 @@
 export function deckErrorMessage(code: string | null | undefined): string {
   switch (code) {
     case 'DUPLICATE_NAME':
-      return '同職業、同分類下已經有相同名稱的牌組了。'
+      return '同職業、同分類下已有同名的牌組。'
     case 'NOT_FOUND:Deck':
       return '找不到這副牌組，可能已經被刪除。'
     case 'NOT_FOUND:Category':
@@ -16,7 +16,7 @@ export function deckErrorMessage(code: string | null | undefined): string {
     case 'INVALID_INPUT:Name is required':
       return '請輸入牌組名稱。'
     case 'INVALID_INPUT:Name too long':
-      return '牌組名稱太長了。'
+      return '牌組名稱過長。'
     case 'INVALID_INPUT:Cannot change deck class':
       return '已建立的牌組不能更換職業。'
     case 'INVALID_INPUT:Deck is empty':

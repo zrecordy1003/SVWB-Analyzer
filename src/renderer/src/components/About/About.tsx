@@ -21,7 +21,6 @@ import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import LocalCafeOutlinedIcon from '@mui/icons-material/LocalCafeOutlined'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
 import StarBorderRoundedIcon from '@mui/icons-material/StarBorderRounded'
-import CheckRoundedIcon from '@mui/icons-material/CheckRounded'
 import React from 'react'
 
 import SoftButton from '@renderer/components/Common/SoftButton'
@@ -44,13 +43,6 @@ const open = (url: string): void => window.electronAPI.openLink(url)
 // repository does not have. HEAD resolves to the default branch and survives a
 // rename.
 const repoFile = (path: string): string => `${REPOSITORY_URL}/blob/HEAD/${path}`
-
-/** Commitments, stated where the button is - each one is checkable. */
-const PROMISES = [
-  '所有功能都免費，以後也是。贊助不會解鎖任何功能或內容。',
-  '付款在歐付寶的網頁上完成，這個 app 不會經手任何付款資訊。',
-  '贊助用於維護、修正錯誤，以及遊戲改版後重新製作辨識範本。'
-] as const
 
 /** One of the two ways to help, as equals. */
 const SupportTile: React.FC<{
@@ -133,7 +125,7 @@ const About = (): React.JSX.Element => {
         <Box sx={{ p: 2.5 }}>
           <Typography sx={{ fontSize: 14, lineHeight: 1.7 }}>
             SVWB Analyzer
-            由個人開發與維護。如果它幫你省下了記錄和整理的時間，可以用下面任一種方式支持它繼續更新。
+            由個人開發與維護。你的支持會用在日常維護、修正錯誤，以及遊戲改版後更新辨識範本。如果覺得好用，可以用下面任一種方式支持。
           </Typography>
 
           <Box
@@ -164,7 +156,7 @@ const About = (): React.JSX.Element => {
             <SupportTile
               icon={<BugReportOutlinedIcon fontSize="small" />}
               title="回報與建議"
-              description="回報辨識錯誤、提出想要的功能，或在 GitHub 給個星星，都是很實在的幫助。"
+              description="回報辨識錯誤、提出功能建議，或在 GitHub 按下 Star，都有幫助。"
               actions={
                 <>
                   <SoftButton
@@ -183,24 +175,6 @@ const About = (): React.JSX.Element => {
               }
             />
           </Box>
-
-          <Box
-            component="ul"
-            sx={{ listStyle: 'none', m: 0, p: 0, mt: 2, display: 'grid', gap: 0.75 }}
-          >
-            {PROMISES.map((line) => (
-              <Box
-                component="li"
-                key={line}
-                sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}
-              >
-                <CheckRoundedIcon sx={{ fontSize: 16, color: 'text.secondary', mt: '2px' }} />
-                <Typography sx={{ fontSize: 12.5, color: 'text.secondary', lineHeight: 1.6 }}>
-                  {line}
-                </Typography>
-              </Box>
-            ))}
-          </Box>
         </Box>
       </Section>
 
@@ -212,7 +186,7 @@ const About = (): React.JSX.Element => {
         />
         <SectionRow
           title="資料存在你的電腦上"
-          description="對局紀錄存在本機。「設定 → 數據統計」會上傳整天合併過、不含任何個人資訊的對局計數，可以隨時關閉。"
+          description="對局資料存在本機。「設定 → 數據統計」會上傳以天合計、不含個人資訊的對局次數，可隨時關閉。"
         />
       </Section>
 

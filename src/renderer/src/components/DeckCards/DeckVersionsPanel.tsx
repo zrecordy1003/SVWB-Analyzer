@@ -94,7 +94,8 @@ type Res<T> = { ok: true; data: T } | { ok: false; error: string }
 type VersionImpact = { matches: number; versions: number; isLastActive: boolean }
 
 /** 一句話，兩件事：版本層級的數字為什麼不能盡信，以及它跟著誰的篩選走。收在 ⓘ 裡。 */
-export const VERSION_STATS_CAVEAT = '版本的場數很少時，勝率差多半是雜訊；這裡的數字跟隨上方的篩選。'
+export const VERSION_STATS_CAVEAT =
+  '場數少時，版本之間的勝率差距多半只是誤差。數字依上方的篩選條件計算。'
 
 /** 版本列 `⋯` 選單裡「修正卡表…」要通知呼叫端的東西。 */
 export type CorrectVersionRequest = { deckId: number; versionLabel: string }
@@ -450,7 +451,7 @@ function StatsCell({
           pr: `${40 + 8}px`
         }}
       >
-        {played ? `${total} 場 · ${wins}勝${total - wins}敗` : '0 場'}
+        {played ? `${total} 場 · ${wins}勝 ${total - wins}敗` : '0 場'}
       </Typography>
     </Stack>
   )
@@ -578,16 +579,16 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
    */
   const discardText = (): string => {
     if (!discarding) return ''
-    if (impact === null) return '已經打過的對局與戰績會保留；還沒打過的版本會直接移除。'
+    if (impact === null) return '已有的對局與戰績會保留；沒有對局的版本會直接移除。'
     if (impact.isLastActive) {
-      const head = `這是「${family.current.name}」最後一個版本，刪除它會刪除整副牌組。`
+      const head = `這是「${family.current.name}」的最後一個版本，刪除後整副牌組也會一併刪除。`
       return impact.matches > 0
-        ? `${head}已經打過的 ${impact.matches} 場對局與戰績會保留，只是牌組不再出現在清單與挑選選單。`
-        : `${head}這副牌組還沒打過，會直接移除。`
+        ? `${head}已有的 ${impact.matches} 場對局與戰績會保留，但牌組不會再出現在清單與選單中。`
+        : `${head}這副牌組沒有對局，會直接移除。`
     }
     return impact.matches > 0
-      ? `這個版本有 ${impact.matches} 場對局。刪除後戰績會保留，只是這一版不再出現在清單。`
-      : '這個版本還沒打過，會直接移除，無法復原。'
+      ? `這個版本有 ${impact.matches} 場對局。刪除後戰績會保留，但此版本不會再出現在清單中。`
+      : '這個版本沒有對局，刪除後無法復原。'
   }
 
   return (
@@ -595,7 +596,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
       {/* 說明收成右上角一個 ⓘ：數字才是這一區的主角。 */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, mb: -0.5 }}>
         <Box component="span" data-testid="deck-versions-caveat">
-          <InfoHint title={VERSION_STATS_CAVEAT} label="版本數字怎麼讀" placement="left" />
+          <InfoHint title={VERSION_STATS_CAVEAT} label="版本數字說明" placement="left" />
         </Box>
       </Box>
 
@@ -817,7 +818,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
             </ListItemIcon>
             <ListItemText
               primary="修正卡表…"
-              secondary="這版卡表輸入錯了？直接改正，不建立新版本"
+              secondary="直接修改此版本的卡表，不建立新版本"
               primaryTypographyProps={{ variant: 'body2', fontWeight: 700 }}
               secondaryTypographyProps={{ variant: 'caption' }}
             />

@@ -52,8 +52,7 @@ type MatchupHeatmapProps = {
   emptyDescription?: string
 }
 
-const EMPTY_DESCRIPTION =
-  '這組條件下沒有對局。換個職業或模式、放寬場數或時間區間，或清掉幾條進階條件再看看。'
+const EMPTY_DESCRIPTION = '沒有符合條件的對局。可以換個職業或模式，或放寬場數、時間區間與進階條件。'
 
 const NEUTRAL_FILL = 'rgba(255,255,255,0.045)'
 /** Where the colour ramp tops out. Beyond 15 points a matchup is simply lopsided. */
@@ -232,7 +231,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
         slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
         title={
           stat.total === 0 ? (
-            `${label}：這個區間沒有紀錄`
+            `${label}：沒有對局`
           ) : (
             // 標題一行、勝率一個大的、戰績一行帶過：原本五行「A：B」要一行行
             // 讀完才拼得出全貌，而這裡真正想知道的只有勝率和它撐在多少場上。
@@ -275,7 +274,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
                   component="div"
                   sx={{ mt: 0.5, color: 'warning.light' }}
                 >
-                  這個對位不到 {LOW_SAMPLE_GAMES} 場，一場就能讓勝率跳很多，參考就好。
+                  這個對位不到 {LOW_SAMPLE_GAMES} 場，一場的勝負就可能讓勝率變動很大。
                 </Typography>
               )}
             </Box>
@@ -384,7 +383,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
           undefined,
           advantage === null ? undefined : '%'
         )}
-        {metric('對局數', overall.all.total.toLocaleString())}
+        {metric('場數', overall.all.total.toLocaleString())}
       </Box>
 
       {/* ---------- 表頭。範圍由上方工具列的場數與進階篩選決定，
@@ -418,7 +417,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
         </Typography>
         {headerCell('總勝率', 'overall', 'right')}
         <Box sx={{ '@media (max-width: 720px)': { display: 'none' } }}>
-          {headerCell('對局數', 'games', 'right')}
+          {headerCell('場數', 'games', 'right')}
         </Box>
       </Box>
 

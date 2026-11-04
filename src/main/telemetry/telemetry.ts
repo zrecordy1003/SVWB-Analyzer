@@ -339,7 +339,7 @@ async function performUpload(force: boolean): Promise<void> {
   try {
     payload = await buildPayload({ mintInstallId: true })
   } catch (e) {
-    await recordError(`本機讀取失敗：${(e as Error).message}`)
+    await recordError(`無法讀取本機資料（${(e as Error).message}）`)
     return
   }
 
@@ -353,7 +353,7 @@ async function performUpload(force: boolean): Promise<void> {
       signal: controller.signal
     })
     if (!res.ok) {
-      await recordError(`伺服器回應 HTTP ${res.status}`)
+      await recordError(`伺服器錯誤（HTTP ${res.status}）`)
       return
     }
     // The body is informational. A server that accepted the request but
@@ -370,7 +370,7 @@ async function performUpload(force: boolean): Promise<void> {
     await writeState(KEY_LAST_ERROR, null)
   } catch (e) {
     const message = (e as Error).name === 'AbortError' ? '連線逾時' : (e as Error).message
-    await recordError(`連線失敗：${message}`)
+    await recordError(`無法連線到統計伺服器（${message}）`)
   } finally {
     clearTimeout(timer)
   }

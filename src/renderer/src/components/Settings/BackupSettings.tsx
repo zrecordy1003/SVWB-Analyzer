@@ -199,7 +199,7 @@ const BackupSettings: React.FC<{ dataVersion: number; onDataChanged(): void }> =
               })}
             </Box>
             <Typography fontSize={12.5} color="text.secondary">
-              對局、牌組與標籤會退回所選的時間點；目前的資料會先備份。
+              對局、牌組與標籤會還原到所選的時間點，目前的資料會先備份。
               {syncOn && '同步會關閉。'}
             </Typography>
           </Box>

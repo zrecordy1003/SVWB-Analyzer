@@ -69,7 +69,7 @@ export default function SwapBandsChart({
         {/* 平均換幾張：the one summary number this chart has. The unit is in
             the tooltip - "1.51 張 · 171 手" on screen was three words for one
             figure. */}
-        <Tooltip title="每手平均換掉幾張，全部讀到換牌畫面的手都算" placement="top">
+        <Tooltip title="每手平均換掉的張數，包含所有讀到換牌畫面的手牌" placement="top">
           <Stack
             direction="row"
             alignItems="baseline"
@@ -115,7 +115,7 @@ export default function SwapBandsChart({
           }}
         >
           <Typography variant="caption">
-            {split === 'all' ? '還沒有讀到換牌畫面' : `沒有${SPLIT_LABEL[split]}的紀錄`}
+            {split === 'all' ? '還沒有讀到換牌畫面' : `沒有${SPLIT_LABEL[split]}的對局`}
           </Typography>
         </Box>
       ) : (
@@ -131,12 +131,12 @@ export default function SwapBandsChart({
                 </Typography>
                 <Typography variant="caption" component="div">
                   {b.total > 0
-                    ? `${b.wins} 勝 ${b.total - b.wins} 敗 · ${b.rate.toFixed(1)}% · 95% 區間 ${ci.low.toFixed(0)}–${ci.high.toFixed(0)}%`
+                    ? `${b.wins}勝 ${b.total - b.wins}敗 · ${b.rate.toFixed(1)}% · 95% 區間 ${ci.low.toFixed(0)}–${ci.high.toFixed(0)}%`
                     : '沒有這樣的手'}
                 </Typography>
                 {!showRate && b.total > 0 && (
                   <Typography variant="caption" component="div" color="text.secondary">
-                    不到 {OPENING_THRESHOLDS.wrShow} 手，勝率不印成數字。
+                    不到 {OPENING_THRESHOLDS.wrShow} 手，不顯示勝率。
                   </Typography>
                 )}
               </Box>

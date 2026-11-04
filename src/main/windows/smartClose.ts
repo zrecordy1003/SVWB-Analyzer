@@ -34,9 +34,9 @@ export function attachSmartClose(
       const { action: chosen, remember } = await openExitOrMinimizeDialog({
         parent: win,
         appName: 'SVWB Analyzer',
-        title: '要關閉還是最小化到系統列？',
-        message: '你想要最小化到系統列（背景執行）還是關閉應用？',
-        detail: '最小化後仍可於背景運行；關閉將停止擷取與背景作業。',
+        title: '要關閉還是最小化到系統匣？',
+        message: '要最小化到系統匣在背景執行，還是關閉 SVWB Analyzer？',
+        detail: '最小化後會繼續在背景執行。關閉會停止擷取與所有背景作業。',
         rememberLabel: '記住我的選擇',
         defaultAction: 'minimize'
       })

@@ -75,7 +75,7 @@ export function captureStateOf(s: GameWindowStatus | undefined): CaptureState {
       kind: 'minimized',
       tone: 'warn',
       label: '遊戲已最小化',
-      detail: '遊戲視窗最小化時看不到畫面，偵測會暫停。還原視窗後自動繼續。',
+      detail: '遊戲最小化時無法辨識，已暫停偵測。還原視窗後會自動繼續。',
       resolution: null
     }
   }
@@ -84,7 +84,7 @@ export function captureStateOf(s: GameWindowStatus | undefined): CaptureState {
       kind: 'engineDown',
       tone: 'error',
       label: '辨識未啟動',
-      detail: `辨識引擎沒有啟動，這段時間的對局不會被記錄。試著重新開啟 app；${DIAGNOSTICS_HINT}`,
+      detail: `辨識沒有啟動，這段期間的對局不會記錄。請重新開啟 SVWB Analyzer。${DIAGNOSTICS_HINT}`,
       resolution: null
     }
   }

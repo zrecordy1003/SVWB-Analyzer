@@ -84,7 +84,7 @@ describe('computeResolutionStatus', () => {
   it('warns when the bands are taller than the scan can reach', () => {
     const status = computeResolutionStatus({ width: 2560, height: 2560 })
     expect(status.ok).toBe(false)
-    expect(status.hint).toContain('空白過高')
+    expect(status.hint).toContain('空白過多')
   })
 
   it('says so when there are no bounds to judge', () => {

@@ -63,10 +63,10 @@ import {
 function importErrorMessage(raw: string): string {
   if (raw.startsWith('INVALID_INPUT')) return '請貼上 4 碼牌組代碼、分享連結，或牌組 hash。'
   if (raw === 'NOT_FOUND_OR_EXPIRED')
-    return '找不到這個牌組。牌組代碼在發行後 3 分鐘內有效，請回遊戲重新產生一組。'
-  if (raw === 'NETWORK') return '連不上官方牌組網站，請確認網路連線後再試一次。'
-  if (raw === 'UNEXPECTED_SHAPE') return '官方網站回傳了無法解析的內容，可能是網站改版了。'
-  if (raw === 'DUPLICATE_NAME') return '同職業、同分類下已經有相同名稱的牌組了。'
+    return '找不到這個牌組。牌組代碼只在發行後 3 分鐘內有效，請在遊戲中重新發行。'
+  if (raw === 'NETWORK') return '無法連線到官方牌組網站，請確認網路後再試一次。'
+  if (raw === 'UNEXPECTED_SHAPE') return '無法讀取官方網站回傳的內容，網站可能已改版。'
+  if (raw === 'DUPLICATE_NAME') return '同職業、同分類下已有同名的牌組。'
   return raw
 }
 
@@ -159,7 +159,7 @@ export default function NewDeckDrawer({
       if (raw.startsWith('DUPLICATE_CONTENT:')) return Number(raw.split(':')[1])
       throw new Error(importErrorMessage(raw))
     }
-    throw new Error('同職業下同一天已經有太多同名的牌組，請先整理一下再匯入。')
+    throw new Error('同職業當天已有太多同名的牌組，請先整理後再匯入。')
   }
 
   /**
@@ -186,7 +186,7 @@ export default function NewDeckDrawer({
       // 牌組管理把它刪掉。
       if (klass && preview.className && preview.className !== klass) {
         throw new Error(
-          `這是${classesMap[preview.className].label}牌組，和目前這一側的${classesMap[klass].label}不符。`
+          `這是${classesMap[preview.className].label}牌組，與目前選擇的職業（${classesMap[klass].label}）不符。`
         )
       }
 
@@ -259,8 +259,8 @@ export default function NewDeckDrawer({
                 sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}
               >
                 {klass
-                  ? `貼上代碼帶一副${classesMap[klass].label}牌組進來，或自己組一副`
-                  : '貼上代碼帶進來，或自己組一副'}
+                  ? `貼上代碼匯入${classesMap[klass].label}牌組，或自行組牌`
+                  : '貼上代碼匯入，或自行組牌'}
               </Typography>
             </Box>
             <IconButton
@@ -286,7 +286,7 @@ export default function NewDeckDrawer({
           {/* ---- import ---- */}
           <Box>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-              從遊戲或牌組網站把牌組帶進來
+              從遊戲或牌組網站匯入牌組
             </Typography>
 
             {/* One field with the action inside it, rather than a field and a
@@ -474,7 +474,7 @@ export default function NewDeckDrawer({
                 手動建立
               </Typography>
               <Typography variant="caption" color="text.secondary">
-                從卡池一張一張挑，跟官方的牌組建構器一樣
+                從卡池逐張挑選，操作與官方牌組建構器相同
               </Typography>
             </Box>
             <ChevronRightRoundedIcon sx={{ color: 'text.disabled' }} />

@@ -85,7 +85,7 @@ async function fetchMeta(days: number, refresh: boolean): Promise<MetaSnapshot> 
    * to ask" is a permanent, correct answer for those installs - and the
    * renderer says so in a sentence rather than showing a failed request.
    */
-  if (!endpoint) throw new Error('這個版本沒有內建統計端點，請更新到較新的版本。')
+  if (!endpoint) throw new Error('這個版本無法取得環境數據，請更新到較新的版本。')
 
   const now = deps.now()
   const hit = cache.get(days)
@@ -104,11 +104,11 @@ async function fetchMeta(days: number, refresh: boolean): Promise<MetaSnapshot> 
       headers: refresh ? { 'cache-control': 'no-cache' } : {},
       signal: controller.signal
     })
-    if (res.status === 429) throw new Error('伺服器目前限制了查詢頻率，請稍後再試。')
-    if (!res.ok) throw new Error(`伺服器回應 HTTP ${res.status}`)
+    if (res.status === 429) throw new Error('查詢太頻繁，請稍後再試。')
+    if (!res.ok) throw new Error(`無法取得資料，請稍後再試。（HTTP ${res.status}）`)
 
     const body: unknown = await res.json()
-    if (!looksLikeMeta(body)) throw new Error('伺服器回應的格式無法辨識。')
+    if (!looksLikeMeta(body)) throw new Error('伺服器傳回的資料無法讀取。')
 
     const snapshot: MetaSnapshot = {
       document: body,

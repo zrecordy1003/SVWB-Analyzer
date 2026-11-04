@@ -29,10 +29,10 @@ import React from 'react'
 import { invokeIpc } from '@renderer/ipc'
 
 function publishErrorMessage(code: string): string {
-  if (code === 'NETWORK') return '連不上官方牌組網站，請確認網路連線後再試一次。'
+  if (code === 'NETWORK') return '無法連線到官方牌組網站，請確認網路後再試一次。'
   if (code === 'UNEXPECTED_SHAPE')
-    return '官方網站沒有給出有效的牌組代碼，可能是網站改版了，或這副牌不符合該形式的規則。'
-  if (code.startsWith('INVALID_INPUT')) return '這副牌組沒有卡表資料，無法發行代碼。'
+    return '官方網站沒有回傳有效的牌組代碼。這副牌組可能不符合該對戰形式的規則，或網站已改版。'
+  if (code.startsWith('INVALID_INPUT')) return '這副牌組沒有卡表，無法發行代碼。'
   if (code.startsWith('NOT_FOUND')) return '找不到這副牌組。'
   return code
 }
@@ -123,7 +123,7 @@ export default function DeckCodeDialog({
     try {
       await navigator.clipboard.writeText(text)
     } catch {
-      setError('無法寫入剪貼簿，請手動選取複製。')
+      setError('無法複製到剪貼簿，請手動選取後複製。')
       return
     }
     setError(null)
@@ -194,7 +194,7 @@ export default function DeckCodeDialog({
             >
               {expired
                 ? '代碼已過期，請關閉後重新發行。'
-                : `剩餘 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} ・ 開著這個視窗會自動續期`}
+                : `剩餘 ${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')} ・ 視窗開啟期間會自動續期`}
             </Typography>
           </Box>
 
@@ -205,7 +205,7 @@ export default function DeckCodeDialog({
           {shareUrl && (
             <Box>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                分享連結（沒有效期，適合長期保存）
+                分享連結（無期限，可長期保存）
               </Typography>
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
                 <Typography

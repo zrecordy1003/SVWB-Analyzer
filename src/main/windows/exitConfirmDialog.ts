@@ -15,10 +15,10 @@ export type ExitConfirmResult = { confirmed: boolean; remember: boolean }
 export async function openExitConfirmDialog(opts: ExitConfirmOptions): Promise<ExitConfirmResult> {
   const {
     parent,
-    appName = 'SVWB Aanlyzer',
+    appName = 'SVWB Analyzer',
     title = '確認關閉應用？',
-    message = `你確定要關閉 ${appName} 嗎？`,
-    detail = '目前有未儲存的變更或正在擷取。關閉後將停止擷取，未存資料可能遺失。',
+    message = `要關閉 ${appName} 嗎？`,
+    detail = '目前正在擷取或有未儲存的變更。關閉後會停止擷取，未儲存的資料可能會遺失。',
     rememberLabel = '以後不要再詢問'
   } = opts
 

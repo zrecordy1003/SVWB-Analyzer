@@ -327,7 +327,7 @@ const Analyzer: React.FC = () => {
       console.warn('[Analyzer] winrate query failed:', err)
       // Keep the previous chart on screen; an empty chart would read as
       // "you have no matches" rather than "the query failed".
-      setError('讀取統計失敗，請稍後再試')
+      setError('統計載入失敗')
     } finally {
       if (requestId === requestIdRef.current) setLoading(false)
     }
@@ -577,8 +577,8 @@ const Analyzer: React.FC = () => {
           <Tooltip
             title={
               filters.followBattle
-                ? '跟隨對戰中：職業與模式會跟著你正在打的那場走'
-                : '已停止跟隨：點一下讓職業與模式重新跟著對戰走'
+                ? '跟隨對戰中：職業與模式會跟著目前的對局切換'
+                : '已停止跟隨：點一下，職業與模式會重新跟著對局切換'
             }
           >
             <ToggleButton
@@ -664,7 +664,7 @@ const Analyzer: React.FC = () => {
           data-testid="analyzer-deck-filter-pruned"
           onClose={() => setPrunedDeckCount(0)}
         >
-          上次選的 {prunedDeckCount} 個牌組已經不存在，目前顯示的是所有牌組的數字。
+          上次選的 {prunedDeckCount} 個牌組已不存在，改為顯示全部牌組。
         </Alert>
       )}
 
@@ -672,7 +672,7 @@ const Analyzer: React.FC = () => {
           previous chart the error is the whole content area instead (below). */}
       {error && analyzeData !== null && (
         <Alert severity="warning" sx={noteSx('warning')}>
-          {error}，目前顯示的是上一次的結果。
+          {error}，以下是上一次的結果。
         </Alert>
       )}
       {/* 內容比這塊高的時候仍然捲得動，但不畫原生捲軸 - 它會蓋在最右邊那欄
@@ -691,7 +691,7 @@ const Analyzer: React.FC = () => {
           error ? (
             <EmptyState
               title="無法讀取統計"
-              description="讀取這組條件的勝率時出錯了。再試一次；如果一直失敗，重新開啟 app。"
+              description="勝率載入失敗，請再試一次。如果一直失敗，請重新開啟 SVWB Analyzer。"
               icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
               action={
                 <Button

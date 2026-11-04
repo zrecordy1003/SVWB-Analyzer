@@ -223,7 +223,7 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
         if (found) onChange({ id: found.id, name: found.name, class: found.class })
       } catch (err: any) {
         console.error('Failed to reload decks:', err)
-        setLoadError('牌組已新增，但清單沒能重新讀取，請重新打開這張表單')
+        setLoadError('牌組已新增，但清單重新載入失敗，請關閉表單後再開啟。')
       }
     },
     [loadDecks, onChange]

@@ -100,7 +100,7 @@ const RANGE_EDITOR_WIDTH = 372
  */
 const SORT_SEGMENTS: Array<{ id: SortKey; label: string }> = [
   { id: 'winRate', label: '勝率' },
-  { id: 'total', label: '場次' },
+  { id: 'total', label: '場數' },
   { id: 'name', label: '名稱' }
 ]
 
@@ -563,8 +563,8 @@ const DeckPerformance = (): React.JSX.Element => {
                 sx={{ px: { xs: 1.5, sm: 2 }, pt: 2 }}
               >
                 {classFilter === 'all'
-                  ? '還沒有牌組。貼上遊戲裡的牌組代碼，或自己組一副。'
-                  : '這個職業底下還沒有牌組，換一個職業或選「全部職業」。'}
+                  ? '還沒有牌組。貼上遊戲裡的牌組代碼，或自行組牌。'
+                  : '這個職業還沒有牌組，請切換職業或選擇「全部職業」。'}
               </Typography>
             )}
             {viewMode === 'grid' ? (

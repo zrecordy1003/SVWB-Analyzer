@@ -50,7 +50,7 @@ const QUESTION_CONTROL_HEIGHT = 40
  * what it cannot show (what the other choice would have done).
  */
 const HONEST_LINE =
-  '這裡比的是你自己留下這張時、和你自己換掉它時的戰績——它描述你的決定與結果，證明不了另一種選擇會怎樣。'
+  '比較你留下和換掉這張卡時的勝率。這反映你過去的選擇與結果，無法得知另一種選擇會怎樣。'
 
 /**
  * The ⓘ: the reasoning the sentence compresses, and the three things the
@@ -61,27 +61,27 @@ function TitleHint(): React.JSX.Element {
     <Box data-testid="mulligan-explainer" sx={{ maxWidth: 380, '& > * + *': { mt: 0.75 } }}>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
-          留不留是你決定的，所以「留 vs 換」不是公平的比較。
+          留或換是你決定的，直接比較會有偏差。
         </Box>
-        你在其餘三張順的時候才敢留貴的，於是「留下時勝率高」反映的常是其餘三張。這頁的做法是只在其餘三張費用差不多的手牌之間比（「其餘三張相近」），再把三段合起來；樣本不夠時往外放寬，並在卡片旁邊標記。
+        例如其餘三張順手時才會留高費卡，留下時勝率高可能來自其餘三張。因此只比較其餘三張費用相近的手牌（「其餘三張相近」），分三段比較後合併；樣本不足時會放寬條件，並在卡片旁標示。
       </Typography>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
-          只有整個區間都在零的同一側才給建議。
+          整個區間都在零的同一側才會給建議。
         </Box>
-        「建議留」是比印一個數字更強的主張，所以門檻只升不降：算得出差值但區間跨過零的卡，這頁不給方向，只算進「還不能給建議」那一行。
+        算得出差值但區間跨過零的卡不給方向，只列入「還不能給建議」。
       </Typography>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
-          只有一個玩家，所以技術不會混進來。
+          資料只來自你自己，不受玩家技術差異影響。
         </Box>
-        留的是你、換的也是你，這是本機資料相對於任何雲端統計的結構優勢。它換不到的是樣本量。
+        缺點是樣本量較少。
       </Typography>
       <Typography variant="caption" component="div" color="text.secondary" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
-          三件修不掉的事：
+          限制：
         </Box>
-        辨識漏掉的手牌（異畫、閃卡）不是隨機少掉的，所以每個數字都算在缺了一角的資料上；分層只看其餘三張的費用，看不到「有某張才留另一張」這種組合；而數字說的是你的紀錄，不是正確答案——再多場也只是把一個有偏的估計的區間變窄。
+        辨識漏掉的手牌（異畫、閃卡）並非隨機缺少，所有數字都可能有偏差；分層只看其餘三張的費用，看不出「有某張才留另一張」這種組合；數字反映的是你的紀錄，場數再多也只會讓區間變窄，偏差仍在。
       </Typography>
     </Box>
   )

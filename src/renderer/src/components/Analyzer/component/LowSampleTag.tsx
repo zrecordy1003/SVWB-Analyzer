@@ -9,7 +9,7 @@ import { LOW_SAMPLE_GAMES } from '../matchupRows'
  * 熱圖和長條圖共用，兩種畫法看的是同一份資料，同一個警告不該長得不一樣。
  */
 const LowSampleTag: React.FC = () => (
-  <Tooltip title={`不到 ${LOW_SAMPLE_GAMES} 場：一場就能讓勝率跳十個百分點以上，參考就好。`}>
+  <Tooltip title={`不到 ${LOW_SAMPLE_GAMES} 場，一場的勝負就可能讓勝率變動 10 個百分點以上。`}>
     <Typography
       component="span"
       sx={{

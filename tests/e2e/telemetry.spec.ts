@@ -14,7 +14,7 @@
  * walk no longer exists and the notice's own words are the entire disclosure.
  *
  * Which makes the wording load-bearing rather than cosmetic, and it is asserted
- * here literally - «沒有牌組名稱、備註、時間或任何能識別你的資料» is a promise
+ * here literally - «不包含牌組名稱、備註、時間或任何能識別你的資料» is a promise
  * about the payload, and the second half of this file is what checks the
  * payload keeps it.
  *
@@ -39,8 +39,8 @@ import { TELEMETRY_SCHEMA } from '../../src/shared/telemetry'
 
 /** The notice's exact copy. Changing it should be a decision, not a diff. */
 const TITLE = '已開啟數據統計'
-const BODY_PROMISE = '沒有牌組名稱、備註、時間或任何能識別你的資料'
-const BODY_PUBLIC = '彙總環境數據後，公開給所有人看'
+const BODY_PROMISE = '不包含牌組名稱、備註、時間或任何能識別你的資料'
+const BODY_PUBLIC = '彙總後的環境數據會公開給所有人查看'
 
 test('the first-run notice states what is sent, and is the whole disclosure', async ({
   window

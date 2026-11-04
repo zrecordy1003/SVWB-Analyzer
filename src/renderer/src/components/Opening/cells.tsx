@@ -461,8 +461,8 @@ export function SampleOnly({
 }): React.JSX.Element {
   const tip =
     remaining > 0
-      ? `${what}要再多 ${remaining} 場才會顯示成數字。門檻是這頁固定的，不是依你的資料調的。`
-      : `${what}的樣本已達門檻，但另一半的資料還不夠。`
+      ? `${what}還要 ${remaining} 場才會顯示。`
+      : `${what}的樣本已足夠，但對照的另一邊還不夠。`
   return (
     <Tooltip title={tip} placement="top">
       <Typography
@@ -612,7 +612,7 @@ export function DiffCell({
       </Typography>
       {!sortable && (
         <Typography variant="caption" component="div" color="text.secondary" sx={{ mt: 0.5 }}>
-          兩邊各不到 {OPENING_THRESHOLDS.wrSort} 場，可以看、不參與排序。
+          兩邊各不到 {OPENING_THRESHOLDS.wrSort} 場，不列入排序。
         </Typography>
       )}
       {caution && (

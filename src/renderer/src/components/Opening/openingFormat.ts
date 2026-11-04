@@ -72,28 +72,27 @@ export type MissingSpec = {
 export const MISSING_SPEC: Record<Missing, MissingSpec> = {
   'never-dealt': {
     label: '0 次',
-    explain:
-      '有紀錄、有牌組、也認得出手牌 - 這張卡就是一次都沒被發到。這是一個可信的零，不是資料缺口。',
+    explain: '對局有牌組，手牌也都辨識出來，這張卡確實一次都沒發到。',
     tone: 'text.primary',
     variant: 'solid'
   },
   'no-deck': {
     label: '無牌組',
     explain:
-      '這些對局沒有掛上牌組，所以「牌組裡有沒有這張卡」沒有答案，發到率和對照組都算不出來。到對局列表幫這些場次掛上牌組，或用牌組代碼匯入之後再打，就會補進來。',
+      '這些對局沒有掛上牌組，無法計算發到率與對照組。到對局列表為對局掛上牌組，或用牌組代碼匯入後再打，就會計入。',
     tone: 'text.disabled',
     variant: 'dashed'
   },
   unidentified: {
     label: '未辨識',
     explain:
-      '換牌畫面讀到了，但手牌裡有一格認不出是哪張卡，整手牌就不能算。多半是卡圖索引還沒建完 - 背景會自動重試，稍後回來看就會補上。',
+      '有讀到換牌畫面，但手牌中有卡片無法辨識，這手牌不會計入。通常是卡圖資料還在建立，稍後會自動重試並補上。',
     tone: 'warning.light',
     variant: 'tinted'
   },
   'low-sample': {
     label: '樣本不足',
-    explain: '有資料，但還不到能印出數字的場數。這裡顯示的是目前的樣本數，再打幾場就會變成數字。',
+    explain: '場數還不夠，目前只顯示樣本數。再打幾場就會顯示數字。',
     tone: 'text.disabled',
     variant: 'plain'
   }
@@ -185,9 +184,9 @@ export const lowRecognised = (stat: OpeningCardStat): boolean =>
  * random, so every number on the row is computed over a biased subset.
  */
 export function recognisedCaution(share: number): string {
-  return `牌組裡有這張卡的對局中，只有 ${(share * 100).toFixed(0)}% 的四張起手是完整讀到的（門檻 ${
+  return `牌組裡有這張卡的對局中，只有 ${(share * 100).toFixed(0)}% 的起手四張完整辨識（門檻 ${
     OPENING_THRESHOLDS.recognisedShare * 100
-  }%）。這不是說這張卡難辨識，而是那些對局的手牌常常讀不全 - 沒讀到的場次不是隨機少掉的，所以這一列的每個數字都是在缺了一角的資料上算的，可能偏。`
+  }%）。這些對局的手牌常常讀不全，這一列的數字可能有偏差。`
 }
 
 export const RARITY_LABEL: Record<number, string> = { 1: '銅', 2: '銀', 3: '金', 4: '虹' }

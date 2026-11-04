@@ -64,7 +64,7 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
       )
     } catch (e) {
       console.error('Export failed:', e)
-      setToast({ text: '匯出失敗，請查看主控台訊息', severity: 'info' })
+      setToast({ text: '匯出失敗，請再試一次', severity: 'info' })
     } finally {
       setBusy(false)
     }
@@ -92,12 +92,12 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
       ? '讀取中…'
       : noAnomalies
         ? summary.logBytes > 0
-          ? '目前沒有記錄到異常，但已有引擎啟動記錄可供回報。'
-          : '目前沒有記錄到異常。'
+          ? '目前沒有異常紀錄，但有辨識的啟動紀錄可以匯出回報。'
+          : '目前沒有異常紀錄。'
         : `已記錄 ${summary.eventCount} 筆事件、${summary.frameCount} 張畫面（約 ${formatBytes(summary.bytes)}）${
             summary.latestAt ? `，最近一筆：${new Date(summary.latestAt).toLocaleString()}` : ''
           }`
-    : '目前已關閉，不會記錄辨識異常（引擎啟動記錄仍會保留）。'
+    : '已關閉，不會記錄辨識異常。辨識的啟動紀錄仍會保留。'
 
   return (
     <>
@@ -109,8 +109,7 @@ const DiagnosticsSettings: React.FC<Props> = ({ enabled, onToggle }) => {
           <InfoHint
             title={
               <span>
-                辨識失敗大多不會有明顯症狀——例如比對分數悄悄掉到門檻邊緣、OCR
-                讀出無效內容、或結算畫面無法歸因到任何模式。開啟後，程式會把這些「自己也不確定」的情況記錄在本機，方便你回報問題時一併提供。紀錄只存在你的電腦上，不會自動上傳。
+                辨識出錯時通常看不出來，例如比對分數偏低、讀到無效的數字，或判斷不出結算畫面的模式。開啟後會把這些情況記錄在本機，回報問題時可以一起附上，不會自動上傳。
               </span>
             }
             label="說明：記錄辨識異常會記錄什麼"

@@ -62,7 +62,7 @@ export const computeResolutionStatus = (bounds?: {
       label,
       width,
       height,
-      hint: '畫面上下的空白過高，辨識會整個位移；建議改用 16:9 解析度'
+      hint: '畫面上下的空白過多，辨識位置會偏移。建議改用 16:9 解析度'
     }
   }
   if (gameWidth < CANVAS_WIDTH || gameHeight < CANVAS_HEIGHT) {

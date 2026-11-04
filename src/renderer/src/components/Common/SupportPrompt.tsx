@@ -62,7 +62,7 @@ const SupportPrompt = (): React.JSX.Element => {
           <Box>
             <Typography variant="body2">{payload ? promptText(payload) : ''}</Typography>
             <Typography variant="body2" color="text.secondary">
-              工具是免費的，之後也會是。如果它對你有幫助，可以考慮小額贊助支持後續維護。
+              SVWB Analyzer 免費提供，之後也不會收費。如果對你有幫助，歡迎小額贊助支持後續維護。
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>

@@ -222,8 +222,8 @@ function DiffBody({
           color="text.secondary"
           sx={{ mt: 0.5, lineHeight: 1.5 }}
         >
-          這個差不是上面兩個勝率相減（那是 {fmtDelta(crude)}
-          ）：它是其餘三張相近的手牌各自比完再合起來的。兩者的距離，就是其餘三張造成的偏差。
+          這個差由其餘三張相近的手牌分別比較後合併（直接相減是 {fmtDelta(crude)}
+          ）。兩者的差距來自其餘三張的影響。
         </Typography>
       )}
       <Typography

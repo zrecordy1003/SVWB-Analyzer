@@ -61,7 +61,7 @@ const Recent: React.FC<RecentProps> = ({
             }}
           >
             <Typography variant="caption" color="text.secondary">
-              尚無近期對戰紀錄
+              尚無近期對局
             </Typography>
           </Box>
         ) : (
@@ -175,7 +175,7 @@ const Recent: React.FC<RecentProps> = ({
           }}
         >
           <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
-            尚無近期對戰紀錄
+            尚無近期對局
           </Typography>
         </Box>
       )}

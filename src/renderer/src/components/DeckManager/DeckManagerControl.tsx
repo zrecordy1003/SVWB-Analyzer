@@ -862,8 +862,8 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                     title="無符合的牌組"
                     description={
                       query.trim()
-                        ? '試試清除搜尋文字，或切換到「全部」分類。'
-                        : '這個分類下還沒有牌組；切換到「全部」看看。'
+                        ? '請清除搜尋文字，或切換到「全部」分類。'
+                        : '這個分類還沒有牌組，可切換到「全部」查看。'
                     }
                     action={
                       <Button
@@ -1288,15 +1288,15 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
             ? `即將刪除「${deleting?.name}」的全部 ${deleteImpact.versions} 個版本。`
             : `即將刪除「${deleting?.name}」。`}
           {deleteImpact && deleteImpact.matches > 0
-            ? `它有 ${deleteImpact.matches} 場對局，刪除後戰績會保留，只是牌組不再出現在清單與挑選選單。`
+            ? `這副牌組有 ${deleteImpact.matches} 場對局。刪除後戰績會保留，但牌組不會再出現在清單與選單中。`
             : deleteImpact
-              ? '這副牌組還沒打過，會直接移除，無法復原。'
-              : '已經打過的對局與戰績會保留。'}
+              ? '這副牌組沒有對局，刪除後無法復原。'
+              : '已有的對局與戰績會保留。'}
         </Typography>
         <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 2 }}>
           <InfoOutlinedIcon fontSize="small" color="action" />
           <Typography variant="caption" color="text.secondary">
-            若它是預設牌組，刪除後請為該職業重新指定一副牌組。
+            若這是預設牌組，刪除後請為該職業重新指定預設牌組。
           </Typography>
         </Stack>
       </AppDialog>

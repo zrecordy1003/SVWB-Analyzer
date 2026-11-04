@@ -306,8 +306,8 @@ function createWindow(): void {
       parent: mainWindow!,
       appName: 'SVWB Analyzer',
       title: '確認關閉應用？',
-      message: '你確定要關閉 SVWB Analyzer 嗎？',
-      detail: '對戰進行中，關閉後將停止紀錄，本場記錄將被捨棄。',
+      message: '要關閉 SVWB Analyzer 嗎？',
+      detail: '正在對局中。關閉後會停止記錄，這場對局不會儲存。',
       rememberLabel: '以後不要再詢問'
     })
 
@@ -456,8 +456,8 @@ function startPollingForGame(): void {
             // produce one for a minimise that already happened.
             if (store.get('settings.enableNotifications') === true) {
               new Notification({
-                title: '［提醒］遊戲最小化 / 視窗不在前景',
-                body: '已暫停擷取畫面，分析仍在待命；超過 30 分鐘會自動關閉。'
+                title: '遊戲已最小化或不在前景',
+                body: '已暫停擷取畫面。超過 30 分鐘沒有還原遊戲視窗，會停止辨識。'
               }).show()
             }
             break

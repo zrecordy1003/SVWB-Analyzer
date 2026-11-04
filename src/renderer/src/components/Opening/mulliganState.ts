@@ -95,7 +95,7 @@ export type BasisSpec = {
  * cannot drift into three different claims about the same arithmetic.
  */
 export const BAND_CAVEAT =
-  '「其餘三張相近」只看那三張的平均費用分成三段，抓的是「其餘手牌順才敢留」這個主要干擾；具體是哪幾張、有沒有配合，它看不到。'
+  '「其餘三張相近」依其餘三張的平均費用分成三段，看不出是哪幾張卡或卡片之間的搭配。'
 
 export function basisSpec(basis: AdviceBasis, pins: Pins): BasisSpec {
   const scope = pins.oppo ? `${pins.order}對上${pins.oppo}的對局` : `${pins.order}的對局`
@@ -105,13 +105,13 @@ export function basisSpec(basis: AdviceBasis, pins: Pins): BasisSpec {
       return {
         label: '其餘三張相近',
         tone: 'adjusted',
-        explain: `留與換只在${scope}裡、而且其餘三張平均費用落在同一段的手牌之間比，三段各比完再合成一個數。${BAND_CAVEAT}`
+        explain: `在${scope}中，只比較其餘三張平均費用同一段的手牌，三段分別比較後合併。${BAND_CAVEAT}`
       }
     case 'turn-order':
       return {
         label: '同條件・未分層',
         tone: 'pooled',
-        explain: `留與換都在${scope}裡比，但同一段手牌裡兩邊都有的太少，所以沒有依其餘三張分層。其餘三張的影響沒有處理。`
+        explain: `在${scope}中比較留與換。同一段裡兩邊都有的手牌太少，因此沒有依其餘三張分層，未排除其餘三張的影響。`
       }
     case 'opponent':
       // The rung dropped the turn order - which is this column's whole
@@ -119,14 +119,14 @@ export function basisSpec(basis: AdviceBasis, pins: Pins): BasisSpec {
       return {
         label: pins.oppo ? `對上${pins.oppo}・不分先後` : '不分先後',
         tone: 'widened',
-        explain: `只看${pins.order}時樣本不夠，這一張把先攻和後攻合起來算${pins.oppo ? `（仍限對上${pins.oppo}）` : ''}，也沒有依其餘三張分層。它回答的比這一欄問的寬。`
+        explain: `只看${pins.order}時樣本不足，因此合併先攻和後攻計算${pins.oppo ? `（仍限對上${pins.oppo}）` : ''}，也沒有依其餘三張分層，範圍比這一欄寬。`
       }
     case 'all-opponents': {
       const dropped = pins.oppo ? `${pins.order}對上${pins.oppo}` : pins.order
       return {
         label: '全部對手合併',
         tone: 'widened',
-        explain: `${dropped}的樣本不夠，這一張把所有對手、先攻後攻全部合起來算，也沒有分層。它回答的不是這一欄問的問題，只是同一張卡在你所有對局裡的留換紀錄。`
+        explain: `${dropped}的樣本不足，因此合併所有對手與先後攻計算，也沒有分層。數字是這張卡在你所有對局中的留換紀錄。`
       }
     }
   }

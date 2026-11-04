@@ -232,9 +232,9 @@ function DealRateLine({ stat }: { stat: OpeningCardStat }): React.JSX.Element {
       發到率 {fmtPct(stat.observedDealRate)}（{fmtN(stat.eligible)}）· 牌組帶{' '}
       {stat.copies?.toFixed(1) ?? '?'} 張時期望 {fmtPct(stat.expectedDealRate)}
       {stat.dealRateSuspect
-        ? ' · 差得比運氣能解釋的多，很可能是辨識漏掉了這張卡'
+        ? ' · 明顯偏低，可能是這張卡沒有被辨識出來'
         : belowCheck
-          ? ` · 不到 ${OPENING_THRESHOLDS.dealCheck} 場，還不拿來懷疑辨識`
+          ? ` · 不到 ${OPENING_THRESHOLDS.dealCheck} 場，暫不判斷辨識是否有問題`
           : ''}
     </Typography>
   )
@@ -443,7 +443,7 @@ export default function OpeningDrilldownDrawer({
             {/* ---------- 依對手職業 ---------- */}
             <Section
               title="保留率 · 依對手職業"
-              info="同一張卡，對上每個職業時留下來的比例。一個人對一個職業的樣本通常只有幾次，所以這裡預設是「樣本不足」，夠了才變成數字。"
+              info="這張卡對上各職業時留下的比例。樣本通常很少，數量足夠才會顯示數字。"
             >
               <Box
                 sx={{

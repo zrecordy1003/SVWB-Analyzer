@@ -134,7 +134,8 @@ const HIDDEN_SCROLL_SX = {
 
 type ChartKind = 'heatmap' | 'bars'
 
-const META_MATCHUP_EMPTY = '這個職業在這個區間還沒有可發布的對位。換一個職業，或選較長的區間看看。'
+const META_MATCHUP_EMPTY =
+  '這個職業在這段期間還沒有公開的對位數據。可以換個職業，或選擇較長的期間。'
 
 /**
  * 主程式丟回來的錯誤，換成使用者看得懂的一句。
@@ -314,7 +315,7 @@ export default function MetaPage(): React.JSX.Element {
       // 那是最難回報的一種壞法：使用者只會說「沒有顯示資料」。
       if (!alive.current) return
       setError(
-        `無法向主程式取得統計（${(e as Error)?.message ?? String(e)}）。如果你剛更新過，重開 app 再試一次。`
+        `無法取得統計資料。如果剛更新過，請重新開啟 SVWB Analyzer 後再試一次。（${(e as Error)?.message ?? String(e)}）`
       )
     } finally {
       // finally 而不是兩條路各寫一次：漏掉任何一條的代價就是永遠的骨架。
@@ -406,19 +407,19 @@ export default function MetaPage(): React.JSX.Element {
                   <Row
                     k="貢獻的使用者"
                     v={`${(doc?.installs ?? 0).toLocaleString()} 位`}
-                    note="這個區間內至少上傳過一次的安裝數。一個人有兩台機器就算兩個。"
+                    note="這段期間至少上傳過一次的安裝數，同一人的兩台電腦算兩位。"
                   />
                   <Row
-                    k="觀測場次"
+                    k="觀測場數"
                     v={`${(doc?.matches ?? 0).toLocaleString()} 場`}
-                    note="是「被記錄到的次數」而不是「不重複的對局數」：兩個使用者對打時，同一場會被雙方各記一次。"
+                    note="兩位使用者對戰時，同一場會被雙方各記一次。"
                   />
                   <Row
                     k="統計區間"
                     v={`${doc?.window.days ?? days} 天（自 ${doc?.window.since ?? '—'}）`}
                     note={
                       doc?.window.season
-                        ? `只算 ${doc.window.season.name} 上線之後。上線當天混有舊環境的對局，所以從隔天（UTC）起算。`
+                        ? `只計算 ${doc.window.season.name} 上線隔天（UTC）起的對局。`
                         : undefined
                     }
                   />
@@ -429,18 +430,18 @@ export default function MetaPage(): React.JSX.Element {
                         ? '—'
                         : `${advantage >= 0 ? '+' : '−'}${Math.abs(advantage).toFixed(1)}%`
                     }
-                    note="整個環境合起來，先攻勝率減後攻勝率。"
+                    note="所有對局的先攻勝率減去後攻勝率。"
                   />
                   <Row
                     k="模式"
-                    v={doc?.mode === 'ranked' ? '天梯' : (doc?.mode ?? '—')}
-                    note="公開統計只算天梯，而且只算引擎自己辨識、沒有被手動改過的對局。"
+                    v={doc?.mode === 'ranked' ? '階級對戰' : (doc?.mode ?? '—')}
+                    note="只計算階級對戰中自動辨識、未經手動修改的對局。"
                   />
                   {(doc?.sampling.suppressedCells ?? 0) > 0 && (
                     <Row
                       k="未發布"
                       v={`${doc?.sampling.suppressedCells} 個對位 · ${(doc?.sampling.suppressedMatches ?? 0).toLocaleString()} 場`}
-                      note={`貢獻的使用者不足 ${doc?.sampling.minInstallsPerCell} 位。單一使用者的對位紀錄等同於那個人的戰績，所以人數不夠時寧可不發布。`}
+                      note={`使用者不到 ${doc?.sampling.minInstallsPerCell} 位的對位不公開，以免透露個人戰績。`}
                     />
                   )}
                 </Box>
@@ -488,12 +489,12 @@ export default function MetaPage(): React.JSX.Element {
           */}
           {(doc?.caveats.length ?? 0) > 0 && (
             <InfoHint
-              label="這些數字不能讀成什麼"
+              label="注意事項"
               maxWidth={420}
               title={
                 <Box>
                   <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
-                    這些數字不能讀成什麼
+                    注意事項
                   </Typography>
                   <Box component="ul" sx={{ m: 0, pl: 2.25 }}>
                     {doc?.caveats.map((line) => (
@@ -512,7 +513,7 @@ export default function MetaPage(): React.JSX.Element {
             />
           )}
 
-          <Tooltip title="重新向伺服器索取（略過快取）">
+          <Tooltip title="從伺服器重新載入">
             <span>
               <IconButton
                 size="small"
@@ -539,7 +540,7 @@ export default function MetaPage(): React.JSX.Element {
             </Button>
           }
         >
-          {`無法更新：${friendlyMetaError(error)} 以下是上次取得的資料。`}
+          {`更新失敗：${friendlyMetaError(error)} 以下是上一次的資料。`}
         </Alert>
       )}
 
@@ -595,7 +596,7 @@ export default function MetaPage(): React.JSX.Element {
         ) : showEmpty ? (
           <EmptyState
             title="還沒有足夠的資料"
-            description="公開統計要有足夠多的使用者同時打過同一個對位才會發布。過一陣子再回來看，或換一個較長的區間。"
+            description="同一個對位要有足夠的使用者打過才會公開。請稍後再來，或選擇較長的期間。"
             icon={<PublicOutlinedIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
           />
         ) : (
@@ -628,12 +629,11 @@ export default function MetaPage(): React.JSX.Element {
                   title={
                     <Box sx={{ maxWidth: 320 }}>
                       <Typography variant="body2" sx={{ mb: 0.75 }}>
-                        <b>環境佔比</b>數的是「對面」那一側 -
-                        你在天梯上遇到誰。對手大多沒有裝這個工具，所以這一側最接近真實環境。
+                        <b>環境佔比</b>：你在階級對戰遇到的對手職業。對手大多沒有使用 SVWB
+                        Analyzer，因此較接近實際環境。
                       </Typography>
                       <Typography variant="body2">
-                        <b>使用者勝率</b>數的是「自己」那一側 -
-                        只有這個工具的使用者，樣本本來就有偏差。兩個數字回答的是不同的問題。
+                        <b>使用者勝率</b>：只來自 SVWB Analyzer 使用者，樣本有偏差。
                       </Typography>
                     </Box>
                   }
@@ -669,7 +669,7 @@ export default function MetaPage(): React.JSX.Element {
                     </Typography>
                     <InfoHint
                       label="環境佔比的樣本是什麼"
-                      title="算的是這個工具的使用者在天梯上遇到的對手，不是整個天梯。使用者少的時候，這個分佈偏向他們打的時段與段位；未達發布門檻的對位也不在分母裡。"
+                      title="統計 SVWB Analyzer 使用者在階級對戰遇到的對手。使用者少時，會偏向他們常打的時段與段位；未公開的對位不計入。"
                     />
                   </Box>
                   <MetaSharePie

@@ -96,18 +96,21 @@ function summariseCurve(cards: ReadonlyArray<ManaCurveCard>): {
  */
 function sizeState(total: number, deckSize: number): { colour: string; hint: string } {
   if (total === 0) {
-    return { colour: 'text.disabled', hint: '還沒有卡片。從左邊點卡片加入牌組。' }
+    return { colour: 'text.disabled', hint: '還沒有卡片。點選左側的卡片加入牌組。' }
   }
   if (total < deckSize) {
     return {
       colour: 'warning.main',
-      hint: `還差 ${deckSize - total} 張才滿 ${deckSize}。未滿也可以儲存，但遊戲不會接受未滿的牌組。`
+      hint: `還差 ${deckSize - total} 張才滿 ${deckSize} 張。未滿也能儲存，但遊戲無法使用未滿的牌組。`
     }
   }
   if (total > deckSize) {
-    return { colour: 'error.main', hint: `超過 ${deckSize} 張了，請移除 ${total - deckSize} 張。` }
+    return { colour: 'error.main', hint: `超過 ${deckSize} 張，請移除 ${total - deckSize} 張。` }
   }
-  return { colour: 'success.main', hint: `剛好 ${deckSize} 張，可以儲存並發行牌組代碼帶回遊戲。` }
+  return {
+    colour: 'success.main',
+    hint: `已滿 ${deckSize} 張，可以儲存並發行牌組代碼在遊戲中使用。`
+  }
 }
 
 export default function ManaCurve({

@@ -113,7 +113,7 @@ function FigureLine({
 }
 
 const winsLosses = (split: MetaSideSplit): string =>
-  split.total === 0 ? '沒有這一側的資料' : `${split.wins} 勝 ${split.total - split.wins} 敗`
+  split.total === 0 ? '沒有這一側的資料' : `${split.wins}勝 ${split.total - split.wins}敗`
 
 function RowTooltip({ row }: { row: MetaClassRow }): React.JSX.Element {
   return (
@@ -130,7 +130,7 @@ function RowTooltip({ row }: { row: MetaClassRow }): React.JSX.Element {
       >
         {row.total === 0 ? (
           <Box component="span" sx={{ gridColumn: '1 / -1', color: 'text.secondary' }}>
-            這個區間沒有人用這個職業記錄到對局
+            這段期間沒有這個職業的對局
           </Box>
         ) : (
           <>
@@ -163,7 +163,7 @@ function RowTooltip({ row }: { row: MetaClassRow }): React.JSX.Element {
           真的差的時候出現 - 場次是整數，差 1 場也是差，沒有「捨入誤差」可言。 */}
       {row.withheld > 0 && (
         <Box component="div" sx={{ mt: 0.25, color: 'text.secondary' }}>
-          另有 {row.withheld.toLocaleString()} 場的對位因人數不足未公開，不在先攻／後攻的分母裡
+          另有 {row.withheld.toLocaleString()} 場因使用者人數不足未公開，不計入先攻／後攻勝率
         </Box>
       )}
     </Typography>

@@ -103,8 +103,8 @@ export default function OpeningSummaryPanel({
           hintLabel="這四個數字是什麼"
           hint={
             <Hint>
-              這頁每個數字的分母都是這四個之一：讀到換牌畫面的場次、換前四張全認出的、八格全認出的、有掛牌組的。愈往下愈少，所以卡片表的
-              n 會比對局列表小。滑到每一條上看定義。
+              這頁的數字都以這四項之一為分母，愈下面愈少，所以卡片表的 n
+              會比對局列表小。將游標移到各項上可查看說明。
             </Hint>
           }
           aside={
@@ -125,9 +125,7 @@ export default function OpeningSummaryPanel({
                 <InfoHint
                   label="待補認是什麼意思"
                   title={
-                    <Hint>
-                      這些手牌格子還在背景等卡圖索引建完，建完會自動認出來，這頁的數字會跟著動。
-                    </Hint>
+                    <Hint>這些手牌格子會在卡圖資料建立完成後自動辨識，數字也會跟著更新。</Hint>
                   }
                 />
               </>
@@ -143,10 +141,8 @@ export default function OpeningSummaryPanel({
           hintLabel="換牌張數分佈怎麼讀"
           hint={
             <Hint>
-              長條是準的：換了幾張是從畫面位置讀的，不用認出卡片，每一場讀到換牌畫面的都算。右邊的勝率則會偏
-              -
-              手牌差才會多換，所以「換得多、勝率低」大半是在講手牌本來就差，不是在講換牌這個決定。看分佈就好，勝率當參考；不到{' '}
-              {OPENING_THRESHOLDS.wrShow} 手只印 n。
+              長條不需要辨識卡片，讀到換牌畫面的對局都會計入。右邊的勝率會有偏差：手牌差時通常會多換，所以換得多、勝率低多半是因為手牌本來就差。勝率僅供參考；不到{' '}
+              {OPENING_THRESHOLDS.wrShow} 手只顯示 n。
             </Hint>
           }
         >
@@ -164,9 +160,8 @@ export default function OpeningSummaryPanel({
         hintLabel="起手曲線怎麼讀"
         hint={
           <Hint>
-            每個費用在手上平均有幾張：虛線框是發到的四張，實心是換完留下的四張，兩邊加起來都是
-            4，所以差的就是你換掉了什麼、去找了什麼。上方的箭頭是平均費用從發到到留下的移動。只用八格全認出的手畫，不到{' '}
-            {OPENING_THRESHOLDS.curve} 場不畫 - 少幾張卡算出來的不是比較粗的曲線，是錯的曲線。
+            各費用在手上的平均張數：虛線框是發到的四張，實心是換牌後留下的四張，差異就是你換掉與換來的卡。上方箭頭表示平均費用的變化。只使用八張都辨識出來的手牌，不到{' '}
+            {OPENING_THRESHOLDS.curve} 場不顯示。
           </Hint>
         }
       >

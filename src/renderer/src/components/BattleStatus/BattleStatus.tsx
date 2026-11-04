@@ -124,8 +124,8 @@ const BattleStatus = (): React.JSX.Element => {
         對戰中
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        對戰結束後會自動記下這一場
-        {battle.mode ? '' : '；天梯的模式要到結算畫面才會確定'}。
+        對戰結束後會自動記錄這場對局
+        {battle.mode ? '' : '；階級對戰的模式要到結算畫面才會確定'}。
       </Typography>
     </Box>
   ) : (

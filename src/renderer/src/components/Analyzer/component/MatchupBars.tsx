@@ -394,7 +394,7 @@ type Props = {
 const MatchupBars: React.FC<Props> = ({
   data,
   onMatchupClick,
-  emptyDescription = '這組條件下沒有對局。換個職業或模式、放寬場數或時間區間，或清掉幾條進階條件再看看。'
+  emptyDescription = '沒有符合條件的對局。可以換個職業或模式，或放寬場數、時間區間與進階條件。'
 }) => {
   const { sortKey, descending, setSortKey, setDescending } = useMatchupSort()
 
@@ -441,7 +441,7 @@ const MatchupBars: React.FC<Props> = ({
       label: '先攻優勢',
       value: edge === null ? '—' : `${edge >= 0 ? '+' : '−'}${Math.abs(edge).toFixed(1)}%`
     },
-    { label: '對局數', value: overall.all.total.toLocaleString() }
+    { label: '場數', value: overall.all.total.toLocaleString() }
   ]
 
   return (

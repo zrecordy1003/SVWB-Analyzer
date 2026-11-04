@@ -260,7 +260,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
         setTotalCount(0)
         setHasMore(false)
         nextCursorRef.current = null
-        setLoadError('無法載入對局列表，請確認資料庫後再試一次。')
+        setLoadError('無法載入對局列表，請再試一次。')
       } finally {
         if (generation === generationRef.current) setIsInitialLoading(false)
       }

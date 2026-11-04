@@ -65,7 +65,7 @@ const TelemetrySettings: React.FC = () => {
   ) : status?.lastUploadAt ? (
     <>上次上傳：{new Date(status.lastUploadAt).toLocaleString()}</>
   ) : (
-    '尚未上傳過；啟動後幾秒內會送出第一次。'
+    '尚未上傳。啟動後幾秒內會進行第一次上傳。'
   )
 
   if (status === null) return null
@@ -76,12 +76,12 @@ const TelemetrySettings: React.FC = () => {
       checked={enabled}
       disabled={busy || !configured}
       onChange={(checked) => void handleToggle(checked)}
-      description={!configured && '這個版本沒有設定統計伺服器，開關暫時無法使用。'}
+      description={!configured && '這個版本沒有統計伺服器，無法開啟。'}
       adornment={
         <InfoHint
           title={
             <Box display="flex" flexDirection="column" gap={0.75}>
-              <span>開啟後定期上傳，內容只有這些，而且是整天合併過的計數：</span>
+              <span>開啟後會定期上傳以下內容，並以天為單位合計次數：</span>
               {/*
                 起手那一行在 1.4.0 曾經被拿掉，因為當時沒有在上傳它——
                 文案是照計畫先寫的，而 schema 3 還沒做。現在做了，它回來了。
@@ -94,11 +94,10 @@ const TelemetrySettings: React.FC = () => {
               */}
               <Box component="ul" sx={{ m: 0, pl: 2.25 }}>
                 <li>職業、對手職業、先攻或後攻、模式、分數段、勝負</li>
-                <li>起手四張的卡號，以及各自有沒有被換掉</li>
+                <li>起手四張的卡號，以及每張是否換掉</li>
               </Box>
               <span>
-                不含帳號、暱稱、牌組名稱、對手名字或任何可以認出你的東西，也不會上傳
-                單場紀錄——伺服器收到的是「這一天這種組合出現幾次」。
+                不含帳號、暱稱、牌組名稱、對手名稱等可以辨認出你的資料，也不會上傳單場對局，只會上傳每種組合當天出現的次數。
               </span>
               {enabled && <span>{lastUploadLine}</span>}
             </Box>

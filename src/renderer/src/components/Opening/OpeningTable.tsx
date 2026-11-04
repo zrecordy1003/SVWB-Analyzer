@@ -149,8 +149,7 @@ function SuspectMark({ stat }: { stat: OpeningCardStat }): React.JSX.Element | n
   const tip = (
     <Box sx={{ maxWidth: 320 }}>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
-        這張卡出現在起手的頻率，遠低於牌組張數能給的 -
-        差得比運氣能解釋的多。通常是辨識漏掉了它：異畫、閃卡最常見。它在手上的場次會被算成「沒發到」，所以這一列的其他數字很可能被低估。
+        這張卡出現在起手的頻率明顯低於牌組張數的預期，通常是辨識漏掉了它，異畫、閃卡最常見。漏掉的場次會被算成「沒發到」，這一列的數字可能被低估。
       </Typography>
       <Typography
         variant="caption"
@@ -168,7 +167,7 @@ function SuspectMark({ stat }: { stat: OpeningCardStat }): React.JSX.Element | n
       <ErrorOutlineRoundedIcon
         data-testid="opening-deal-suspect"
         role="img"
-        aria-label="發到率遠低於牌組能給的，很可能是這張卡認不出來"
+        aria-label="發到率明顯偏低，可能是這張卡無法辨識"
         tabIndex={0}
         sx={{
           fontSize: 16,
@@ -286,7 +285,7 @@ function CardLine({
         title={
           stat.dealt > 0
             ? `換前四張裡有它 ${stat.dealt} 次，留下 ${stat.kept} 次、換掉 ${stat.dealt - stat.kept} 次`
-            : '換前四張裡從來沒認出過它'
+            : '換牌前四張中從未辨識出這張卡'
         }
         placement="top"
         disableInteractive
@@ -447,7 +446,7 @@ export default function OpeningTable({
             align="right"
             sort={sort}
             onSort={onSort}
-            hint={<Hint>換前四張裡認出這張卡的次數。滑到數字上看留下幾次。</Hint>}
+            hint={<Hint>換牌前四張中辨識出這張卡的次數。將游標移到數字上可查看留下幾次。</Hint>}
           />
           <HeaderCell
             label="保留率"
@@ -456,8 +455,8 @@ export default function OpeningTable({
             onSort={onSort}
             hint={
               <Hint>
-                被發到的時候，留下來的比例。這是這頁最單純的數字：它描述你的決定，不預測結果，所以幾十次就能看。不到{' '}
-                {OPENING_THRESHOLDS.keepRate} 次只印 n。
+                發到這張卡時留下的比例，反映你的選擇。不到 {OPENING_THRESHOLDS.keepRate} 次只顯示
+                n。
               </Hint>
             }
           />
@@ -469,9 +468,9 @@ export default function OpeningTable({
             lock
             hint={
               <Hint>
-                發到這張卡的對局勝率，減去牌組裡有它但沒發到的對局勝率（已向零收縮）。起手四張是隨機發的，所以這是公平的比較。兩邊各不到{' '}
-                {OPENING_THRESHOLDS.wrShow} 場只印 n；各不到 {OPENING_THRESHOLDS.wrSort}{' '}
-                場可以看但不參與排序，排序時整塊沉到分隔線底下。
+                發到這張卡的對局勝率，減去牌組裡有它但沒發到的對局勝率（已向零收縮）。兩邊各不到{' '}
+                {OPENING_THRESHOLDS.wrShow} 場只顯示 n；各不到 {OPENING_THRESHOLDS.wrSort}{' '}
+                場不列入排序，會排在分隔線下方。
               </Hint>
             }
           />
@@ -518,7 +517,7 @@ export default function OpeningTable({
                     title={
                       <Hint>
                         這些卡的「發到 vs 沒發到」兩邊各不到 {OPENING_THRESHOLDS.wrSort}{' '}
-                        場，差值還是雜訊多於訊號，拿來排名會排出資料撐不起來的順序。它們照被發到次數排列。
+                        場，差值還不可靠，因此改依發到次數排列。
                       </Hint>
                     }
                   />

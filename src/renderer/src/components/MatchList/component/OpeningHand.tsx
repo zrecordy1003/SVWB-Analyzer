@@ -36,7 +36,7 @@ const Slot: React.FC<{ slot: OpeningHandSlot; dimmed?: boolean }> = ({ slot, dim
       title={
         known
           ? `${label}${slot.cost != null ? `（${slot.cost} 費）` : ''}`
-          : '這一格有卡片，但候選集裡沒有相符的卡'
+          : '這一格有卡片，但無法辨識是哪一張'
       }
     >
       <Box
@@ -147,7 +147,7 @@ const OpeningHand: React.FC<OpeningHandProps> = ({ matchId }) => {
   if (!hand) {
     return (
       <Typography variant="caption" color="text.disabled">
-        沒有起手手牌紀錄——這一場的換牌畫面沒有被讀到（1.4.0 之前的紀錄都是這樣）。
+        沒有起手手牌資料。這場對局沒有讀到換牌畫面，較早的對局都沒有記錄。
       </Typography>
     )
   }
@@ -176,8 +176,7 @@ const OpeningHand: React.FC<OpeningHandProps> = ({ matchId }) => {
 
       {named === 0 && (
         <Typography variant="caption" color="text.secondary">
-          位置讀到了、卡片還沒認出來。卡圖索引是開啟 app 之後在背景建的，一個職業約 175
-          張；這一場的畫面已經留著了，索引建完之後會自動補上——重開 app 或稍後再回來看這一頁就會有。
+          已讀到卡片位置，但還沒辨識出卡片。卡圖索引會在背景建立，這場的畫面已保存，索引完成後會自動補上，請稍後再回來查看。
         </Typography>
       )}
     </Stack>

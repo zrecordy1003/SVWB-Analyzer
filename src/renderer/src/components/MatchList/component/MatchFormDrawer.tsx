@@ -813,7 +813,7 @@ const TagEditor: React.FC<{
         }
       >
         <Typography variant="body2" color="text.secondary">
-          確定要刪除「{deleting?.name}」嗎？此動作將同時從所有使用到該標籤的紀錄移除。
+          確定要刪除「{deleting?.name}」嗎？所有對局上的這個標籤也會一併移除。
         </Typography>
       </AppDialog>
     </>
@@ -878,23 +878,23 @@ const MatchFormDrawer: React.FC<Props> = ({
     // 缺模式，編輯時把它擋住等於連改別的欄位都改不了。
     if (create) {
       if (!data.my_class || !data.oppo_class) {
-        setFormError('雙方職業都要選')
+        setFormError('請選擇雙方職業')
         return
       }
       if (data.result == null) {
-        setFormError('勝敗要選一個')
+        setFormError('請選擇勝敗')
         return
       }
       if (!data.play_order) {
-        setFormError('先／後攻必填')
+        setFormError('請選擇先攻或後攻')
         return
       }
       if (!data.mode) {
-        setFormError('模式要選一個——它決定這一筆會進哪一份統計')
+        setFormError('請選擇模式，對局會依模式分開統計')
         return
       }
       if (!data.playedAt) {
-        setFormError('對戰時間要填')
+        setFormError('請填寫對戰時間')
         return
       }
     }
@@ -967,10 +967,10 @@ const MatchFormDrawer: React.FC<Props> = ({
       onClose()
     } catch (e: any) {
       if (e?.code === 'CONFLICT' || String(e?.message).includes('CONFLICT_UPDATED_AT')) {
-        setFormError('這筆已被其他流程更新，請關掉重新開啟編輯')
+        setFormError('這場對局已在別處更新，請關閉後重新開啟再編輯。')
       } else {
         console.error(e)
-        setFormError(create ? '新增失敗，請確認欄位' : '儲存失敗')
+        setFormError(create ? '新增失敗，請檢查欄位後再試一次' : '儲存失敗')
       }
     } finally {
       setLoading(false)
@@ -1072,7 +1072,7 @@ const MatchFormDrawer: React.FC<Props> = ({
                 sx={{ display: 'block', color: 'text.secondary', mt: 0.25 }}
               >
                 {create
-                  ? '手動補一筆。會標記為手動新增，不列入辨識準確率的統計。'
+                  ? '手動新增的對局會加上標記，不列入辨識準確率統計。'
                   : data?.updatedAt
                     ? `更新於 ${formatDate(new Date(data.updatedAt), 'yyyy/MM/dd HH:mm:ss')}`
                     : '尚未更新過'}
@@ -1324,7 +1324,7 @@ const MatchFormDrawer: React.FC<Props> = ({
             >
               取消
             </Button>
-            <Tooltip title={missingRequired ? '還有必填欄位沒填' : ''} placement="top">
+            <Tooltip title={missingRequired ? '還有必填欄位未填寫' : ''} placement="top">
               <span>
                 <Button
                   variant="contained"

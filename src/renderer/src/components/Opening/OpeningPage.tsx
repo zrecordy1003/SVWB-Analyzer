@@ -165,15 +165,14 @@ function TableHint({
         <Box component="span" sx={{ fontWeight: 800 }}>
           起手四張是隨機發到的。
         </Box>
-        有沒有發到某張卡，和對手、先攻後攻、你那天的狀態都無關，所以「發到 vs
-        沒發到」的勝率差是公平的比較 - 它量的是這張卡在起手時對這副牌的價值。
+        是否發到某張卡，和對手、先後攻、你當天的狀態都無關，因此「發到 vs
+        沒發到」的勝率差可以反映這張卡在起手時對這副牌的價值。
       </Typography>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
         <Box component="span" sx={{ fontWeight: 800 }}>
           換牌後留下的是你選的。
         </Box>
-        留下來的勝率量的是你的判斷，不是這張卡，所以這頁沒有「留下時的勝率」-
-        別家工具印成「起手勝率」的就是那個數字。
+        留下時的勝率反映的是你的判斷，因此這頁不顯示。其他工具的「起手勝率」通常就是這個數字。
       </Typography>
       <Typography
         variant="caption"
@@ -421,10 +420,10 @@ export default function OpeningPage(): React.JSX.Element {
   const emptyText = (() => {
     if (!data) return ''
     if (data.summary.matches === 0) {
-      return '這個範圍內沒有讀到任何起手。只有換牌畫面有被讀到的對局才會進來；較早的對局沒有記錄換牌畫面。'
+      return '目前條件下沒有讀到起手。只會計入有讀到換牌畫面的對局，較早的對局沒有換牌紀錄。'
     }
     if (allRows.length === 0) {
-      return `${data.summary.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`
+      return `${data.summary.matches} 場有讀到換牌畫面，但還沒辨識出任何卡片。卡圖資料建立完成後會自動補上。`
     }
     return ''
   })()
@@ -464,7 +463,7 @@ export default function OpeningPage(): React.JSX.Element {
             onChange={(next) => patchFilters({ view: next })}
             height={TOOLBAR_CONTROL_HEIGHT}
             minSegmentWidth={104}
-            aria-label="起手頁的看法"
+            aria-label="檢視方式"
           />
         </Box>
 
@@ -491,7 +490,7 @@ export default function OpeningPage(): React.JSX.Element {
             </Button>
           }
         >
-          無法更新起手統計，以下是上一次成功讀到的數字。
+          起手統計更新失敗，以下是上一次的結果。
         </Alert>
       )}
 
@@ -512,7 +511,7 @@ export default function OpeningPage(): React.JSX.Element {
       {view === 'overview' && overviewFailed && (
         <EmptyState
           title="無法讀取統計"
-          description="讀取這組條件的起手統計時出錯了。再試一次；如果一直失敗，重新開啟 app。"
+          description="起手統計載入失敗，請再試一次。如果一直失敗，請重新開啟 SVWB Analyzer。"
           icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
           action={
             <Button variant="outlined" size="small" onClick={retry}>

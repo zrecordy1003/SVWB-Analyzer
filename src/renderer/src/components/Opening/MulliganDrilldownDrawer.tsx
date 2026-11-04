@@ -212,7 +212,7 @@ function NoBands({ advice, pins }: { advice: KeepAdvice; pins: Pins }): React.JS
     >
       <Typography variant="caption" color="text.secondary" component="div" sx={{ lineHeight: 1.6 }}>
         {advice.confidence === 'hidden'
-          ? '這張卡連放寬到所有對手都不夠比，所以沒有分段可看。上面的 n 是它在你選的條件裡留與換各幾次。'
+          ? '合併所有對手後樣本仍不足，沒有分段資料。上方的 n 是目前條件下留與換各幾次。'
           : spec.explain}
       </Typography>
     </Box>
@@ -405,7 +405,7 @@ export default function MulliganDrilldownDrawer({
                           sx={{ ...NUMERIC, mt: 0.5, color: 'text.secondary' }}
                         >
                           95% 區間 {fmtDelta(advice.diffLo)} 到 {fmtDelta(advice.diffHi)}
-                          {advice.diffLo < 0 && advice.diffHi > 0 ? '（跨過零，所以不給方向）' : ''}
+                          {advice.diffLo < 0 && advice.diffHi > 0 ? '（跨過零，不給建議）' : ''}
                         </Typography>
                       )}
                     </Box>
@@ -416,7 +416,7 @@ export default function MulliganDrilldownDrawer({
 
             <Section
               title="依其餘三張的費用"
-              info={`${BAND_CAVEAT} 三段各自比、再合成一個數；一段裡只有留或只有換的，列在這裡但沒進估計。三段方向不一致的差，多半是雜訊。`}
+              info={`${BAND_CAVEAT} 三段分別比較後再合併；只有留或只有換的分段會列出，但不計入。三段方向不一致時，差距多半是雜訊。`}
             >
               {advice.bands.length > 0 ? (
                 <Box

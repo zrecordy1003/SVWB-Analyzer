@@ -191,7 +191,7 @@ const MatchupCard: React.FC<Props> = ({ myClass, enemyClass, playOrder, gameMode
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: 10 }}>
               {all.total === 0
-                ? '尚無對戰紀錄'
+                ? '尚無對局'
                 : `${all.total} 場 ${all.wins}勝${all.total - all.wins}敗`}
             </Typography>
           </Box>

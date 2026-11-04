@@ -9,5 +9,5 @@ export type StatsRange = number | null
 export const DEFAULT_STATS_DAYS = 7
 
 export function describeRange(days: StatsRange): string {
-  return days == null ? '全部紀錄' : `近 ${days} 天`
+  return days == null ? '生涯' : `近 ${days} 天`
 }

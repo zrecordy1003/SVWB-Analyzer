@@ -111,19 +111,18 @@ export function clearStore(dir: string): void {
 }
 
 const KIND_EXPLANATIONS: Record<string, string> = {
-  'near-miss': '分數落在門檻正下方，模板可能已過期',
-  'ocr-reject': 'OCR 讀出的內容不是整數',
-  'mode-unattributable': '結算畫面無法歸因到任何模式（最需要關注）',
-  'class-unrecognised': '職業或先後攻辨識失敗，該場未被記錄',
-  'mode-guessed': '模式未偵測到，該場標記為「未知」',
-  'ranked-no-numbers': '階級對戰結束但完全沒讀到 BP/MP/CR',
-  'tick-over-budget': '單次分析超過 500ms 預算',
-  'weak-mode-accepted': '以未校準的廣場賽/自訂房探測判定模式（附畫面待覆核）',
-  'mode-corrected': '結算畫面的積分制度標籤推翻了先前的模式判定',
-  'final-screen-never-seen':
-    '等了十分鐘都沒等到結算畫面，也沒有下一場或回放（多半是關掉遊戲或擷取中斷）',
-  'closed-by-next-match': '結算畫面還沒讀完就開了下一場，該場只留下勝負',
-  'closed-by-capture-stop': '結算畫面還沒讀完就停止擷取，該場只留下勝負'
+  'near-miss': '分數略低於門檻，辨識範本可能需要更新',
+  'ocr-reject': '讀到的數字不是整數',
+  'mode-unattributable': '結算畫面無法對應到任何模式（最需要處理）',
+  'class-unrecognised': '職業或先攻／後攻辨識失敗，該場沒有記錄',
+  'mode-guessed': '沒有偵測到模式，該場標記為「未知」',
+  'ranked-no-numbers': '階級對戰結束，但沒有讀到 BP/MP/CR',
+  'tick-over-budget': '單次分析超過 500 ms 上限',
+  'weak-mode-accepted': '以尚未校準的廣場賽／自訂房偵測判定模式（附畫面待確認）',
+  'mode-corrected': '結算畫面的積分制度標籤修正了先前判定的模式',
+  'final-screen-never-seen': '10 分鐘內沒有出現結算畫面、下一場或回放（通常是關閉遊戲或擷取中斷）',
+  'closed-by-next-match': '結算畫面還沒讀完就開始下一場，該場只記錄勝負',
+  'closed-by-capture-stop': '結算畫面還沒讀完就停止擷取，該場只記錄勝負'
 }
 
 /**
@@ -146,7 +145,7 @@ export function buildReportMarkdown(
   const lines: string[] = [
     '# 辨識診斷回報',
     '',
-    '此檔由 SVWB Analyzer 的「辨識異常自我診斷」產生，內容全部來自本機記錄。',
+    '此檔由 SVWB Analyzer 的「記錄辨識異常」功能產生，內容全部來自本機紀錄。',
     '',
     '## 環境',
     '',
@@ -158,9 +157,7 @@ export function buildReportMarkdown(
     `| 事件筆數 | ${events.length} |`,
     `| 畫面張數 | ${frameCount} |`,
     '',
-    '> 核心數會影響比對速度。核心較少時單次分析較慢，可能整場錯過只顯示約一秒的畫面'.concat(
-      '（例如先後攻提示）。'
-    ),
+    '> 核心數較少時辨識較慢，可能漏掉只出現約 1 秒的畫面'.concat('（例如先攻／後攻提示）。'),
     '',
     '## 異常種類統計',
     '',
@@ -188,20 +185,20 @@ export function buildReportMarkdown(
   if (logs.length > 0) {
     lines.push(
       '',
-      '## 引擎啟動記錄',
+      '## 辨識啟動紀錄',
       '',
-      `\`${logs.join('`、`')}\` 是辨識引擎的啟動與結束記錄，不受「記錄辨識異常」開關影響。`,
+      `\`${logs.join('`、`')}\` 是辨識的啟動與結束紀錄，不受「記錄辨識異常」開關影響。`,
       '',
-      '判讀順序：找 `[Startup]` 那幾行確認 exe 與模板路徑存在、架構是否為 x64；',
-      '再找 `[Engine] ready` ——**有這行才代表辨識真的跑起來了**。',
-      '若看到 `exited` 或 `failed to start` 而沒有 `ready`，緊接在它上面的 `[Engine]`',
-      '訊息就是原因。'
+      '查看方式：先找 `[Startup]` 開頭的行，確認 exe 與辨識範本路徑存在、架構為 x64。',
+      '再找 `[Engine] ready`，有這行才表示辨識已經啟動。',
+      '若有 `exited` 或 `failed to start` 但沒有 `ready`，原因寫在它上方的 `[Engine]`',
+      '訊息裡。'
     )
     if (events.length === 0 && frameCount === 0) {
       lines.push(
         '',
-        '> 這份回報沒有任何異常事件或畫面，只有上面的啟動記錄。這通常不代表一切正常，',
-        '> 而是代表引擎從未產出任何辨識結果——請優先看啟動記錄。'
+        '> 這份回報沒有異常事件或畫面，只有上面的啟動紀錄。這通常表示辨識沒有產生任何結果，',
+        '> 請先查看啟動紀錄。'
       )
     }
   }
@@ -211,9 +208,9 @@ export function buildReportMarkdown(
       '',
       '## 畫面',
       '',
-      '`frames/` 是異常發生時的畫面，已轉為灰階、裁除視窗標題列、統一縮放為 1280×720',
-      '——也就是比對器實際看到的內容。每張圖旁的 `.json` 記錄當時各區域的分數，',
-      '欄位刻意對齊專案的離線驗證工具，可直接放入 `tests/fixtures/captures/` 當回歸案例。'
+      '`frames/` 是異常發生時的畫面，已轉為灰階、裁掉視窗標題列並縮放為 1280×720，',
+      '與辨識時看到的內容相同。每張圖旁的 `.json` 記錄當時各區域的分數，',
+      '格式與專案的離線驗證工具相同，可直接放入 `tests/fixtures/captures/` 當回歸測試案例。'
     )
   }
 

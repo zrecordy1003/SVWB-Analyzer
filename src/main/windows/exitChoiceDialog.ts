@@ -18,9 +18,9 @@ export async function openExitOrMinimizeDialog(
   const {
     parent,
     appName = 'SVWB Analyzer',
-    title = '要關閉還是最小化到系統列？',
-    message = `你想要最小化到系統列（背景執行）還是關閉 ${appName}？`,
-    detail = '最小化到系統列後仍可於背景運行；關閉將結束所有背景作業。',
+    title = '要關閉還是最小化到系統匣？',
+    message = `要最小化到系統匣在背景執行，還是關閉 ${appName}？`,
+    detail = '最小化後會繼續在背景執行。關閉會結束所有背景作業。',
     rememberLabel = '記住我的選擇',
     defaultAction = 'minimize'
   } = opts
@@ -193,7 +193,7 @@ function getHtml(): string {
       <div class="btns">
         <button class="btn ghost" id="cancel">取消</button>
         <button class="btn danger" id="exit">關閉應用</button>
-        <button class="btn primary" id="min">最小化到系統列</button>
+        <button class="btn primary" id="min">最小化到系統匣</button>
       </div>
     </div>
   </div>

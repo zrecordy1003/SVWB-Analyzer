@@ -103,7 +103,7 @@ const TelemetryPrompt = (): React.JSX.Element => {
           <Typography variant="body2">已開啟數據統計</Typography>
           <Typography variant="body2" color="text.secondary">
             只送出版本、作業系統，以及每日對局依職業與勝負的<strong>計數</strong>
-            ——沒有牌組名稱、備註、時間或任何能識別你的資料。彙總環境數據後，公開給所有人看。隨時可以關閉。
+            。不包含牌組名稱、備註、時間或任何能識別你的資料。彙總後的環境數據會公開給所有人查看，隨時可以關閉。
           </Typography>
         </Box>
       </Alert>

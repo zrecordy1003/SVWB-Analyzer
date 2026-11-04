@@ -48,29 +48,28 @@ function steps(summary: OpeningSummary): Step[] {
       label: '有起手',
       value: summary.matches,
       tone: 'primary.main',
-      explain: '換牌畫面有被讀到的對局。較早的對局沒有記錄換牌畫面，不會算進來。'
+      explain: '有讀到換牌畫面的對局。較早的對局沒有換牌紀錄，不會計入。'
     },
     {
       key: 'preComplete',
       label: '四張認出',
       value: summary.preComplete,
       tone: 'primary.main',
-      explain: '換前四張都認出是哪張卡的場次。保留率用這個當分母。'
+      explain: '換牌前四張都辨識出來的場數，用來計算保留率。'
     },
     {
       key: 'complete',
       label: '八格認出',
       value: summary.complete,
       tone: 'primary.main',
-      explain: '換前、換後八格都認出來的場次。起手曲線只用這些手畫。'
+      explain: '換牌前後八張都辨識出來的場數，用來畫起手曲線。'
     },
     {
       key: 'withDeck',
       label: '掛牌組',
       value: summary.withDeck,
       tone: 'info.main',
-      explain:
-        '有掛上牌組的對局。「發到 vs 沒發到」需要知道牌組裡有沒有這張卡，只算這些場。它是另一種切法，不是上面三層的下一層。'
+      explain: '有掛上牌組的對局，用來計算「發到 vs 沒發到」。與上面三項分開計算。'
     }
   ]
 }

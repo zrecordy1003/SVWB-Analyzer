@@ -733,9 +733,9 @@ export default function DeckBuilder({
             data-testid="deck-builder-correction-banner"
             sx={{ py: 0.5 }}
           >
-            正在修正 {correction.versionLabel} 的卡表：存檔會直接改寫這一版，不建立新版本
+            正在修正 {correction.versionLabel} 的卡表：儲存後會覆寫這個版本，不會建立新版本
             {correctionMatches !== null && correctionMatches > 0
-              ? `，這一版既有的 ${correctionMatches} 場對局會以新卡表解讀`
+              ? `，此版本已有的 ${correctionMatches} 場對局會改用新卡表計算`
               : ''}
             。
           </Alert>
@@ -814,7 +814,7 @@ export default function DeckBuilder({
                   <Typography variant="body2" color="text.secondary" textAlign="center">
                     還沒有{classesMap[className].label}的卡池資料。
                     <br />
-                    同步會從官方網站取得這個職業的卡片清單（約 0.5 MB）。
+                    同步時會從官方網站下載此職業的卡片清單（約 0.5 MB）。
                   </Typography>
                   <Button variant="contained" onClick={() => void handleSync()} disabled={syncing}>
                     {syncing ? '同步中…' : '同步卡池'}
@@ -863,7 +863,7 @@ export default function DeckBuilder({
                   sx={{ px: 2, py: 4 }}
                   align="center"
                 >
-                  從左邊點卡片加入牌組。
+                  點選左側的卡片加入牌組。
                 </Typography>
               ) : (
                 deckCards.map(({ card, count }) => {
@@ -966,7 +966,7 @@ export default function DeckBuilder({
       <ConfirmDialog
         open={confirmDiscard}
         title="捨棄未儲存的變更？"
-        message="這副牌組的修改還沒存，關閉後會遺失。"
+        message="牌組的變更尚未儲存，關閉後會遺失。"
         confirmLabel="捨棄"
         zIndex={zIndex === undefined ? undefined : zIndex + 1}
         onClose={(ok) => {
@@ -981,8 +981,8 @@ export default function DeckBuilder({
 }
 
 function syncErrorMessage(code: string): string {
-  if (code === 'NETWORK') return '連不上官方牌組網站，請確認網路連線後再試一次。'
-  if (code === 'UNEXPECTED_SHAPE') return '官方網站回傳了無法解析的卡池資料，可能是網站改版了。'
+  if (code === 'NETWORK') return '無法連線到官方牌組網站，請確認網路後再試一次。'
+  if (code === 'UNEXPECTED_SHAPE') return '無法讀取官方網站回傳的卡池資料，網站可能已改版。'
   return code
 }
 

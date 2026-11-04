@@ -334,18 +334,18 @@ const HudApp: React.FC = () => {
         ? {
             color: '#F2C879',
             label: '已暫停',
-            hint: '遊戲已最小化或不在前景，畫面擷取暫停中。'
+            hint: '遊戲已最小化或不在前景，辨識已暫停。'
           }
         : gameStatus?.running
           ? {
               color: '#F2C879',
               label: '等待畫面',
-              hint: '已偵測到遊戲，但尚未收到擷取畫面；若持續顯示，請匯出診斷資料。'
+              hint: '已找到遊戲，但還沒收到遊戲畫面。若持續顯示，請匯出診斷資料。'
             }
           : {
               color: 'rgba(214,226,244,0.42)',
               label: '未偵測到遊戲',
-              hint: '請先啟動 Shadowverse: Worlds Beyond；偵測到之後才會開始記錄。'
+              hint: '請先開啟 Shadowverse: Worlds Beyond，找到遊戲後才會開始記錄。'
             }
 
   return (

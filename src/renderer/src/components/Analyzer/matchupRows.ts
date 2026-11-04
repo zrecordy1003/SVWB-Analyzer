@@ -145,7 +145,7 @@ export const MATCHUP_SORT_LABELS: Record<MatchupSortKey, string> = {
   overall: '總勝率',
   first: '先攻勝率',
   second: '後攻勝率',
-  games: '對局數',
+  games: '場數',
   swing: '先後差',
   class: '職業順序'
 }

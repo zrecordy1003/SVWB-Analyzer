@@ -43,7 +43,7 @@ const MatchHistoryLink: React.FC = () => (
       }
     }}
   >
-    完整對戰歷史
+    完整對局列表
     <ArrowForwardRoundedIcon />
   </Box>
 )

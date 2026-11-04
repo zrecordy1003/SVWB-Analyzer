@@ -289,7 +289,7 @@ const MatchList = (): React.JSX.Element => {
           setNotice(
             withinActiveRange(filters, new Date(created.playedAt))
               ? '已新增一場對局'
-              : '已新增，但它不在目前的時間篩選範圍內——把範圍往前調才看得到'
+              : '已新增，但不在目前的時間範圍內，調整時間範圍後就能看到。'
           )
         }}
       />

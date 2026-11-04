@@ -109,7 +109,7 @@ function PlayOrderBar({
       title={
         played
           ? `${tone.label} ${record.wins}勝 ${record.total - record.wins}敗（${record.total} 場）`
-          : `${tone.label}還沒有對局紀錄`
+          : `${tone.label}還沒有對局`
       }
       placement="top"
       disableInteractive
@@ -237,7 +237,7 @@ export default function DeckRow({
     >
       {/* 展開版本歷史。stopPropagation：整列點下去是看卡表，這顆只翻開下面那塊。 */}
       {onToggleExpand && (
-        <Tooltip title={expanded ? '收起版本' : `看版本（共 ${deck.versionCount} 個）`}>
+        <Tooltip title={expanded ? '收起版本' : `查看版本（共 ${deck.versionCount} 個）`}>
           <IconButton
             size="small"
             aria-label={expanded ? '收起版本' : '展開版本'}
@@ -444,7 +444,7 @@ export default function DeckRow({
             color: 'text.disabled'
           }}
         >
-          還沒有對局紀錄
+          還沒有對局
         </Typography>
       )}
     </Box>

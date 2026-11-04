@@ -241,7 +241,7 @@ export default function CardDrilldownDrawer({
                 帶這張卡的牌組
               </Typography>
               <InfoHint
-                title="這些是牌組的成績，不是卡片本身的：沒有抽牌／出牌資料，看不出這張卡在手上時打得怎樣。"
+                title="這是帶這張卡的牌組的勝率。沒有抽牌與出牌資料，無法看出這張卡本身的表現。"
                 label="這些數字的意思"
               />
               <Typography variant="caption" color="text.secondary" sx={NUMERIC}>
@@ -370,7 +370,7 @@ export default function CardDrilldownDrawer({
                       ? `${card.without.total} 場 ・ 差值 ${fmtDelta(row.delta)}${
                           row.deltaLowSample ? `（對照組不足 ${CARD_STATS_LOW_SAMPLE} 場）` : ''
                         }`
-                      : '這個範圍內沒有這樣的對局'}
+                      : '目前條件下沒有這類對局'}
                   </Typography>
                 </Box>
                 <RecordLine
