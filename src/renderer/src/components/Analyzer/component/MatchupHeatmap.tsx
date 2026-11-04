@@ -121,7 +121,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
       ? `${new Date(stats.start).toLocaleDateString()} – ${new Date(stats.end).toLocaleDateString()}`
       : stats.limit
         ? null
-        : '全部期間'
+        : '生涯'
 
   /**
    * The cap is applied to the matches that already passed class, mode, deck and
@@ -377,7 +377,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
           rateTone(overall.second.total > 0 ? overall.second.winRate : null)
         )}
         {metric(
-          '先手優勢',
+          '先攻優勢',
           advantage === null
             ? '—'
             : `${advantage >= 0 ? '+' : '−'}${Math.abs(advantage).toFixed(1)}`,
@@ -499,7 +499,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
                 )}
               </Box>
 
-              {rateCell(row.all, '總計', row, true)}
+              {rateCell(row.all, '總勝率', row, true)}
 
               {/* 對局數不上熱度色：它是其他數字的限定條件，該低一階。 */}
               <Box

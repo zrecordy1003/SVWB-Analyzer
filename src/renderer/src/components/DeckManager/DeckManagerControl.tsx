@@ -49,7 +49,14 @@ import {
 import { deckErrorMessage } from '@renderer/components/DeckCards/deckErrorMessage'
 import { classes, classesMap } from '@renderer/map/classMap'
 import { DECK_NAME_MAX_LEN, cardImageUrl } from '@shared/deckImport'
-import { PANEL_SX } from '@renderer/components/Common/surfaces'
+import {
+  BACKDROP_SX,
+  BAR_SX,
+  DRAWER_SURFACE_SX,
+  HAIRLINE_BOTTOM,
+  PANEL_SX,
+  noteSx
+} from '@renderer/components/Common/surfaces'
 import type { ClassName } from '@shared/domain'
 import { useDecksTags, type DeckLite } from '@renderer/hooks/useDecksTags'
 import { invokeIpc } from '@renderer/ipc'
@@ -626,19 +633,21 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                   variant="body2"
                   fontSize="15px"
                   fontWeight={600}
-                  sx={{ color: classesMap[activeClass]?.color, lineHeight: 1.3 }}
+                  sx={{
+                    color: defaultDeckOfActive ? classesMap[activeClass]?.color : 'text.secondary',
+                    lineHeight: 1.3
+                  }}
                   noWrap
                 >
-                  {defaultDeckOfActive?.name ?? '未設定'}
+                  {defaultDeckOfActive?.name ?? `${classesMap[activeClass]?.label ?? ''}尚無預設`}
                 </Typography>
               </Box>
             </Stack>
-            <Chip
-              size="small"
-              color={defaultDeckOfActive ? 'success' : 'warning'}
-              variant="outlined"
-              label={defaultDeckOfActive ? '已有預設' : '未設定'}
-            />
+            {/* 有預設時牌組名就是答案，不必再掛一顆「已有預設」；沒有時這顆說的是
+                下一步，不是把「未設定」再講一次。 */}
+            {!defaultDeckOfActive && (
+              <Chip size="small" color="warning" variant="outlined" label="點此設定" />
+            )}
           </CardContent>
         </CardActionArea>
       </Card>
@@ -649,20 +658,16 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         open={open}
         onClose={() => setOpen(false)}
         style={{ zIndex: 1500 }}
-        sx={{
-          '& .MuiDrawer-paper': {
-            bgcolor: '#1b1e24',
-            backgroundImage: 'none'
-          },
-          '& .MuiBackdrop-root': { bgcolor: 'rgba(7, 9, 13, 0.46)' }
-        }}
-        PaperProps={{
-          sx: {
-            width: 'min(960px, calc(100vw - 112px))',
-            minWidth: 720,
-            borderTopLeftRadius: 16,
-            borderBottomLeftRadius: 16,
-            overflow: 'hidden'
+        // 和對局表單、牌組內容同一組抽屜外觀：面板、背景遮罩、標題列都用共用的那一套。
+        slotProps={{
+          backdrop: { sx: BACKDROP_SX },
+          paper: {
+            elevation: 0,
+            sx: {
+              ...DRAWER_SURFACE_SX,
+              width: 'min(960px, calc(100vw - 112px))',
+              minWidth: 720
+            }
           }
         }}
       >
@@ -672,7 +677,10 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              px: 3,
+              ...BAR_SX,
+              ...HAIRLINE_BOTTOM,
+              flexShrink: 0,
+              px: 2.5,
               py: 2
             }}
           >
@@ -696,14 +704,12 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
               flexDirection: 'column',
               overflow: 'hidden',
               gap: 1,
-              borderTop: 1,
-              borderColor: 'divider',
-              px: 3,
+              px: 2.5,
               py: 2
             }}
           >
             {loadError && (
-              <Alert severity="error" sx={{ mb: 1 }}>
+              <Alert severity="error" sx={{ ...noteSx('error'), mb: 1 }}>
                 {loadError}
               </Alert>
             )}
@@ -711,7 +717,11 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
             {/* 這一頁所有的寫入——設為預設、改名、改分類、新增——都寫這個
                 state，而它們全都發生在這個畫面上，所以錯誤也畫在這裡。 */}
             {error && (
-              <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
+              <Alert
+                severity="error"
+                sx={{ ...noteSx('error'), mb: 1 }}
+                onClose={() => setError(null)}
+              >
                 {error}
               </Alert>
             )}

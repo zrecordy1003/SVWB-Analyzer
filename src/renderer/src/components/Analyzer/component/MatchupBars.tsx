@@ -438,7 +438,7 @@ const MatchupBars: React.FC<Props> = ({
     },
     {
       // 先手優勢是兩個勝率相減，不是離 50% 多遠，所以不套那組顏色
-      label: '先手優勢',
+      label: '先攻優勢',
       value: edge === null ? '—' : `${edge >= 0 ? '+' : '−'}${Math.abs(edge).toFixed(1)}%`
     },
     { label: '對局數', value: overall.all.total.toLocaleString() }

@@ -48,6 +48,7 @@ import RefreshIcon from '@mui/icons-material/Refresh'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
 
 import EmptyState from '@renderer/components/Common/EmptyState'
+import { noteSx } from '@renderer/components/Common/surfaces'
 import InfoHint from '@renderer/components/Common/InfoHint'
 import SegmentedControl from '@renderer/components/Common/SegmentedControl'
 import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
@@ -392,7 +393,7 @@ export default function MetaPage(): React.JSX.Element {
             {/*
               滑過去才給細節，不是點開。
 
-              這一行的三個數字是常看的，其餘（統計區間起點、先手優勢、模式、
+              這一行的三個數字是常看的，其餘（統計區間起點、先攻優勢、模式、
               以及每個數字各自的但書）是偶爾才需要確認的——那正是 ⓘ 的用途，
               而這一頁其他地方本來就是這樣做的。展開式在這裡是多餘的第三種
               互動：同一塊資訊既能點又能滑，讀者得先猜哪一種才有東西。
@@ -422,7 +423,7 @@ export default function MetaPage(): React.JSX.Element {
                     }
                   />
                   <Row
-                    k="先手優勢"
+                    k="先攻優勢"
                     v={
                       advantage === null
                         ? '—'
@@ -531,6 +532,7 @@ export default function MetaPage(): React.JSX.Element {
       {error && snapshot && (
         <Alert
           severity="warning"
+          sx={noteSx('warning')}
           action={
             <Button color="inherit" size="small" onClick={() => void load(days, true)}>
               重試

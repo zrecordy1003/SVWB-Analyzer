@@ -104,6 +104,10 @@ const Settings: React.FC = () => {
     window.settings.set(`settings.${String(key)}`, value)
   }
 
+  // 每一顆開關都等讀到實際值才畫，不只更新那兩顆：一般區的開關原本也是先用預設值
+  // 畫、讀完再滑到實際值。讀檔是一次本機 IPC，空一幀不會被看到。
+  if (!loaded) return null
+
   return (
     <Box>
       {/* <h2 style={{ marginTop: 0 }}>一般</h2> */}

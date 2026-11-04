@@ -29,6 +29,7 @@ import MatchupHeatmap from './component/MatchupHeatmap'
 import MatchupBars from './component/MatchupBars'
 import SegmentedControl from '@renderer/components/Common/SegmentedControl'
 import EmptyState from '@renderer/components/Common/EmptyState'
+import { noteSx } from '@renderer/components/Common/surfaces'
 import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
 import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
@@ -670,7 +671,9 @@ const Analyzer: React.FC = () => {
       {/* A failed query keeps the previous chart, so say so explicitly. With no
           previous chart the error is the whole content area instead (below). */}
       {error && analyzeData !== null && (
-        <Alert severity="warning">{error}，目前顯示的是上一次的結果。</Alert>
+        <Alert severity="warning" sx={noteSx('warning')}>
+          {error}，目前顯示的是上一次的結果。
+        </Alert>
       )}
       {/* 內容比這塊高的時候仍然捲得動，但不畫原生捲軸 - 它會蓋在最右邊那欄
           數字上。對局列表的清單也是這樣處理的。 */}

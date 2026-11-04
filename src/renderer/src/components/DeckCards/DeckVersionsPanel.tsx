@@ -93,7 +93,7 @@ type Res<T> = { ok: true; data: T } | { ok: false; error: string }
 type VersionImpact = { matches: number; versions: number; isLastActive: boolean }
 
 /** 一句話，兩件事：版本層級的數字為什麼不能盡信，以及它跟著誰的篩選走。收在 ⓘ 裡。 */
-export const VERSION_STATS_CAVEAT = '版本的場次很少時，勝率差多半是雜訊；這裡的數字跟隨上方的篩選。'
+export const VERSION_STATS_CAVEAT = '版本的場數很少時，勝率差多半是雜訊；這裡的數字跟隨上方的篩選。'
 
 /** 版本列 `⋯` 選單裡「修正卡表…」要通知呼叫端的東西。 */
 export type CorrectVersionRequest = { deckId: number; versionLabel: string }

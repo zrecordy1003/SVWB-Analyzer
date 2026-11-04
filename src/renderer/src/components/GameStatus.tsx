@@ -2,37 +2,70 @@ import { useSvwbStatus } from '@renderer/hooks/useSvwbStatus'
 
 import Box from '@mui/material/Box'
 import Tooltip from '@mui/material/Tooltip'
-import WarningIcon from '@mui/icons-material/Warning'
+import { CircularProgress, Zoom } from '@mui/material'
+import type { SvgIconComponent } from '@mui/icons-material'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
-import Typography from '@mui/material/Typography'
-import { CircularProgress, Fade, Zoom } from '@mui/material'
+import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined'
+import ReportProblemOutlinedIcon from '@mui/icons-material/ReportProblemOutlined'
+import HourglassTopRoundedIcon from '@mui/icons-material/HourglassTopRounded'
+import PauseCircleOutlineRoundedIcon from '@mui/icons-material/PauseCircleOutlineRounded'
+import AspectRatioRoundedIcon from '@mui/icons-material/AspectRatioRounded'
 
+import { TOOLTIP_SURFACE_SX } from './Common/tooltipSurface'
 import { computeResolutionStatus } from './resolutionStatus'
 
 interface Props {
-  open: boolean
+  /**
+   * The sidebar only ever renders the collapsed badge column. The expanded
+   * layout this used to switch to was never reached and is gone; the prop stays
+   * so the call site does not have to change with it.
+   */
+  open?: boolean
 }
 
-const GameStatus: React.FC<Props> = ({ open }: Props) => {
+/**
+ * One badge in the sidebar's status column.
+ *
+ * Each state has its own glyph, not one glyph in different colours: the column
+ * is 92px wide and read at a glance, and "engine down - this match will not be
+ * recorded" looked almost exactly like "resolution is not 16:9" when both were
+ * the same warning triangle in two shades of red.
+ */
+type BadgeProps = {
+  title: string
+  icon: SvgIconComponent
+  color: string
+}
+
+const Badge = ({ title, icon: Icon, color }: BadgeProps): React.JSX.Element => (
+  <Tooltip
+    title={title}
+    placement="right"
+    slotProps={{ tooltip: { sx: TOOLTIP_SURFACE_SX } }}
+    slots={{ transition: Zoom }}
+  >
+    <Box display="flex" alignItems="center" justifyContent="center" aria-label={title} role="img">
+      <Icon sx={{ color }} />
+    </Box>
+  </Tooltip>
+)
+
+const GameStatus: React.FC<Props> = () => {
   const svwbStatus = useSvwbStatus()
 
-  const isLoading = svwbStatus === undefined
-  // const isLoading = true
-
-  if (isLoading) {
+  if (svwbStatus === undefined) {
+    // Spinner only: the text that sat beside it did not fit the 92px column and
+    // was clipped mid-word. The tooltip says what the spinner is for.
     return (
-      <Tooltip title="讀取遊戲狀態中" placement="right" disableHoverListener={open}>
-        <Box width="100%" display="flex" justifyContent="center" alignItems="center">
-          <CircularProgress size="2rem" />
-          <Typography ml={2} color="info" fontWeight="bold">
-            狀態讀取中
-          </Typography>
+      <Tooltip title="讀取遊戲狀態中" placement="right">
+        <Box display="flex" justifyContent="center" alignItems="center" role="status">
+          <CircularProgress size={20} />
         </Box>
       </Tooltip>
     )
   }
 
-  const { running, bounds, engineReady, capturing } = svwbStatus!
+  const { running, bounds, engineReady, capturing } = svwbStatus
   const isMinimized = bounds?.x === -32000 && bounds?.y === -32000
   const resolution = computeResolutionStatus(bounds)
   // Worth its own state, because "game found" and "recognition running" are
@@ -40,186 +73,45 @@ const GameStatus: React.FC<Props> = ({ open }: Props) => {
   // the main process and stays green through an engine that died on startup,
   // which is exactly the case that produced no diagnostics to look at either.
   const engineDown = running && !isMinimized && engineReady === false
-  const ENGINE_DOWN_HINT = '辨識引擎未啟動，這場不會被記錄。請到「設定 → 辨識診斷」匯出診斷包回報'
   const capturePending = running && !isMinimized && !engineDown && capturing === false
-  const CAPTURE_PENDING_HINT =
-    '已偵測到遊戲，但尚未收到擷取畫面。若持續顯示，請到「設定 → 辨識診斷」匯出診斷包回報'
-
-  const TooltipStyles = {
-    tooltip: {
-      sx: {
-        fontSize: '0.85rem',
-        bgcolor: '#333',
-        color: '#fff',
-        px: 2,
-        py: 1,
-        borderRadius: 1,
-        boxShadow: 3
-      }
-    }
-  }
-
-  if (!open) {
-    return (
-      <Box width="100%" display="flex" flexDirection="column" alignItems="center" gap={2}>
-        {!running && (
-          <Tooltip
-            title="未偵測到遊戲"
-            placement="right"
-            slotProps={{ ...TooltipStyles }}
-            slots={{
-              transition: Zoom
-            }}
-          >
-            <Box display="flex" alignItems="center" justifyContent="center">
-              <SportsEsportsIcon color="error" />
-            </Box>
-          </Tooltip>
-        )}
-        {running && !isMinimized && !engineDown && !capturePending && (
-          <Tooltip
-            title="畫面擷取正常"
-            placement="right"
-            slotProps={{ ...TooltipStyles }}
-            slots={{
-              transition: Zoom
-            }}
-          >
-            <Box display="flex" alignItems="center" justifyContent="center">
-              <SportsEsportsIcon color="success" />
-            </Box>
-          </Tooltip>
-        )}
-
-        {engineDown && (
-          <Tooltip
-            title={ENGINE_DOWN_HINT}
-            placement="right"
-            slotProps={{ ...TooltipStyles }}
-            slots={{
-              transition: Zoom
-            }}
-          >
-            <Box display="flex" alignItems="center" justifyContent="center">
-              <WarningIcon color="error" />
-            </Box>
-          </Tooltip>
-        )}
-
-        {capturePending && (
-          <Tooltip
-            title={CAPTURE_PENDING_HINT}
-            placement="right"
-            slotProps={{ ...TooltipStyles }}
-            slots={{
-              transition: Zoom
-            }}
-          >
-            <Box display="flex" alignItems="center" justifyContent="center">
-              <WarningIcon color="warning" />
-            </Box>
-          </Tooltip>
-        )}
-
-        {running && isMinimized && (
-          <Tooltip
-            title="遊戲最小化，擷取暫停"
-            placement="right"
-            slotProps={{ ...TooltipStyles }}
-            slots={{
-              transition: Zoom
-            }}
-          >
-            <WarningIcon color="warning" />
-          </Tooltip>
-        )}
-
-        {running && !resolution.ok && !isMinimized && (
-          <Tooltip
-            title={resolution.hint || '建議使用 16:9 解析度，且不低於 1280×720'}
-            placement="right"
-            slotProps={{ ...TooltipStyles }}
-            slots={{
-              transition: Zoom
-            }}
-          >
-            <WarningIcon sx={{ color: 'coral' }} />
-          </Tooltip>
-        )}
-      </Box>
-    )
-  }
 
   return (
-    <Box ml={'17.5px'} display="flex" flexDirection="column" alignItems="start" gap={2}>
+    <Box width="100%" display="flex" flexDirection="column" alignItems="center" gap={2}>
+      {/* Not running is the normal state whenever the game is closed, so it is
+          quiet rather than red - red is kept for "something is broken". */}
       {!running && (
-        <Box display="flex" alignItems="center" color={running ? 'success.main' : 'error.main'}>
-          <SportsEsportsIcon sx={{ mr: 1 }} />
-          <Fade in={open} timeout={200}>
-            <Typography>未偵測到遊戲</Typography>
-          </Fade>
-        </Box>
+        <Badge title="未偵測到遊戲" icon={SportsEsportsOutlinedIcon} color="text.disabled" />
       )}
       {running && !isMinimized && !engineDown && !capturePending && (
-        <Box display="flex" alignItems="center" color={running ? 'success.main' : 'error.main'}>
-          <SportsEsportsIcon sx={{ mr: 1 }} />
-          <Fade in={open} timeout={200}>
-            <Typography>畫面擷取正常</Typography>
-          </Fade>
-        </Box>
+        <Badge title="畫面擷取正常" icon={SportsEsportsIcon} color="success.main" />
       )}
-
       {engineDown && (
-        <Box display="flex" alignItems="center" color="error.main">
-          <WarningIcon sx={{ mr: 1 }} />
-          <Fade in={open} timeout={200}>
-            <Typography>{ENGINE_DOWN_HINT}</Typography>
-          </Fade>
-        </Box>
+        <Badge
+          title="辨識引擎未啟動，這場不會被記錄。請到「設定 → 辨識診斷」匯出診斷包回報"
+          icon={ReportProblemOutlinedIcon}
+          color="error.main"
+        />
       )}
-
       {capturePending && (
-        <Box display="flex" alignItems="center" color="warning.main">
-          <WarningIcon sx={{ mr: 1 }} />
-          <Fade in={open} timeout={200}>
-            <Typography>{CAPTURE_PENDING_HINT}</Typography>
-          </Fade>
-        </Box>
+        <Badge
+          title="已偵測到遊戲，但尚未收到擷取畫面。若持續顯示，請到「設定 → 辨識診斷」匯出診斷包回報"
+          icon={HourglassTopRoundedIcon}
+          color="warning.main"
+        />
       )}
-
       {running && isMinimized && (
-        <Box display="flex" alignItems="center" color="warning.main">
-          <WarningIcon sx={{ mr: 1 }} />
-          <Fade in={open} timeout={200}>
-            <Typography>遊戲最小化，擷取已暫停</Typography>
-          </Fade>
-        </Box>
+        <Badge
+          title="遊戲最小化，擷取暫停"
+          icon={PauseCircleOutlineRoundedIcon}
+          color="warning.main"
+        />
       )}
-
       {running && !resolution.ok && !isMinimized && (
-        <Box display="flex" alignItems="center" color="coral">
-          <WarningIcon sx={{ mr: 1 }} />
-          <Fade in={open} timeout={200}>
-            <Typography>
-              解析度 {resolution.label}，{resolution.hint}
-            </Typography>
-          </Fade>
-        </Box>
-      )}
-
-      {running && (
-        <Box
-          display="flex"
-          alignItems="center"
-          color={resolution.ok ? 'success.main' : 'text.secondary'}
-        >
-          <Fade in={open} timeout={200}>
-            <Typography variant="body2">
-              目前解析度：{resolution.label}
-              {resolution.hint ? `（${resolution.hint}）` : ''}
-            </Typography>
-          </Fade>
-        </Box>
+        <Badge
+          title={`解析度 ${resolution.label}：${resolution.hint || '建議使用 16:9 解析度，且不低於 1280×720'}`}
+          icon={AspectRatioRoundedIcon}
+          color="warning.main"
+        />
       )}
     </Box>
   )
