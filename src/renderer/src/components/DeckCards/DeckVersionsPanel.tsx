@@ -58,6 +58,7 @@ import React from 'react'
 import DeckVersionDiffDialog, { type DiffEndpoint } from './DeckVersionDiffDialog'
 import { deckErrorMessage } from './deckErrorMessage'
 import { invokeIpc } from '@renderer/ipc'
+import { useCardImages } from '@renderer/hooks/useCardImages'
 import {
   diffChips,
   diffDeckCards,
@@ -490,20 +491,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
    * the family reloads, so a discard does not blank every row's diff.
    */
   const [cards, setCards] = React.useState<CardsCache>(() => new Map())
-  const [showImages, setShowImages] = React.useState(false)
-
-  React.useEffect(() => {
-    let cancelled = false
-    void window.settings
-      .get('settings')
-      .then((settings) => {
-        if (!cancelled) setShowImages(Boolean(settings?.cardImages))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const showImages = useCardImages()
 
   React.useEffect(() => {
     let cancelled = false

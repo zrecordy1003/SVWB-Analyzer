@@ -12,11 +12,24 @@
  * that looked a few percent different would read as a different app.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Box, FormControlLabel, Paper, Skeleton, Switch, Typography } from '@mui/material'
+import {
+  Alert,
+  Box,
+  Button,
+  FormControlLabel,
+  Paper,
+  Skeleton,
+  Switch,
+  Typography
+} from '@mui/material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import type { SvgIconComponent } from '@mui/icons-material'
 import InfoHint from '@renderer/components/Common/InfoHint'
+import EmptyState from '@renderer/components/Common/EmptyState'
+import { noteSx } from '@renderer/components/Common/surfaces'
+import { cardStatsResource } from '@renderer/resources'
 
 import { CARD_STATS_LOW_SAMPLE } from '@shared/cardStats'
 import { classes, modes } from '@renderer/map/classMap'
@@ -202,6 +215,13 @@ export default function CardsPage(): React.JSX.Element {
     return buildCardsQuery(debounced, deckFamilies)
   }, [debounced, deckFamilies, decksLoading, settingsLoaded])
   const { data, loading, error, showImages } = useCardStats(query)
+  /**
+   * 查詢失敗、手上又沒有舊資料：這一格的 data 永遠是 null，骨架會一直轉下去。
+   * 這時錯誤就是整塊內容要說的事（同分析器）。有舊資料時則照畫，上面掛一條提示。
+   */
+  const failed = error !== null && data === null
+  // hook 沒把 refetch 傳出來；invalidate 只重抓正在看的那組條件，效果一樣。
+  const retry = useCallback(() => cardStatsResource.invalidate(), [])
 
   const allRows = useMemo(() => toCardRows(data), [data])
   const rows = useMemo(
@@ -288,6 +308,13 @@ export default function CardsPage(): React.JSX.Element {
     }
     return `每張卡都不到 ${CARD_STATS_LOW_SAMPLE} 場。開啟「顯示樣本不足的卡」就看得到它們。`
   })()
+  // 只有「全都被樣本線藏起來」這一種空，下一步是明確的：把它們放出來。
+  const emptyAction =
+    data && allRows.length > 0 && !showLowSample ? (
+      <Button variant="outlined" size="small" onClick={() => setShowLowSample(true)}>
+        顯示樣本不足的卡
+      </Button>
+    ) : undefined
 
   const coverageTip = summary
     ? `卡片統計涵蓋 ${summary.covered}/${summary.total} 場對局：只有指向可查卡表的對局才算得出來，更早之前被覆寫過的舊卡表已無法追回。這些數字是牌組的成績，不是卡片本身的——沒有抽牌／出牌資料，看不出這張卡在手上時打得怎樣。`
@@ -353,74 +380,114 @@ export default function CardsPage(): React.JSX.Element {
         />
       </Paper>
 
-      <Paper elevation={0} sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}>
-        {error && (
-          <Alert severity="warning" square>
-            {error}
-          </Alert>
-        )}
-
-        {/* 摘要列：兩個數字，涵蓋率與「這是牌組的成績」收進旁邊的 ⓘ。 */}
-        <Box
-          sx={{
-            px: { xs: 2, sm: 2.5 },
-            py: 1.5,
-            display: 'flex',
-            gap: { xs: 1.5, sm: 3 },
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            bgcolor: 'action.hover'
-          }}
+      {/* 只在手上還有舊資料時用橫幅；完全沒資料時錯誤就是整塊內容，見下面的 `failed`。 */}
+      {error && data && (
+        <Alert
+          severity="warning"
+          sx={noteSx('warning')}
+          action={
+            <Button color="inherit" size="small" onClick={retry}>
+              重試
+            </Button>
+          }
         >
-          {summary === null ? (
-            <>
-              <Skeleton variant="text" width={90} />
-              <Skeleton variant="text" width={120} />
-            </>
-          ) : (
-            <>
-              <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Box component="span">
-                  <Box component="span" sx={{ ...NUMERIC, fontWeight: 700 }}>
-                    {summary.cards}
-                  </Box>
-                  <Box component="span" color="text.secondary">
-                    {' '}
-                    種卡 ·{' '}
-                  </Box>
-                  <Box component="span" sx={{ ...NUMERIC, fontWeight: 700 }}>
-                    {summary.families}
-                  </Box>
-                  <Box component="span" color="text.secondary">
-                    {' '}
-                    副牌組
-                  </Box>
-                </Box>
-                <Box
-                  component="span"
-                  data-testid="cards-coverage"
-                  data-covered={summary.covered}
-                  data-total={summary.total}
-                >
-                  <InfoHint title={coverageTip} label="卡片統計的涵蓋範圍" />
-                </Box>
-              </Typography>
-            </>
-          )}
-        </Box>
+          無法更新卡片統計，以下是上一次成功讀到的數字。
+        </Alert>
+      )}
 
-        <CardsTable
-          rows={rows}
-          sort={sort}
-          onSort={(key) => setSort((prev) => nextSort(prev, key))}
-          showImages={showImages}
-          showClass={filters.myClass === 'all'}
-          selectedKey={drawerOpen ? selectedKey : null}
-          onSelect={openRow}
-          loading={loading || data === null}
-          emptyText={emptyText}
+      {failed ? (
+        <EmptyState
+          title="無法讀取統計"
+          description="讀取這組條件的卡片統計時出錯了。再試一次；如果一直失敗，重新開啟 app。"
+          icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
+          action={
+            <Button variant="outlined" size="small" onClick={retry}>
+              重試
+            </Button>
+          }
         />
-      </Paper>
+      ) : (
+        <Paper elevation={0} sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}>
+          {/* 摘要列：兩個數字加上涵蓋場數；長的說明（涵蓋率怎麼算、這是牌組的成績）收進旁邊的 ⓘ。 */}
+          <Box
+            sx={{
+              px: { xs: 2, sm: 2.5 },
+              py: 1.5,
+              display: 'flex',
+              gap: { xs: 1.5, sm: 3 },
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              bgcolor: 'action.hover'
+            }}
+          >
+            {summary === null ? (
+              <>
+                <Skeleton variant="text" width={90} />
+                <Skeleton variant="text" width={120} />
+              </>
+            ) : (
+              <>
+                <Typography
+                  variant="body2"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}
+                >
+                  <Box component="span">
+                    <Box component="span" sx={{ ...NUMERIC, fontWeight: 700 }}>
+                      {summary.cards}
+                    </Box>
+                    <Box component="span" color="text.secondary">
+                      {' '}
+                      種卡 ·{' '}
+                    </Box>
+                    <Box component="span" sx={{ ...NUMERIC, fontWeight: 700 }}>
+                      {summary.families}
+                    </Box>
+                    <Box component="span" color="text.secondary">
+                      {' '}
+                      副牌組
+                    </Box>
+                  </Box>
+                  <Box
+                    component="span"
+                    data-testid="cards-coverage"
+                    data-covered={summary.covered}
+                    data-total={summary.total}
+                    sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+                  >
+                    {/* 不到一半的對局算得出來時，上面兩個數字就不能當全貌讀 - 直接說，不藏在 ⓘ 裡。 */}
+                    <Box
+                      component="span"
+                      sx={{
+                        ...NUMERIC,
+                        color:
+                          summary.total > 0 && summary.covered / summary.total < 0.5
+                            ? 'warning.light'
+                            : 'text.secondary'
+                      }}
+                    >
+                      · 涵蓋 {summary.covered}/{summary.total} 場
+                    </Box>
+                    <InfoHint title={coverageTip} label="卡片統計的涵蓋範圍" />
+                  </Box>
+                </Typography>
+              </>
+            )}
+          </Box>
+
+          <CardsTable
+            rows={rows}
+            sort={sort}
+            onSort={(key) => setSort((prev) => nextSort(prev, key))}
+            showImages={showImages}
+            showClass={filters.myClass === 'all'}
+            selectedKey={drawerOpen ? selectedKey : null}
+            onSelect={openRow}
+            loading={loading || data === null}
+            emptyText={emptyText}
+            emptyAction={emptyAction}
+          />
+        </Paper>
+      )}
 
       <CardDrilldownDrawer
         row={selectedRow}

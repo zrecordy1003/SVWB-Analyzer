@@ -53,6 +53,7 @@
  */
 import {
   Box,
+  Button,
   ButtonBase,
   Collapse,
   Paper,
@@ -62,6 +63,7 @@ import {
   Typography
 } from '@mui/material'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import React, { useMemo, useState } from 'react'
 
 import type { KeepAdvice, KeepVerdict, MulliganResult } from '@shared/openingStats'
@@ -69,6 +71,7 @@ import { KEEP_THRESHOLDS } from '@shared/openingStats'
 import { cardImageUrl } from '@shared/deckImport'
 import { CostBadge } from '@renderer/components/Cards/CardsTable'
 import InfoHint from '@renderer/components/Common/InfoHint'
+import EmptyState from '@renderer/components/Common/EmptyState'
 import { playOrders } from '@renderer/map/playOrder'
 
 import { Hint, MissingPill } from './cells'
@@ -671,7 +674,7 @@ function SoftHeader({
 function NoCards({ result, pins }: { result: MulliganResult; pins: Pins }): React.JSX.Element {
   const text =
     result.matches === 0
-      ? `${questionLabel(pins)}還沒有讀到四張全認出的起手。只有 1.4.0 之後、看得到換牌畫面的對局才會進來${
+      ? `${questionLabel(pins)}還沒有讀到四張全認出的起手。只有換牌畫面有被讀到的對局才會進來，較早的對局沒有記錄換牌畫面${
           pins.oppo ? '；換個對手看看，或多打幾場再回來。' : '；多打幾場再回來。'
         }`
       : `${questionLabel(pins)} ${result.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`
@@ -693,6 +696,8 @@ export default function MulliganColumn({
   order,
   pins,
   data,
+  error,
+  onRetry,
   loading,
   showImages,
   selectedId,
@@ -701,6 +706,9 @@ export default function MulliganColumn({
   order: ColumnOrder
   pins: Pins
   data: MulliganResult | null
+  /** 這一欄的查詢錯誤。只有在手上沒有舊資料時才由這一欄自己畫出來。 */
+  error: string | null
+  onRetry: () => void
   loading: boolean
   showImages: boolean
   /** The card open in the drawer, if it came from this column. */
@@ -710,6 +718,8 @@ export default function MulliganColumn({
   const tone = playOrders[order]
   const groups = useMemo(() => groupByVerdict(data, pins.oppo !== null), [data, pins.oppo])
   const hasVerdicts = groups.keep.length + groups.toss.length > 0
+  // 沒有舊資料又失敗：data 會一直是 null，不改的話骨架永遠轉下去。
+  const failed = error !== null && data === null
 
   return (
     <Paper
@@ -741,7 +751,7 @@ export default function MulliganColumn({
         >
           {tone.label}
         </Typography>
-        {data === null ? (
+        {failed ? null : data === null ? (
           <Skeleton variant="text" width={120} />
         ) : (
           <Typography
@@ -768,7 +778,20 @@ export default function MulliganColumn({
         />
       </Stack>
 
-      {data === null || (loading && data.cards.length === 0) ? (
+      {failed ? (
+        <Box sx={{ p: 1.5 }}>
+          <EmptyState
+            title="無法讀取統計"
+            description={`讀取${tone.label}的換牌建議時出錯了。再試一次；如果一直失敗，重新開啟 app。`}
+            icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
+            action={
+              <Button variant="outlined" size="small" onClick={onRetry}>
+                重試
+              </Button>
+            }
+          />
+        </Box>
+      ) : data === null || (loading && data.cards.length === 0) ? (
         <Stack spacing={0.5} sx={{ p: 1.5 }}>
           {Array.from({ length: 4 }, (_, i) => (
             <Skeleton key={i} variant="rectangular" height={48} sx={{ borderRadius: 1.5 }} />

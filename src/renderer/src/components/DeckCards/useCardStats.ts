@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
-
 import type { CardStatsPayload } from '@shared/cards'
 import type { CardStatsResult } from '@shared/cardStats'
 import { cardStatsResource } from '@renderer/resources'
+import { useCardImages } from '@renderer/hooks/useCardImages'
 
 /**
  * `cards:stats`, through the shared cache.
@@ -28,20 +27,7 @@ export function useCardStats(query: CardStatsPayload | null): {
   showImages: boolean
 } {
   const { data, loading, error } = cardStatsResource.use(query ? [query] : null)
-  const [showImages, setShowImages] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    void window.settings
-      .get('settings')
-      .then((settings) => {
-        if (!cancelled) setShowImages(Boolean(settings?.cardImages))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const showImages = useCardImages()
 
   return { data, loading, error, showImages }
 }

@@ -31,7 +31,7 @@ import { fmtN, NUMERIC, rateTone } from './openingFormat'
 
 type Split = 'all' | 'first' | 'second'
 
-const SPLIT_LABEL: Record<Split, string> = { all: '全部', first: '先手', second: '後手' }
+const SPLIT_LABEL: Record<Split, string> = { all: '全部', first: '先攻', second: '後攻' }
 
 const BAR_H = 16
 
@@ -92,7 +92,7 @@ export default function SwapBandsChart({
           size="small"
           value={split}
           onChange={(_e, v: Split | null) => v && setSplit(v)}
-          aria-label="先後手"
+          aria-label="先攻或後攻"
           sx={{ '& .MuiToggleButton-root': { px: 1.25, py: 0.25, fontSize: 12, lineHeight: 1.6 } }}
         >
           {(['all', 'first', 'second'] as Split[]).map((s) => (

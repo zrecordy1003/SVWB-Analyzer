@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
-
 import type { OpeningStatsPayload, OpeningStatsResult } from '@shared/openingStats'
 import { createIpcResource, unwrapRes } from '@renderer/ipcResource'
+import { useCardImages } from '@renderer/hooks/useCardImages'
 
 /**
  * `cards:openingStats`, through the shared cache.
@@ -32,20 +31,7 @@ export function useOpeningStats(query: OpeningStatsPayload | null): {
   showImages: boolean
 } {
   const { data, loading, error } = openingStatsResource.use(query ? [query] : null)
-  const [showImages, setShowImages] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    void window.settings
-      .get('settings')
-      .then((settings) => {
-        if (!cancelled) setShowImages(Boolean(settings?.cardImages))
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const showImages = useCardImages()
 
   return { data, loading, error, showImages }
 }

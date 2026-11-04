@@ -22,6 +22,7 @@ import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { classesMap } from '@renderer/map/classMap'
 import { CardTextBlocks } from '@renderer/components/DeckCards/CardTooltip'
 import { formatWithInterval } from '@renderer/components/Analyzer/confidence'
+import { rateColor } from '@renderer/components/Analyzer/matchupRows'
 import {
   BACKDROP_SX,
   BAR_SX,
@@ -105,6 +106,8 @@ function RecordLine({
   emphasis?: boolean
 }) {
   const rate = total > 0 ? (wins / total) * 100 : null
+  // 和表格、分析器同一條規則：50% 附近不上色，49.5% 不算輸。
+  const tone = rateColor(rate)
   return (
     <Tooltip title={formatWithInterval(wins, total)} placement="top" disableInteractive>
       <Stack direction="row" alignItems="center" spacing={1} sx={{ width: 190, flexShrink: 0 }}>
@@ -129,7 +132,7 @@ function RecordLine({
               sx={{
                 width: `${Math.min(100, rate)}%`,
                 height: '100%',
-                bgcolor: muted ? 'text.disabled' : rate >= 50 ? 'success.main' : 'error.main'
+                bgcolor: muted ? 'text.disabled' : (tone ?? 'text.secondary')
               }}
             />
           )}
@@ -142,13 +145,7 @@ function RecordLine({
             fontSize: emphasis ? 14 : 12,
             fontWeight: 800,
             color:
-              rate === null
-                ? 'text.disabled'
-                : muted
-                  ? 'text.secondary'
-                  : rate >= 50
-                    ? 'success.light'
-                    : 'error.light'
+              rate === null ? 'text.disabled' : muted ? 'text.secondary' : (tone ?? 'text.primary')
           }}
         >
           {fmtRate(rate)}

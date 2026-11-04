@@ -8,8 +8,10 @@
  * against `expectedDealRate`), and this table used to give it a column. It no
  * longer does - see `SuspectMark` for where it went and why.
  *
- * Fixed column widths for the same reason `CardsTable` has them: a number must
- * sit at the same x on every line. The card cell is the only elastic one.
+ * Column widths depend only on the table's width, never on a row's content,
+ * for the same reason `CardsTable` fixes them: a number must sit at the same x
+ * on every line. The bar columns flex between a floor and their full width
+ * (see `COLUMNS`); everything else is fixed or is the card cell.
  *
  * # A chart with a card list down the side
  *
@@ -34,6 +36,7 @@ import React from 'react'
 import { OPENING_THRESHOLDS, type OpeningCardStat } from '@shared/openingStats'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import InfoHint from '@renderer/components/Common/InfoHint'
+import EmptyState from '@renderer/components/Common/EmptyState'
 import { CostBadge } from '@renderer/components/Cards/CardsTable'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 
@@ -62,8 +65,22 @@ const COST_W = 44
 const DEALT_W = 60
 const KEEP_W = 230
 const CMP_W = 320
+/**
+ * 兩條長條欄與卡片欄可以縮到的寬度。
+ *
+ * 全寬 44+60+230+320 加上卡名，在最小視窗（1100px，扣掉側邊欄與留白後內容約
+ * 900px）會多出一截橫向捲軸，而被捲出去的正好是這頁最重要的「發到 vs 沒發到」。
+ * 所以長條欄改成 minmax：寬的時候照原本的寬度，窄的時候長條先讓 - 數字欄
+ * （`Digits`）寬度是固定的，縮的只有長條，n 和差值照樣讀得到。比較欄的下限
+ * 留得比保留率寬，因為它要放的東西多（鬚、點、差值、兩個 n）。
+ */
+const CARD_MIN_W = 140
+const KEEP_MIN_W = 160
+const CMP_MIN_W = 240
 
-const COLUMNS = `${COST_W}px minmax(0, 1fr) ${DEALT_W}px ${KEEP_W}px ${CMP_W}px`
+const COLUMNS = `${COST_W}px minmax(${CARD_MIN_W}px, 1fr) ${DEALT_W}px minmax(${KEEP_MIN_W}px, ${KEEP_W}px) minmax(${CMP_MIN_W}px, ${CMP_W}px)`
+/** 全部欄位都縮到下限時的寬度（加上 px 與欄距）- 比這更窄才橫向捲。 */
+const TABLE_MIN_W = 760
 
 /* ---------------------------------------------------------------- cells */
 
@@ -409,7 +426,7 @@ export default function OpeningTable({
   const unrankedCount = unrankedFrom >= 0 ? rows.length - unrankedFrom : 0
   return (
     <Box data-testid="opening-table" sx={{ minWidth: 0, overflowX: 'auto' }}>
-      <Box sx={{ minWidth: 960 }}>
+      <Box sx={{ minWidth: TABLE_MIN_W }}>
         <Box
           sx={{
             display: 'grid',
@@ -472,14 +489,9 @@ export default function OpeningTable({
             ))}
           </Stack>
         ) : rows.length === 0 ? (
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            data-testid="opening-empty"
-            sx={{ px: 2, py: 4, textAlign: 'center', maxWidth: 560, mx: 'auto' }}
-          >
-            {emptyText}
-          </Typography>
+          <Box data-testid="opening-empty" sx={{ p: 1.5 }}>
+            <EmptyState description={emptyText} />
+          </Box>
         ) : (
           rows.map((row, index) => (
             <React.Fragment key={row.key}>

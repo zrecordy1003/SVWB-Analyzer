@@ -126,13 +126,16 @@ function KeepLine({
   label,
   dealt,
   kept,
-  loading
+  loading,
+  failed
 }: {
   icon: React.ReactNode
   label: string
   dealt: number | null
   kept: number | null
   loading?: boolean
+  /** 這一列的查詢失敗、手上也沒有舊數字 - 別讓它看起來像「查不到」或樣本不足。 */
+  failed?: boolean
 }): React.JSX.Element {
   const ok = dealt !== null && kept !== null && dealt >= OPENING_THRESHOLDS.keepRate
   return (
@@ -147,7 +150,11 @@ function KeepLine({
         {label}
       </Typography>
       <Box sx={{ flex: 1, minWidth: 0 }}>
-        {loading ? (
+        {failed ? (
+          <Typography variant="caption" color="warning.light">
+            讀取失敗
+          </Typography>
+        ) : loading ? (
           <Skeleton variant="text" width={120} />
         ) : dealt === null ? (
           <Typography variant="caption" color="text.disabled">
@@ -253,7 +260,7 @@ function OpponentLine({
     () => (baseQuery ? { ...baseQuery, oppoClassIds: [klass] } : null),
     [baseQuery, klass]
   )
-  const { data, loading } = openingStatsResource.use(query ? [query] : null)
+  const { data, loading, error } = openingStatsResource.use(query ? [query] : null)
   const split = (() => {
     if (!data) return null
     const row = data.cards.find((c) => c.cardId === stat.cardId)
@@ -266,6 +273,7 @@ function OpponentLine({
       dealt={split?.dealt ?? null}
       kept={split?.kept ?? null}
       loading={loading && !data}
+      failed={error !== null && !data}
     />
   )
 }
@@ -458,26 +466,9 @@ export default function OpeningDrilldownDrawer({
               </Box>
             </Section>
 
-            {/* ---------- 依先後手 ---------- */}
-            <Section
-              title="保留率 · 依先後手"
-              info="先手和後手的換牌邏輯不一樣，這個切法是有意義的。但這一版的查詢條件還沒有先後手，所以卡片層算不出來；整體的先後手差異先看「換牌張數」的切換。"
-            >
-              <Box
-                sx={{
-                  border: '1px dashed',
-                  borderColor: 'divider',
-                  borderRadius: 2,
-                  px: 1.5,
-                  py: 1.25,
-                  textAlign: 'center'
-                }}
-              >
-                <Typography variant="caption" color="text.disabled">
-                  尚未提供
-                </Typography>
-              </Box>
-            </Section>
+            {/* 「保留率 · 依先攻／後攻」這一段先拿掉了：查詢條件還沒有先後攻，卡片層
+                算不出來，留著只會是一塊寫著「尚未提供」的空框。等 openingStats 的查詢
+                能帶先攻／後攻時再放回來（和上面「依對手」同一個畫法）。 */}
           </Box>
         </Box>
       )}

@@ -35,6 +35,7 @@ import ManaCurve from './ManaCurve'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import { deckSavedMessage } from './deckVersions'
 import { invokeIpc } from '@renderer/ipc'
+import { setCardImages, useCardImages } from '@renderer/hooks/useCardImages'
 
 /** 標題列、內容與動作列對齊用的同一個左邊界，和其他抽屜一致。 */
 const GUTTER = 2.5
@@ -67,7 +68,7 @@ export default function DeckContentsDrawer({
 }) {
   const [cards, setCards] = React.useState<StoredDeckCard[]>([])
   const [loading, setLoading] = React.useState(false)
-  const [showImages, setShowImages] = React.useState(false)
+  const showImages = useCardImages()
   const [error, setError] = React.useState<string | null>(null)
   const [reloadKey, setReloadKey] = React.useState(0)
   const [publishing, setPublishing] = React.useState(false)
@@ -95,14 +96,10 @@ export default function DeckContentsDrawer({
       setLoading(true)
       setError(null)
       try {
-        const [res, settings] = await Promise.all([
-          invokeIpc('decks:cards', { deckId: viewDeckId }),
-          window.settings.get('settings')
-        ])
+        const res = await invokeIpc('decks:cards', { deckId: viewDeckId })
         if (cancelled) return
         if (!res?.ok) throw new Error(res?.error ?? '讀取卡表失敗')
         setCards(res.data)
-        setShowImages(Boolean(settings?.cardImages))
       } catch (err: any) {
         if (!cancelled) setError(err?.message ?? '讀取卡表失敗')
       } finally {
@@ -279,9 +276,8 @@ export default function DeckContentsDrawer({
               size="small"
               startIcon={<ImageOutlinedIcon />}
               onClick={() => {
-                void window.settings
-                  .set('settings.cardImages', true)
-                  .then(() => setShowImages(true))
+                // 經過 setCardImages：其他還掛著的頁面（牌組戰績、卡片）也要一起換。
+                void setCardImages(true)
               }}
               sx={{ color: 'text.secondary', textTransform: 'none' }}
             >

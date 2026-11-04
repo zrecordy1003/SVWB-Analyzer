@@ -95,6 +95,9 @@ export default function MulliganAdvisor({
   onOppoClass,
   first,
   second,
+  firstError,
+  secondError,
+  onRetry,
   loading,
   showImages
 }: {
@@ -102,6 +105,10 @@ export default function MulliganAdvisor({
   onOppoClass: (next: ClassChoiceId) => void
   first: MulliganResult | null
   second: MulliganResult | null
+  /** 兩欄各自查詢，也各自可能失敗。 */
+  firstError: string | null
+  secondError: string | null
+  onRetry: () => void
   loading: boolean
   showImages: boolean
 }): React.JSX.Element {
@@ -184,6 +191,8 @@ export default function MulliganAdvisor({
           order="first"
           pins={pins.first}
           data={first}
+          error={firstError}
+          onRetry={onRetry}
           loading={loading}
           showImages={showImages}
           selectedId={selectedIn('first')}
@@ -193,6 +202,8 @@ export default function MulliganAdvisor({
           order="second"
           pins={pins.second}
           data={second}
+          error={secondError}
+          onRetry={onRetry}
           loading={loading}
           showImages={showImages}
           selectedId={selectedIn('second')}

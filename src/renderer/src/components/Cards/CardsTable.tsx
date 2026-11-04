@@ -25,6 +25,8 @@ import { cardImageUrl } from '@shared/deckImport'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 import { formatWithInterval } from '@renderer/components/Analyzer/confidence'
+import { rateColor } from '@renderer/components/Analyzer/matchupRows'
+import EmptyState from '@renderer/components/Common/EmptyState'
 
 import type { CardRow, CardsSort, CardsSortKey } from './cardsFilterState'
 import { fmtDelta, fmtRate, KIND_LABEL, RARITY_LABEL } from './cardsFormat'
@@ -41,9 +43,11 @@ const DELTA_W = 176
 /** 費用、卡片、帶入的牌組、場次、勝率、相對不帶它 - six columns, no more. */
 const COLUMNS = `${COST_W}px minmax(0, 1fr) ${DECKS_W}px ${GAMES_W}px ${RATE_W}px ${DELTA_W}px`
 
-/** Same rule as `DeckRow`: green at or above half, red below. */
-const rateTone = (rate: number, variant: 'light' | 'main'): string =>
-  rate >= 50 ? `success.${variant}` : `error.${variant}`
+/**
+ * 分析器的上色規則（`rateColor`，50% 上下各 `RATE_DEAD_BAND` 點不上色）：同一個
+ * 49.5% 在這裡讀成輸、在分析器讀成五五開，是同一個 app 講兩種話。
+ */
+const rateTone = (rate: number, neutral: string): string => rateColor(rate) ?? neutral
 
 /* --------------------------------------------------------------- pieces */
 
@@ -125,7 +129,7 @@ function RateBar({ rate, muted }: { rate: number | null; muted: boolean }) {
           sx={{
             width: `${Math.min(100, rate)}%`,
             height: '100%',
-            bgcolor: muted ? 'text.disabled' : rateTone(rate, 'main')
+            bgcolor: muted ? 'text.disabled' : rateTone(rate, 'text.secondary')
           }}
         />
       )}
@@ -230,7 +234,7 @@ function CardLine({
           ? 'success.light'
           : 'error.light'
 
-  const rateColorSx = row.rate === null ? 'text.disabled' : rateTone(row.rate, 'light')
+  const rateColorSx = row.rate === null ? 'text.disabled' : rateTone(row.rate, 'text.primary')
 
   return (
     <Box
@@ -457,6 +461,8 @@ export type CardsTableProps = {
   loading: boolean
   /** Why the table is empty; the page knows, the table does not. */
   emptyText: string
+  /** 空狀態底下的那顆按鈕 - 有明顯的下一步時才給（例如「顯示樣本不足的卡」）。 */
+  emptyAction?: React.ReactNode
 }
 
 export default function CardsTable({
@@ -468,7 +474,8 @@ export default function CardsTable({
   selectedKey,
   onSelect,
   loading,
-  emptyText
+  emptyText,
+  emptyAction
 }: CardsTableProps): React.JSX.Element {
   return (
     <Box data-testid="cards-table" sx={{ minWidth: 0, overflowX: 'auto' }}>
@@ -525,14 +532,9 @@ export default function CardsTable({
             ))}
           </Stack>
         ) : rows.length === 0 ? (
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            data-testid="cards-empty"
-            sx={{ px: 2, py: 4, textAlign: 'center' }}
-          >
-            {emptyText}
-          </Typography>
+          <Box data-testid="cards-empty" sx={{ p: 1.5 }}>
+            <EmptyState description={emptyText} action={emptyAction} />
+          </Box>
         ) : (
           rows.map((row) => (
             <CardLine

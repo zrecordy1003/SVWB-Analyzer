@@ -58,6 +58,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
+  Button,
   FormControlLabel,
   Paper,
   Skeleton,
@@ -67,12 +68,15 @@ import {
 } from '@mui/material'
 import DateRangeOutlinedIcon from '@mui/icons-material/DateRangeOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 import type { SvgIconComponent } from '@mui/icons-material'
 
 import { classes, modes } from '@renderer/map/classMap'
 import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
 import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
 import InfoHint from '@renderer/components/Common/InfoHint'
+import EmptyState from '@renderer/components/Common/EmptyState'
+import { noteSx } from '@renderer/components/Common/surfaces'
 import SegmentedControl from '@renderer/components/Common/SegmentedControl'
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
 import { DeckEditor, RangeEditor } from '@renderer/components/Common/filters/FilterEditors'
@@ -117,8 +121,8 @@ import {
   type OpeningView
 } from './openingFilterState'
 import { NUMERIC } from './openingFormat'
-import { useMulligan } from './useMulligan'
-import { useOpeningStats } from './useOpeningStats'
+import { mulliganResource, useMulligan } from './useMulligan'
+import { openingStatsResource, useOpeningStats } from './useOpeningStats'
 
 const TOOLBAR_CONTROL_HEIGHT = 36
 const QUERY_DEBOUNCE_MS = 180
@@ -161,7 +165,7 @@ function TableHint({
         <Box component="span" sx={{ fontWeight: 800 }}>
           起手四張是隨機發到的。
         </Box>
-        有沒有發到某張卡，和對手、先後手、你那天的狀態都無關，所以「發到 vs
+        有沒有發到某張卡，和對手、先攻後攻、你那天的狀態都無關，所以「發到 vs
         沒發到」的勝率差是公平的比較 - 它量的是這張卡在起手時對這副牌的價值。
       </Typography>
       <Typography variant="caption" component="div" sx={{ lineHeight: 1.6 }}>
@@ -329,7 +333,22 @@ export default function OpeningPage(): React.JSX.Element {
   const firstData = liveFirst.data
   const secondData = liveSecond.data
   const mulliganLoading = liveFirst.loading || liveSecond.loading
-  const error = view === 'advisor' ? (liveFirst.error ?? liveSecond.error) : live.error
+  /**
+   * 失敗分兩種，畫法不同：手上沒有舊資料時，那一格的 data 永遠是 null，骨架會
+   * 一直轉 - 那塊內容本身改成錯誤畫面（總覽在下面，換牌建議在各欄裡）。有舊
+   * 資料時照畫，上面掛一條「這是上一次的數字」。
+   */
+  const overviewFailed = live.error !== null && data === null
+  const staleError =
+    view === 'advisor'
+      ? (liveFirst.error !== null && firstData !== null) ||
+        (liveSecond.error !== null && secondData !== null)
+      : live.error !== null && data !== null
+  // hook 沒把 refetch 傳出來；invalidate 只重抓目前有人在看的那幾組條件。
+  const retry = useCallback(() => {
+    if (view === 'advisor') mulliganResource.invalidate()
+    else openingStatsResource.invalidate()
+  }, [view])
 
   const allRows = useMemo(() => toOpeningRows(data), [data])
   const rows = useMemo(() => sortOpeningRows(allRows, sort), [allRows, sort])
@@ -402,7 +421,7 @@ export default function OpeningPage(): React.JSX.Element {
   const emptyText = (() => {
     if (!data) return ''
     if (data.summary.matches === 0) {
-      return '這個範圍內沒有讀到任何起手。只有 1.4.0 之後、看得到換牌畫面的對局才會進來。'
+      return '這個範圍內沒有讀到任何起手。只有換牌畫面有被讀到的對局才會進來；較早的對局沒有記錄換牌畫面。'
     }
     if (allRows.length === 0) {
       return `${data.summary.matches} 場讀到換牌畫面，還沒有一張卡被認出來。卡圖索引在背景建，建完會自動補上。`
@@ -462,9 +481,17 @@ export default function OpeningPage(): React.JSX.Element {
         />
       </Paper>
 
-      {error && (
-        <Alert severity="warning" sx={{ borderRadius: 2 }}>
-          {error}
+      {staleError && (
+        <Alert
+          severity="warning"
+          sx={noteSx('warning')}
+          action={
+            <Button color="inherit" size="small" onClick={retry}>
+              重試
+            </Button>
+          }
+        >
+          無法更新起手統計，以下是上一次成功讀到的數字。
         </Alert>
       )}
 
@@ -474,13 +501,29 @@ export default function OpeningPage(): React.JSX.Element {
           onOppoClass={(oppoClass) => patchFilters({ oppoClass })}
           first={firstData}
           second={secondData}
+          firstError={liveFirst.error}
+          secondError={liveSecond.error}
+          onRetry={retry}
           loading={mulliganLoading}
           showImages={live.showImages}
         />
       )}
 
+      {view === 'overview' && overviewFailed && (
+        <EmptyState
+          title="無法讀取統計"
+          description="讀取這組條件的起手統計時出錯了。再試一次；如果一直失敗，重新開啟 app。"
+          icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
+          action={
+            <Button variant="outlined" size="small" onClick={retry}>
+              重試
+            </Button>
+          }
+        />
+      )}
+
       {/* ---------- A. 手牌總覽 ---------- */}
-      {view === 'overview' && (
+      {view === 'overview' && !overviewFailed && (
         <Paper variant="outlined" sx={{ borderRadius: 2, p: 2 }}>
           <Typography variant="subtitle1" fontWeight={800} sx={{ mb: 1.5 }}>
             手牌總覽
@@ -490,7 +533,7 @@ export default function OpeningPage(): React.JSX.Element {
       )}
 
       {/* ---------- B. 卡片表 ---------- */}
-      {view === 'overview' && (
+      {view === 'overview' && !overviewFailed && (
         <Paper elevation={0} sx={{ position: 'relative', borderRadius: 2, overflow: 'hidden' }}>
           <Box
             sx={{

@@ -48,7 +48,7 @@ function steps(summary: OpeningSummary): Step[] {
       label: '有起手',
       value: summary.matches,
       tone: 'primary.main',
-      explain: '換牌畫面有被讀到的對局。1.4.0 之前的紀錄沒有這個畫面。'
+      explain: '換牌畫面有被讀到的對局。較早的對局沒有記錄換牌畫面，不會算進來。'
     },
     {
       key: 'preComplete',

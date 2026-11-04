@@ -16,6 +16,7 @@
  */
 import type { Missing, OpeningCardStat, Rate } from '@shared/openingStats'
 import { OPENING_THRESHOLDS } from '@shared/openingStats'
+import { RATE_DEAD_BAND } from '@renderer/components/Analyzer/matchupRows'
 
 export const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
@@ -191,6 +192,13 @@ export function recognisedCaution(share: number): string {
 
 export const RARITY_LABEL: Record<number, string> = { 1: '銅', 2: '銀', 3: '金', 4: '虹' }
 
-/** Green at or above half, red below - the rule every win-rate bar in the app uses. */
+/**
+ * Green above half, red below, neutral inside the Analyzer's dead band - so the
+ * same 49.5% does not read as a loss here and as even on every other page.
+ */
 export const rateTone = (rate: number, variant: 'light' | 'main'): string =>
-  rate >= 50 ? `success.${variant}` : `error.${variant}`
+  Math.abs(rate - 50) < RATE_DEAD_BAND
+    ? 'text.secondary'
+    : rate > 50
+      ? `success.${variant}`
+      : `error.${variant}`
