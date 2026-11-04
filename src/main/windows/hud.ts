@@ -41,6 +41,20 @@ let hideTimer: ReturnType<typeof setTimeout> | null = null
  */
 let userHidden = false
 
+/**
+ * `settings.hudFollowGame`, kept in memory for `syncHudWithGame`.
+ *
+ * That runs every 16ms while the game is up, and `store.get` is not a lookup:
+ * electron-store reads and parses the whole settings file on every call. That
+ * was ~62 file reads a second for a value that changes only from the settings
+ * page. This process is the store's only writer, so a change event is enough
+ * to keep the copy true.
+ */
+let followGame = store.get('settings.hudFollowGame') !== false
+store.onDidChange('settings', (settings) => {
+  followGame = settings?.hudFollowGame !== false
+})
+
 function cancelPendingHide(): void {
   if (!hideTimer) return
   clearTimeout(hideTimer)
@@ -87,7 +101,7 @@ export function toggleHudVisibility(): void {
 export function syncHudWithGame(gameFocused: boolean): void {
   if (!hudWin || hudWin.isDestroyed()) return
 
-  if (store.get('settings.hudFollowGame') === false || userHidden) {
+  if (!followGame || userHidden) {
     cancelPendingHide()
     return
   }

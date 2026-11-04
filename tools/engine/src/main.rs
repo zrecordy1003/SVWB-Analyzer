@@ -36,10 +36,14 @@ use svwb_engine::{calibration, diagnostics, host, live, reading, replay, store};
 ///
 /// rayon defaults to one per logical core, and on a 32-thread machine that made
 /// a tick cost ~1s of CPU for ~0.5s of actual work: the extra workers spend
-/// their time waking, stealing and spinning, not matching. A handful already
-/// finishes a tick far inside its 500ms budget, and the engine runs next to a
-/// game that wants the rest of the machine.
-const MAX_MATCH_THREADS: usize = 4;
+/// their time waking, stealing and spinning, not matching. The engine runs next
+/// to a game that wants the rest of the machine.
+///
+/// Two, not more: a tick is ~106ms of work on one thread, and live capture
+/// measured 36% of a core at four threads, ~29% at two and ~27% at one. One
+/// would leave a slow laptop with little headroom under the 500ms budget; two
+/// keeps it for almost nothing.
+const MAX_MATCH_THREADS: usize = 2;
 
 fn main() -> ExitCode {
     let threads = std::thread::available_parallelism()
