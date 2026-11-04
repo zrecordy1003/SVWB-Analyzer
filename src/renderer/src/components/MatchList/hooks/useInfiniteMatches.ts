@@ -64,6 +64,11 @@ async function fetchListPage(
   return invokeIpc('matches:queryList', payload)
 }
 
+/** 不套任何篩選，資料庫裡到底有沒有對局。只在篩選結果是空的時候問。 */
+async function fetchHasAnyMatch(): Promise<boolean> {
+  return (await invokeIpc('matches:count', { rangeKey: 'all' })) > 0
+}
+
 /**
  * Fold a freshly fetched newest page into the rows already held.
  *
@@ -135,6 +140,9 @@ async function fetchHands(ids: number[]): Promise<Map<number, OpeningHandView>> 
  *   與刪除都會反映，且不打斷捲動位置。
  * - hands 是每一列的起手手牌，跟著 rows 一頁一頁抓：一頁落地就問那一頁的 id，
  *   一次 IPC，而不是每張卡片各自去問。
+ * - 篩選變更時舊的 rows 留到新的第一頁落地才換掉（isInitialLoading 仍為 true），
+ *   畫面可以疊一個「更新中」而不是整片換成轉圈。
+ * - hasAnyMatch 只在清單是空的時候才有意義：分辨「篩光了」和「根本還沒有紀錄」。
  */
 export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
   const [rows, setRows] = useState<MatchRow[]>([])
@@ -145,6 +153,8 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [hasMore, setHasMore] = useState(false)
+  /** null = 還沒問過（或問失敗）；清單非空時一律是 true。 */
+  const [hasAnyMatch, setHasAnyMatch] = useState<boolean | null>(null)
   const nextCursorRef = useRef<MatchCursor | null>(null)
 
   // generation 在每次篩選條件變更時 +1；任何非最新 generation 的回應都會被丟棄
@@ -225,6 +235,13 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
           nextCursor
         } = await fetchListPage(CHUNK_SIZE, filters)
         if (generation !== generationRef.current) return
+        // 空的時候先問完再落地，空狀態才不會先閃一下「篩選太嚴」再換成「還沒有紀錄」。
+        let any: boolean | null = true
+        if (firstChunk.length === 0) {
+          any = await fetchHasAnyMatch().catch(() => null)
+          if (generation !== generationRef.current) return
+        }
+        setHasAnyMatch(any)
         setRows(firstChunk)
         // A new filter set is a new list: nothing held for the old one applies.
         setHands(new Map())
@@ -255,6 +272,8 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
   const loadMore = useCallback(() => {
     if (isLoadingMore || isInitialLoading || !hasMore || !nextCursorRef.current) return
     const generation = generationRef.current
+    // 失敗後的「重試」也走這裡：游標還停在失敗的那一頁，重抓的就是那一頁。
+    setLoadError(null)
     setIsLoadingMore(true)
     const cursor = nextCursorRef.current
     void fetchListPage(CHUNK_SIZE, filtersRef.current, cursor)
@@ -282,16 +301,31 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
     setRows((prev) => prev.map((r) => (r.id === id ? updated : r)))
   }, [])
 
-  const removeRow = useCallback((id: number) => {
-    setRows((prev) => prev.filter((r) => r.id !== id))
-    setHands((prev) => {
-      if (!prev.has(id)) return prev
-      const next = new Map(prev)
-      next.delete(id)
-      return next
-    })
-    setTotalCount((prev) => Math.max(0, prev - 1))
+  /** 清單被刪空或同步空時重問：刪光了就該換成「還沒有紀錄」，不是「篩選太嚴」。 */
+  const recheckHasAnyMatch = useCallback(() => {
+    const generation = generationRef.current
+    void fetchHasAnyMatch()
+      .then((any) => {
+        if (generation === generationRef.current) setHasAnyMatch(any)
+      })
+      .catch(() => {})
   }, [])
+
+  const removeRow = useCallback(
+    (id: number) => {
+      const held = rowsRef.current
+      if (held.length === 1 && held[0].id === id) recheckHasAnyMatch()
+      setRows((prev) => prev.filter((r) => r.id !== id))
+      setHands((prev) => {
+        if (!prev.has(id)) return prev
+        const next = new Map(prev)
+        next.delete(id)
+        return next
+      })
+      setTotalCount((prev) => Math.max(0, prev - 1))
+    },
+    [recheckHasAnyMatch]
+  )
 
   const syncRecent = useCallback(() => {
     const generation = generationRef.current
@@ -300,6 +334,8 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
       .then(({ rows: topChunk, total }) => {
         if (generation !== generationRef.current) return
         setRows((prev) => reconcileRecent(prev, topChunk, CHUNK_SIZE))
+        if (topChunk.length > 0) setHasAnyMatch(true)
+        else recheckHasAnyMatch()
         if (total != null) setTotalCount(total)
         // Re-ask for EVERY held row's hand, not just the top page's. The
         // engine mutates only the newest match, but `needRefetch` is also what
@@ -317,7 +353,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
         if (generation !== generationRef.current) return
         console.error('Failed to refresh match list:', error)
       })
-  }, [loadHands])
+  }, [loadHands, recheckHasAnyMatch])
 
   const reload = useCallback(() => {
     filterKeyRef.current = null
@@ -332,6 +368,7 @@ export function useInfiniteMatches(filters: MatchFilters, enabled = true) {
     isLoadingMore,
     loadError,
     hasMore,
+    hasAnyMatch,
     loadMore,
     patchRow,
     removeRow,

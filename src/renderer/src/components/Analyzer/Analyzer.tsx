@@ -3,9 +3,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
+  Button,
   Divider,
   FormControlLabel,
   Paper,
+  Skeleton,
   Switch,
   ToggleButton,
   Tooltip,
@@ -20,11 +22,13 @@ import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
 import MilitaryTechOutlinedIcon from '@mui/icons-material/MilitaryTechOutlined'
 import SportsEsportsOutlinedIcon from '@mui/icons-material/SportsEsportsOutlined'
 import StyleOutlinedIcon from '@mui/icons-material/StyleOutlined'
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline'
 
 import { classes, modes } from '@renderer/map/classMap'
 import MatchupHeatmap from './component/MatchupHeatmap'
 import MatchupBars from './component/MatchupBars'
 import SegmentedControl from '@renderer/components/Common/SegmentedControl'
+import EmptyState from '@renderer/components/Common/EmptyState'
 import { ModeSelect } from '@renderer/components/Common/filters/ModeSelect'
 import { ClassSelect } from '@renderer/components/Common/filters/ClassSelect'
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
@@ -57,6 +61,8 @@ import {
   diffPersistPatch,
   enableAdvancedFilter,
   followBattlePatch,
+  SETTINGS_KEYS,
+  hasSetting,
   hydrateFilters,
   readSetting,
   type AdvancedFilterKey,
@@ -110,12 +116,35 @@ const TOOLBAR_CONTROL_HEIGHT = 36
 
 /** Long enough to swallow a burst of clicks, short enough to feel immediate. */
 const QUERY_DEBOUNCE_MS = 180
+/**
+ * 查詢要拖過這麼久，圖才壓淡表示「更新中」。大多數查詢在這之前就回來了，
+ * 每換一次條件就閃一下反而像是壞掉。
+ */
+const STALE_DIM_DELAY_MS = 250
+
+/** 第一份資料回來前的版面：標題、摘要和七列，資料到了不會跳。 */
+const ChartSkeleton = (): React.JSX.Element => (
+  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, pt: 0.5 }} aria-busy="true">
+    <Skeleton variant="text" width={240} height={36} />
+    <Skeleton variant="text" width={360} height={44} />
+    {Array.from({ length: 7 }, (_, i) => (
+      <Skeleton key={i} variant="rounded" height={34} />
+    ))}
+  </Box>
+)
 const PERSIST_DEBOUNCE_MS = 400
 
 const Analyzer: React.FC = () => {
   const [filters, setFilters] = useState<AnalyzerFilters>(defaultFilters)
   const [analyzeData, setAnalyzeData] = useState<RankedWinrateByOpponent | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * 查詢進行中。原本沒有這個狀態：第一次進來時 `analyzeData` 還是 null，圖表把它
+   * 當成「沒有任何對局」畫出空狀態，等資料回來才換成數字 - 每次開 app 都先閃一句
+   * 錯的話。之後換條件時舊數字照常顯示，也看不出它正在換。
+   */
+  const [loading, setLoading] = useState(false)
+  const [stale, setStale] = useState(false)
 
   // The date range, decks, tags and CR live in the right-hand drawer; the
   // toolbar keeps class, mode and match count, plus a chip per active condition
@@ -190,6 +219,15 @@ const Analyzer: React.FC = () => {
       chartKindLoadedRef.current = true
 
       const hydrated = hydrateFilters(raw, FILTER_VOCABULARY)
+      // 從沒選過職業的人，從最近一場打的職業開始，而不是一律精靈 - 不玩精靈的新
+      // 使用者第一眼看到的會是一張空表。不寫回設定：手動選過才算數。
+      if (!raw || !hasSetting(raw, SETTINGS_KEYS.myClass)) {
+        const latest = (await window.matches.fetchRecent(1).catch(() => null))?.[0]
+        if (!mounted) return
+        if (latest && FILTER_VOCABULARY.classIds.includes(String(latest.my_class))) {
+          hydrated.myClass = latest.my_class as ClassName
+        }
+      }
       persistedRef.current = hydrated
       prevClassRef.current = hydrated.myClass
       // Open the gate before the state lands so the query effect, which runs
@@ -275,6 +313,7 @@ const Analyzer: React.FC = () => {
   /* ---------- 載入資料 ---------- */
   const runQuery = useCallback(async (f: AnalyzerFilters): Promise<void> => {
     const requestId = ++requestIdRef.current
+    setLoading(true)
     try {
       const params = buildQueryParams(f, familiesRef.current)
       const stats = await window.matches.getRankedWinrate(params)
@@ -288,8 +327,19 @@ const Analyzer: React.FC = () => {
       // Keep the previous chart on screen; an empty chart would read as
       // "you have no matches" rather than "the query failed".
       setError('讀取統計失敗，請稍後再試')
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    if (!loading) {
+      setStale(false)
+      return
+    }
+    const handle = setTimeout(() => setStale(true), STALE_DIM_DELAY_MS)
+    return () => clearTimeout(handle)
+  }, [loading])
 
   useEffect(() => {
     if (!settingsLoadedRef.current) return
@@ -617,11 +667,10 @@ const Analyzer: React.FC = () => {
         </Alert>
       )}
 
-      {/* A failed query keeps the previous chart, so say so explicitly. */}
-      {error && (
-        <Alert severity="warning" sx={{ mt: 1 }}>
-          {error}
-        </Alert>
+      {/* A failed query keeps the previous chart, so say so explicitly. With no
+          previous chart the error is the whole content area instead (below). */}
+      {error && analyzeData !== null && (
+        <Alert severity="warning">{error}，目前顯示的是上一次的結果。</Alert>
       )}
       {/* 內容比這塊高的時候仍然捲得動，但不畫原生捲軸 - 它會蓋在最右邊那欄
           數字上。對局列表的清單也是這樣處理的。 */}
@@ -633,11 +682,36 @@ const Analyzer: React.FC = () => {
           scrollbarWidth: 'none',
           '&::-webkit-scrollbar': { display: 'none' }
         }}
+        aria-busy={loading}
       >
-        {chartKind === 'heatmap' ? (
-          <MatchupHeatmap data={analyzeData} />
+        {analyzeData === null ? (
+          error ? (
+            <EmptyState
+              title="無法讀取統計"
+              description="讀取這組條件的勝率時出錯了。再試一次；如果一直失敗，重新開啟 app。"
+              icon={<ErrorOutlineIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
+              action={
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => void runQuery(filtersRef.current)}
+                >
+                  重試
+                </Button>
+              }
+            />
+          ) : (
+            <ChartSkeleton />
+          )
         ) : (
-          <MatchupBars data={analyzeData} />
+          // 換條件時舊的圖先壓淡，而不是換成轉圈：版面不動，眼睛還停在原本那一列。
+          <Box sx={{ height: '100%', opacity: stale ? 0.5 : 1, transition: 'opacity 150ms' }}>
+            {chartKind === 'heatmap' ? (
+              <MatchupHeatmap data={analyzeData} />
+            ) : (
+              <MatchupBars data={analyzeData} />
+            )}
+          </Box>
         )}
       </Box>
     </Box>

@@ -119,7 +119,14 @@ export default function DeckCodeDialog({
   const expired = code !== null && remaining === 0
 
   const copy = async (text: string, label: string) => {
-    await navigator.clipboard.writeText(text)
+    // 剪貼簿可能被系統擋（視窗失焦、權限）——按了沒反應比一句錯誤更難懂。
+    try {
+      await navigator.clipboard.writeText(text)
+    } catch {
+      setError('無法寫入剪貼簿，請手動選取複製。')
+      return
+    }
+    setError(null)
     setCopied(label)
     setTimeout(() => setCopied(null), 1500)
   }

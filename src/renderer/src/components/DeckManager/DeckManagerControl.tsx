@@ -1,5 +1,5 @@
 // Entry control and manager for the user's deck library.
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -20,7 +20,8 @@ import {
   Typography,
   Menu,
   MenuItem,
-  Paper
+  Paper,
+  Snackbar
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import AppDialog, { DANGER_ACCENT } from '@renderer/components/Common/AppDialog'
@@ -32,6 +33,7 @@ import SearchIcon from '@mui/icons-material/Search'
 import StarIcon from '@mui/icons-material/Star'
 import StarBorderIcon from '@mui/icons-material/StarBorder'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import EmptyState from '@renderer/components/Common/EmptyState'
 import HistoryRoundedIcon from '@mui/icons-material/HistoryRounded'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import AddDeckFlow from '@renderer/components/DeckBuilder/AddDeckFlow'
@@ -39,7 +41,12 @@ import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import DeckContentsDrawer from '@renderer/components/DeckCards/DeckContentsDrawer'
 import DeckVersionsDialog from '@renderer/components/DeckCards/DeckVersionsDialog'
 import type { CorrectVersionRequest } from '@renderer/components/DeckCards/DeckVersionsPanel'
-import { groupDeckFamilies, type DeckFamily } from '@renderer/components/DeckCards/deckVersions'
+import {
+  deckSavedMessage,
+  groupDeckFamilies,
+  type DeckFamily
+} from '@renderer/components/DeckCards/deckVersions'
+import { deckErrorMessage } from '@renderer/components/DeckCards/deckErrorMessage'
 import { classes, classesMap } from '@renderer/map/classMap'
 import { DECK_NAME_MAX_LEN, cardImageUrl } from '@shared/deckImport'
 import { PANEL_SX } from '@renderer/components/Common/surfaces'
@@ -282,6 +289,8 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   const [isAddingDeck, setIsAddingDeck] = useState(false)
   /** 從版本對話框點「修正卡表…」進來的那一版；建構器以修正模式開它。 */
   const [correcting, setCorrecting] = useState<CorrectVersionRequest | null>(null)
+  /** 修正卡表存好後的提示；建構器關掉之後，這裡是唯一還看得到結果的地方。 */
+  const [savedNotice, setSavedNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   /**
@@ -295,6 +304,17 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   const [renaming, setRenaming] = useState<Deck | null>(null)
   const [renameText, setRenameText] = useState('')
   const [savingRename, setSavingRename] = useState(false)
+  /** 改名被擋下的原因。畫在輸入框旁，框保持開著——收掉就等於把打的字丟了。 */
+  const [renameError, setRenameError] = useState<string | null>(null)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+  const refocusRename = useRef(false)
+
+  // 存檔中輸入框被停用、焦點就掉了；被 main 擋回來時把它還給輸入框，好直接改。
+  useEffect(() => {
+    if (savingRename || !refocusRename.current) return
+    refocusRename.current = false
+    renameInputRef.current?.focus()
+  }, [savingRename])
 
   /** 從這一頁開出去的牌組內容（卡表）抽屜，和牌組戰績同一個元件。 */
   const [inspecting, setInspecting] = useState<{ id: number; name: string } | null>(null)
@@ -302,6 +322,8 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   // 刪除
   const [deleting, setDeleting] = useState<Deck | null>(null)
   const [deletingBusy, setDeletingBusy] = useState(false)
+  /** 刪除失敗的原因：畫在確認框裡，抽屜上的那條會被確認框蓋住。 */
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   // 這副牌（含歷代版本）底下有幾場對局。null = 還在問。打過的牌組刪掉後戰績
   // 要留（主行程把它標成已刪除而不是移除），確認框的文字得先知道這個數字才講得對。
   const [deleteImpact, setDeleteImpact] = useState<{ matches: number; versions: number } | null>(
@@ -309,6 +331,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   )
 
   useEffect(() => {
+    setDeleteError(null)
     if (!deleting) {
       setDeleteImpact(null)
       return
@@ -433,7 +456,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
       const res = (await invokeIpc('decks:setDefaultForClass', {
         deckId: deck.id
       })) as Res<DbDeck>
-      if (!res.ok) throw new Error(res.error)
+      if (!res.ok) throw new Error(deckErrorMessage(res.error))
     } catch (err: any) {
       setError(err?.message ?? '設定預設失敗')
       void reloadDecks()
@@ -459,8 +482,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         id: deck.id,
         categoryId
       })) as Res<DbDeck>
-      if (!res.ok)
-        throw new Error(res.error === 'DUPLICATE_NAME' ? '該分類下已有同名牌組' : res.error)
+      if (!res.ok) throw new Error(deckErrorMessage(res.error))
       await reloadDecks()
       setError(null)
     } catch (err: any) {
@@ -500,7 +522,13 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
   const startRename = (deck: Deck) => {
     setRenaming(deck)
     setRenameText(deck.name)
+    setRenameError(null)
     setError(null)
+  }
+
+  const cancelRename = () => {
+    setRenaming(null)
+    setRenameError(null)
   }
 
   /**
@@ -510,10 +538,11 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
    * 就地編輯最自然的方式，不該因此跳出一則錯誤。
    */
   const commitRename = async () => {
-    if (!renaming) return
+    // 存檔中輸入框被停用時也會失焦；別讓那一下再送一次。
+    if (!renaming || savingRename) return
     const next = renameText.trim()
-    if (!next || next === renaming.name) return setRenaming(null)
-    if (next.length > NAME_LIMIT) return setError(`名稱最多 ${NAME_LIMIT} 字`)
+    if (!next || next === renaming.name) return cancelRename()
+    if (next.length > NAME_LIMIT) return setRenameError(`名稱最多 ${NAME_LIMIT} 字`)
 
     const dup = decks.some(
       (deck) =>
@@ -522,10 +551,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         deck.categoryId === renaming.categoryId &&
         deck.name.toLowerCase() === next.toLowerCase()
     )
-    if (dup) {
-      setError('名稱已存在')
-      return setRenaming(null)
-    }
+    if (dup) return setRenameError(deckErrorMessage('DUPLICATE_NAME'))
 
     try {
       setSavingRename(true)
@@ -533,16 +559,16 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         id: renaming.id,
         name: next
       })) as Res<DbDeck>
-      if (!res.ok) throw new Error(res.error)
+      if (!res.ok) throw new Error(deckErrorMessage(res.error))
 
       // main 端寫入成功後已經廣播過 `reference-data:changed`；這裡再強制
       // reload 一次是為了不等 debounce，讓抽屜立刻看到自己剛存的結果。
       await reloadDecks()
-      setRenaming(null)
+      cancelRename()
       setError(null)
     } catch (err: any) {
-      setError(err?.message ?? '更新失敗')
-      setRenaming(null)
+      setRenameError(err?.message ?? '更新失敗')
+      refocusRename.current = true
     } finally {
       setSavingRename(false)
     }
@@ -553,15 +579,16 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
     if (!deleting) return
     try {
       setDeletingBusy(true)
+      setDeleteError(null)
       const res = (await invokeIpc('decks:delete', {
         id: deleting.id
       })) as Res<{ success: true; deleted: number; archived: number }>
 
-      if (!res.ok) throw new Error(res.error)
+      if (!res.ok) throw new Error(deckErrorMessage(res.error))
       await reloadDecks()
       setDeleting(null)
     } catch (err: any) {
-      setError(err?.message ?? '刪除失敗')
+      setDeleteError(err?.message ?? '刪除失敗')
     } finally {
       setDeletingBusy(false)
     }
@@ -817,6 +844,32 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                   </CardActionArea>
                 </Card>
               )}
+              {/* 篩到沒有東西時講清楚是篩選的關係，不然空白看起來像這個職業
+                  沒有牌組。新增的那格照留：在這裡建一副仍然是合理的下一步。 */}
+              {filtered.length === 0 && (query.trim() !== '' || activeCategoryId !== ALL_CAT) && (
+                <Box sx={{ gridColumn: allowCreate ? 'span 2' : '1 / -1' }}>
+                  <EmptyState
+                    title="無符合的牌組"
+                    description={
+                      query.trim()
+                        ? '試試清除搜尋文字，或切換到「全部」分類。'
+                        : '這個分類下還沒有牌組；切換到「全部」看看。'
+                    }
+                    action={
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setQuery('')
+                          setActiveCategoryId(ALL_CAT)
+                        }}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        清除篩選
+                      </Button>
+                    }
+                  />
+                </Box>
+              )}
               {filtered.length > 0 &&
                 filtered.map((d) => {
                   const clazz = classes.find((c) => c.id === d.classId)!
@@ -875,44 +928,66 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
                           onClick={(e) => e.stopPropagation()}
                         >
                           {renaming?.id === d.id ? (
-                            <InputBase
-                              autoFocus
-                              value={renameText}
-                              disabled={savingRename}
-                              onChange={(e) => setRenameText(e.target.value)}
-                              onBlur={() => void commitRename()}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  e.preventDefault()
-                                  void commitRename()
-                                }
-                                if (e.key === 'Escape') {
-                                  e.preventDefault()
-                                  setRenaming(null)
-                                }
+                            // 擋下的原因貼著輸入框講：抽屜頂端那條離這裡太遠，而框
+                            // 還開著，使用者看的是這裡。
+                            <Tooltip
+                              open={!!renameError}
+                              title={renameError ?? ''}
+                              placement="bottom-start"
+                              arrow
+                              describeChild
+                              slotProps={{
+                                tooltip: { sx: { bgcolor: 'error.dark', fontSize: 12 } },
+                                arrow: { sx: { color: 'error.dark' } }
                               }}
-                              inputProps={{ maxLength: NAME_LIMIT, 'aria-label': '牌組名稱' }}
-                              // 字級、字重、行高都和它取代的那行標題一模一樣，
-                              // 外框拿掉只留下一條底線——就是 hover 時已經看到的
-                              // 那一條。點下去畫面上唯一變的是多了一個游標，而
-                              // 不是原地長出一個輸入框。
-                              sx={{
-                                flex: 1,
-                                minWidth: 0,
-                                p: 0,
-                                fontSize: 14,
-                                fontWeight: 700,
-                                // 和靜止時的名字同一個行高，那條線才會停在原地。
-                                lineHeight: 1.25,
-                                color: 'text.primary',
-                                '& .MuiInputBase-input': {
+                            >
+                              <InputBase
+                                autoFocus
+                                inputRef={renameInputRef}
+                                value={renameText}
+                                disabled={savingRename}
+                                onChange={(e) => {
+                                  setRenameText(e.target.value)
+                                  setRenameError(null)
+                                }}
+                                onBlur={() => void commitRename()}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault()
+                                    void commitRename()
+                                  }
+                                  if (e.key === 'Escape') {
+                                    e.preventDefault()
+                                    cancelRename()
+                                  }
+                                }}
+                                inputProps={{
+                                  maxLength: NAME_LIMIT,
+                                  'aria-label': '牌組名稱',
+                                  'aria-invalid': renameError ? true : undefined
+                                }}
+                                // 字級、字重、行高都和它取代的那行標題一模一樣，
+                                // 外框拿掉只留下一條底線——就是 hover 時已經看到的
+                                // 那一條。點下去畫面上唯一變的是多了一個游標，而
+                                // 不是原地長出一個輸入框。
+                                sx={{
+                                  flex: 1,
+                                  minWidth: 0,
                                   p: 0,
-                                  height: 'auto',
-                                  borderBottom: '1px solid',
-                                  borderColor: 'primary.main'
-                                }
-                              }}
-                            />
+                                  fontSize: 14,
+                                  fontWeight: 700,
+                                  // 和靜止時的名字同一個行高，那條線才會停在原地。
+                                  lineHeight: 1.25,
+                                  color: 'text.primary',
+                                  '& .MuiInputBase-input': {
+                                    p: 0,
+                                    height: 'auto',
+                                    borderBottom: '1px solid',
+                                    borderColor: renameError ? 'error.main' : 'primary.main'
+                                  }
+                                }}
+                              />
+                            </Tooltip>
                           ) : (
                             /* 名字和筆是同一個按鈕：使用者要點的是「這個名字」，
                                而那支 14px 的筆本來是整張卡上最難命中的目標。
@@ -1165,6 +1240,7 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         open={!!deleting}
         onClose={() => setDeleting(null)}
         busy={deletingBusy}
+        error={deleteError}
         maxWidth="xs"
         title="刪除牌組？"
         icon={<DeleteIcon fontSize="small" />}
@@ -1194,11 +1270,15 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
         }
       >
         <Typography variant="body2" color="text.secondary">
+          {/* 刪除作用在整個家族：有好幾版時要講，不然像是只刪眼前這一版。 */}
+          {deleteImpact && deleteImpact.versions > 1
+            ? `即將刪除「${deleting?.name}」的全部 ${deleteImpact.versions} 個版本。`
+            : `即將刪除「${deleting?.name}」。`}
           {deleteImpact && deleteImpact.matches > 0
-            ? `即將刪除「${deleting?.name}」。它有 ${deleteImpact.matches} 場對局，刪除後戰績會保留，只是牌組不再出現在清單與挑選選單。`
+            ? `它有 ${deleteImpact.matches} 場對局，刪除後戰績會保留，只是牌組不再出現在清單與挑選選單。`
             : deleteImpact
-              ? `即將刪除「${deleting?.name}」。這副牌組還沒打過，會直接移除，無法復原。`
-              : `即將刪除「${deleting?.name}」。已經打過的對局與戰績會保留。`}
+              ? '這副牌組還沒打過，會直接移除，無法復原。'
+              : '已經打過的對局與戰績會保留。'}
         </Typography>
         <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 2 }}>
           <InfoOutlinedIcon fontSize="small" color="action" />
@@ -1228,9 +1308,25 @@ const DeckManagerControl: React.FC<DeckManagerControlProps> = ({
           categories={categories}
           zIndex={DECK_BUILDER_Z}
           onClose={() => setCorrecting(null)}
-          onSaved={() => void reloadDecks()}
+          onSaved={(saved) => {
+            setSavedNotice(deckSavedMessage(saved))
+            void reloadDecks()
+          }}
         />
       )}
+
+      {/* 要壓過牌組管理抽屜（1500）與版本對話框，不然提示開在它們後面。 */}
+      <Snackbar
+        open={savedNotice !== null}
+        autoHideDuration={4000}
+        onClose={() => setSavedNotice(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        sx={{ zIndex: 1600 }}
+      >
+        <Alert severity="success" onClose={() => setSavedNotice(null)}>
+          {savedNotice}
+        </Alert>
+      </Snackbar>
 
       {/* 新增牌組：整條路和牌組戰績是同一個元件，所以兩頁不可能再走偏。職業帶
           目前這個分頁的——這一頁的每一個畫面都已經是「某一個職業的牌組」，到了

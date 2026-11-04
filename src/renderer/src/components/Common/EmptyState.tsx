@@ -16,12 +16,15 @@ import SearchOffOutlinedIcon from '@mui/icons-material/SearchOffOutlined'
 export function EmptyState({
   title = '無符合資料',
   description,
-  icon
+  icon,
+  action
 }: {
   title?: string
   /** 這一頁該怎麼把條件放寬 - 只有這句是兩邊不同的。 */
   description: string
   icon?: React.ReactNode
+  /** One button under the text - the next step, when there is an obvious one. */
+  action?: React.ReactNode
 }): React.JSX.Element {
   return (
     <Box
@@ -51,6 +54,7 @@ export function EmptyState({
       <Typography variant="body2" sx={{ maxWidth: 360 }}>
         {description}
       </Typography>
+      {action && <Box sx={{ mt: 1 }}>{action}</Box>}
     </Box>
   )
 }

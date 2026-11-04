@@ -12,7 +12,7 @@
  * grid; a drawer gets the width a card wall actually needs while still
  * leaving the deck list it was opened from in view behind it.
  */
-import { Alert, Box, Button, Drawer, IconButton, Stack, Typography } from '@mui/material'
+import { Alert, Box, Button, Drawer, IconButton, Snackbar, Stack, Typography } from '@mui/material'
 import { ThemeProvider, createTheme, useTheme } from '@mui/material/styles'
 import CloseIcon from '@mui/icons-material/Close'
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined'
@@ -33,6 +33,7 @@ import DeckCardBoard from './DeckCardBoard'
 import DeckCodeDialog from './DeckCodeDialog'
 import ManaCurve from './ManaCurve'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
+import { deckSavedMessage } from './deckVersions'
 import { invokeIpc } from '@renderer/ipc'
 
 /** 標題列、內容與動作列對齊用的同一個左邊界，和其他抽屜一致。 */
@@ -71,6 +72,8 @@ export default function DeckContentsDrawer({
   const [reloadKey, setReloadKey] = React.useState(0)
   const [publishing, setPublishing] = React.useState(false)
   const [editing, setEditing] = React.useState(false)
+  /** 存檔後的一句話：就地改寫，還是另存成了新版本。 */
+  const [savedNotice, setSavedNotice] = React.useState<string | null>(null)
   /**
    * Which row this drawer is actually showing.
    *
@@ -300,9 +303,21 @@ export default function DeckContentsDrawer({
           // Follow the saved row - a fork is a new id.
           setViewDeckId(saved.id)
           setReloadKey((n) => n + 1)
+          setSavedNotice(deckSavedMessage(saved))
           onSaved?.()
         }}
       />
+
+      <Snackbar
+        open={savedNotice !== null}
+        autoHideDuration={4000}
+        onClose={() => setSavedNotice(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setSavedNotice(null)}>
+          {savedNotice}
+        </Alert>
+      </Snackbar>
 
       <DeckCodeDialog
         open={publishing}

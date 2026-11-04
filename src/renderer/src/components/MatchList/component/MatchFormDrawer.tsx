@@ -67,6 +67,7 @@ import LocalOfferOutlinedIcon from '@mui/icons-material/LocalOfferOutlined'
 import { format as formatDate } from 'date-fns'
 
 import AppDialog, { DANGER_ACCENT } from '@renderer/components/Common/AppDialog'
+import ConfirmDialog from '@renderer/components/Common/ConfirmDialog'
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import ClassTag from '@renderer/components/Common/ClassTag'
 import ModeLabel from '@renderer/components/Common/ModeLabel'
@@ -566,6 +567,7 @@ const TagEditor: React.FC<{
   // 刪除 Dialog 狀態
   const [deleting, setDeleting] = useState<Tag | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // 初次載入全部標籤
   useEffect(() => {
@@ -611,6 +613,10 @@ const TagEditor: React.FC<{
       setEditing(null)
       setDraftName('')
       setRenameError(null)
+    } catch (e) {
+      // 對話框還開著，錯誤就說在輸入框下面；不然使用者只看到按鈕轉回來。
+      console.error('Failed to rename tag:', e)
+      setRenameError('改名失敗，請再試一次')
     } finally {
       setSaveBusy(false)
     }
@@ -621,12 +627,16 @@ const TagEditor: React.FC<{
     if (!deleting) return
     try {
       setDeleteBusy(true)
+      setDeleteError(null)
       await invokeIpc('tags:delete', deleting.id)
       setAll((prev) => prev.filter((t) => t.id !== deleting.id))
       const next = value.filter((t) => t.id !== deleting.id)
       if (next.length !== value.length) onChange(next)
       onGlobalTagsDeleted?.([deleting.id])
       setDeleting(null)
+    } catch (e) {
+      console.error('Failed to delete tag:', e)
+      setDeleteError('刪除失敗，請再試一次')
     } finally {
       setDeleteBusy(false)
     }
@@ -710,6 +720,7 @@ const TagEditor: React.FC<{
                   onClick={(e) => {
                     stopClicks(e)
                     setDeleting(option)
+                    setDeleteError(null)
                   }}
                 >
                   <DeleteIcon fontSize="small" />
@@ -778,6 +789,7 @@ const TagEditor: React.FC<{
         title="刪除標籤"
         icon={<DeleteIcon fontSize="small" />}
         accent={DANGER_ACCENT}
+        error={deleteError}
         actions={
           <>
             <Button
@@ -829,6 +841,8 @@ const MatchFormDrawer: React.FC<Props> = ({
   // 刪除確認 Dialog 狀態
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  /** 刪除失敗說在確認框裡：框還開著，說在動作列只會被它蓋住。 */
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -968,6 +982,7 @@ const MatchFormDrawer: React.FC<Props> = ({
     // 沒有 id 就沒有東西可刪。新增模式下按不到這個按鈕，但型別上仍是可能的。
     if (!data?.id) return
     setDeleting(true)
+    setDeleteError(null)
     try {
       await invokeIpc('matches:delete', data.id)
       onDeleted?.()
@@ -975,7 +990,7 @@ const MatchFormDrawer: React.FC<Props> = ({
       onClose()
     } catch (e) {
       console.error(e)
-      setFormError('刪除失敗')
+      setDeleteError('刪除失敗，請再試一次。')
     } finally {
       setDeleting(false)
     }
@@ -1050,7 +1065,7 @@ const MatchFormDrawer: React.FC<Props> = ({
                 component="h2"
                 sx={{ fontWeight: 800, fontSize: 17, lineHeight: 1.3 }}
               >
-                {create ? '新增對戰紀錄' : '編輯對戰紀錄'}
+                {create ? '新增對局' : '編輯對局'}
               </Typography>
               <Typography
                 variant="caption"
@@ -1067,7 +1082,7 @@ const MatchFormDrawer: React.FC<Props> = ({
               size="small"
               onClick={onClose}
               disabled={loading}
-              aria-label="關閉對戰紀錄表單"
+              aria-label="關閉對局表單"
               sx={{ color: 'text.secondary', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}
             >
               <CloseIcon fontSize="small" />
@@ -1284,7 +1299,10 @@ const MatchFormDrawer: React.FC<Props> = ({
                 刪，是最容易點錯的排法。 */}
             {!create && data && (
               <Button
-                onClick={() => setConfirmOpen(true)}
+                onClick={() => {
+                  setDeleteError(null)
+                  setConfirmOpen(true)
+                }}
                 disabled={loading}
                 color="error"
                 startIcon={<DeleteForeverIcon fontSize="small" />}
@@ -1329,41 +1347,17 @@ const MatchFormDrawer: React.FC<Props> = ({
         </Box>
       </Box>
 
-      {/* 刪除確認 Dialog */}
-      <AppDialog
+      {/* 刪除確認：和清單卡片上那一個同一句話、同一顆按鈕。Dialog 的層級（modal）
+          本來就在 Drawer 之上，又是後掛的，不必另外抬 zIndex。 */}
+      <ConfirmDialog
         open={confirmOpen}
-        onClose={() => setConfirmOpen(false)}
+        title="刪除這場對局？"
+        message="刪除後無法復原。"
+        confirmLabel="刪除"
         busy={deleting}
-        maxWidth="xs"
-        title="刪除確認"
-        icon={<DeleteForeverIcon fontSize="small" />}
-        accent={DANGER_ACCENT}
-        actions={
-          <>
-            <Button
-              onClick={() => setConfirmOpen(false)}
-              disabled={deleting}
-              sx={{ textTransform: 'none' }}
-            >
-              取消
-            </Button>
-            <Button
-              variant="contained"
-              color="error"
-              disableElevation
-              onClick={() => void confirmDelete()}
-              disabled={deleting}
-              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
-            >
-              {deleting ? '刪除中…' : '刪除'}
-            </Button>
-          </>
-        }
-      >
-        <Typography variant="body2" color="text.secondary">
-          確定要刪除此對戰紀錄嗎？此動作無法復原。
-        </Typography>
-      </AppDialog>
+        error={deleteError}
+        onClose={(ok) => (ok ? void confirmDelete() : setConfirmOpen(false))}
+      />
     </Drawer>
   )
 }

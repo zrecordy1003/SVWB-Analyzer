@@ -89,6 +89,18 @@ export type DeckSaveLocalInput = {
 }
 
 /**
+ * What `decks:saveLocal` wrote. Main decides between overwriting and forking
+ * (a played deck freezes), so it is also the only side that can say which one
+ * happened - the editor tells the user from this.
+ */
+export type DeckSaveLocalResult = Deck & {
+  /** 'updated' = the given row was rewritten; 'forked' = a new version row. */
+  saveOutcome: 'created' | 'updated' | 'forked'
+  /** 1-based number of the saved row within its family, by id (plan 3.4). */
+  versionNumber: number
+}
+
+/**
  * A deck as the list screen wants it.
  *
  * Carries two things the Deck row does not: what the deck is made of, and the

@@ -13,9 +13,16 @@ import AppDialog, { DANGER_ACCENT } from './AppDialog'
 const ConfirmDialog: React.FC<{
   open: boolean
   title: string
-  message?: string
+  message?: React.ReactNode
+  /** Name the act, not 「確定」: the button is read before the message is. */
+  confirmLabel?: string
+  /** While the act runs: the buttons and dismissal are held. */
+  busy?: boolean
+  /** Why the act failed; the dialog stays open so it can be retried. */
+  error?: React.ReactNode
+  zIndex?: number
   onClose: (ok: boolean) => void
-}> = ({ open, title, message, onClose }) => (
+}> = ({ open, title, message, confirmLabel = '確定', busy = false, error, zIndex, onClose }) => (
   <AppDialog
     open={open}
     onClose={() => onClose(false)}
@@ -25,19 +32,23 @@ const ConfirmDialog: React.FC<{
     // Confirmations in this app are destructive - the affirmative button is
     // error-coloured - so the surface says so before the buttons do.
     accent={DANGER_ACCENT}
+    busy={busy}
+    error={error}
+    zIndex={zIndex}
     actions={
       <>
-        <Button onClick={() => onClose(false)} sx={{ textTransform: 'none' }}>
+        <Button onClick={() => onClose(false)} disabled={busy} sx={{ textTransform: 'none' }}>
           取消
         </Button>
         <Button
           variant="contained"
           color="error"
           disableElevation
+          disabled={busy}
           onClick={() => onClose(true)}
           sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 800 }}
         >
-          確定
+          {confirmLabel}
         </Button>
       </>
     }

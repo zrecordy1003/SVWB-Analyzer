@@ -33,6 +33,7 @@ import {
   Alert,
   Box,
   Button,
+  CircularProgress,
   Divider,
   IconButton,
   Paper,
@@ -41,6 +42,7 @@ import {
   Typography
 } from '@mui/material'
 import AlignHorizontalLeftIcon from '@mui/icons-material/AlignHorizontalLeft'
+import CloudOffOutlinedIcon from '@mui/icons-material/CloudOffOutlined'
 import PublicOutlinedIcon from '@mui/icons-material/PublicOutlined'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import TableChartOutlinedIcon from '@mui/icons-material/TableChartOutlined'
@@ -57,12 +59,7 @@ import { classes } from '@renderer/map/classMap'
 
 import MetaClassTable from './MetaClassTable'
 import MetaSharePie from './MetaSharePie'
-import {
-  metaClassRows,
-  metaClassesWithData,
-  metaFirstTurnAdvantage,
-  metaMatchup
-} from './metaModel'
+import { metaClassRows, metaFirstTurnAdvantage, metaMatchup } from './metaModel'
 
 import { META_WINDOW_DAYS, type MetaSnapshot, type MetaWindowDays } from '@shared/meta'
 import type { ClassName } from '@shared/domain'
@@ -135,6 +132,20 @@ const HIDDEN_SCROLL_SX = {
 } as const
 
 type ChartKind = 'heatmap' | 'bars'
+
+const META_MATCHUP_EMPTY = '這個職業在這個區間還沒有可發布的對位。換一個職業，或選較長的區間看看。'
+
+/**
+ * 主程式丟回來的錯誤，換成使用者看得懂的一句。
+ *
+ * `src/main/ipc/meta.ts` 自己會丟的那幾種（逾時、限流、沒有端點）本來就是中文，
+ * 原樣留著；網路層的失敗則是 Chromium 的原始代碼（`net::ERR_…`、`fetch failed`），
+ * 對使用者只有「連不上」一個意思。原文仍附在後面，回報問題時用得到。
+ */
+function friendlyMetaError(raw: string): string {
+  if (/\p{Script=Han}/u.test(raw)) return raw
+  return `無法連線到統計伺服器，請確認網路連線後再試一次。（${raw}）`
+}
 
 const WINDOW_OPTIONS = META_WINDOW_DAYS.map((days) => ({ id: String(days), label: `${days} 天` }))
 const CHART_OPTIONS: Array<{ id: ChartKind; label: string; icon: React.ReactNode }> = [
@@ -318,18 +329,23 @@ export default function MetaPage(): React.JSX.Element {
 
   const doc = snapshot?.document ?? null
   const rows = useMemo(() => metaClassRows(doc), [doc])
-  const withData = useMemo(() => metaClassesWithData(doc), [doc])
   const matchup = useMemo(() => metaMatchup(doc, myClass), [doc, myClass])
   const advantage = useMemo(() => metaFirstTurnAdvantage(doc), [doc])
 
   const hasData = (doc?.cells.length ?? 0) > 0
   const showSkeleton = loading && !snapshot
-  const showEmpty = !showSkeleton && !hasData
+  /**
+   * 一份資料都沒拿到就失敗了。這和「拿到了，但還沒有可發布的對位」是兩件事，
+   * 不能共用空狀態：原本兩者疊在一起，上面寫連不上、下面寫「還沒有足夠的資料」，
+   * 後一句是錯的 - 我們根本不知道有沒有。
+   */
+  const showError = !showSkeleton && !snapshot && error !== null
+  const showEmpty = !showSkeleton && !showError && !hasData
   /**
    * 空狀態永遠是一欄：它是一段置中的字，並排只會讓它偏到左邊一欄裡。骨架則跟
    * 資料走同一種版面，否則資料回來的那一瞬間兩塊會從上下跳成左右。
    */
-  const twoColumn = wide && !showEmpty
+  const twoColumn = wide && !showEmpty && !showError
 
   const generatedAt = doc?.generatedAt ? new Date(doc.generatedAt) : null
   const fetchedAt = snapshot?.fetchedAt ? new Date(snapshot.fetchedAt) : null
@@ -359,10 +375,20 @@ export default function MetaPage(): React.JSX.Element {
             一樣，而且它決定了底下每個百分比能不能信。
           */}
           <Box display="flex" alignItems="center" gap={0.75}>
-            <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85 }} noWrap>
-              {(doc?.installs ?? 0).toLocaleString()} 位使用者 ・{' '}
-              {(doc?.matches ?? 0).toLocaleString()} 場 ・ {doc?.window.days ?? days} 天
-            </Typography>
+            {/* 還沒有文件時不寫「0 位使用者・0 場」：那讀起來是一個結論（沒有人用），
+                而實際上只是還沒拿到。 */}
+            {doc ? (
+              <Typography variant="body2" sx={{ ...NUMERIC, opacity: 0.85 }} noWrap>
+                {doc.installs.toLocaleString()} 位使用者 ・ {doc.matches.toLocaleString()} 場 ・{' '}
+                {doc.window.days} 天
+              </Typography>
+            ) : loading ? (
+              <Skeleton variant="text" width={180} />
+            ) : (
+              <Typography variant="body2" sx={{ opacity: 0.55 }} noWrap>
+                尚未取得資料
+              </Typography>
+            )}
             {/*
               滑過去才給細節，不是點開。
 
@@ -493,23 +519,25 @@ export default function MetaPage(): React.JSX.Element {
                 onClick={() => void load(days, true)}
                 aria-label="重新整理"
               >
-                <RefreshIcon fontSize="small" />
+                {/* 手上已經有一份時，重新整理只會讓按鈕變灰，看不出有沒有在跑。 */}
+                {loading ? <CircularProgress size={18} /> : <RefreshIcon fontSize="small" />}
               </IconButton>
             </span>
           </Tooltip>
         </Box>
       </Paper>
 
-      {error && (
+      {/* 只在手上還有舊資料時用橫幅；完全沒資料時錯誤就是整頁要說的事，見下面的 `showError`。 */}
+      {error && snapshot && (
         <Alert
-          severity={snapshot ? 'warning' : 'error'}
+          severity="warning"
           action={
             <Button color="inherit" size="small" onClick={() => void load(days, true)}>
               重試
             </Button>
           }
         >
-          {snapshot ? `無法更新（${error}）；以下是上次取得的資料。` : error}
+          {`無法更新：${friendlyMetaError(error)} 以下是上次取得的資料。`}
         </Alert>
       )}
 
@@ -551,6 +579,17 @@ export default function MetaPage(): React.JSX.Element {
               </>
             )}
           </>
+        ) : showError ? (
+          <EmptyState
+            title="無法取得環境數據"
+            description={friendlyMetaError(error ?? '')}
+            icon={<CloudOffOutlinedIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
+            action={
+              <Button variant="outlined" size="small" onClick={() => void load(days, true)}>
+                重試
+              </Button>
+            }
+          />
         ) : showEmpty ? (
           <EmptyState
             title="還沒有足夠的資料"
@@ -689,11 +728,6 @@ export default function MetaPage(): React.JSX.Element {
                   height={TOOLBAR_CONTROL_HEIGHT}
                   aria-label="圖表種類"
                 />
-                {!withData.has(myClass) && (
-                  <Typography variant="caption" sx={{ opacity: 0.6 }}>
-                    這個職業在這個區間還沒有可發布的對位
-                  </Typography>
-                )}
               </Box>
 
               {/*
@@ -703,10 +737,11 @@ export default function MetaPage(): React.JSX.Element {
                 容器多高長條就多高——這一塊拿到的高度就是那張圖的大小。
               */}
               <Box sx={{ flex: 1, minHeight: 0, ...HIDDEN_SCROLL_SX }}>
+                {/* 圖表預設的空狀態講的是分析器的篩選（場數、進階條件），這頁沒有那些。 */}
                 {chartKind === 'heatmap' ? (
-                  <MatchupHeatmap data={matchup} />
+                  <MatchupHeatmap data={matchup} emptyDescription={META_MATCHUP_EMPTY} />
                 ) : (
-                  <MatchupBars data={matchup} />
+                  <MatchupBars data={matchup} emptyDescription={META_MATCHUP_EMPTY} />
                 )}
               </Box>
             </Box>

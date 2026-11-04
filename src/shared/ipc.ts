@@ -41,6 +41,7 @@ import type {
   DeckImportCommitInput,
   DeckListItem,
   DeckSaveLocalInput,
+  DeckSaveLocalResult,
   DeckStatsQuery,
   DeckStatsRow,
   DeckUpdateInput,
@@ -307,7 +308,7 @@ export type IpcContract = {
   'decks:cards': (params: { deckId: number }) => Res<StoredDeckCard[]>
   'decks:create': (input: DeckCreateInput) => Res<Deck>
   'decks:update': (input: DeckUpdateInput) => Res<Deck>
-  'decks:saveLocal': (input: DeckSaveLocalInput) => Res<Deck>
+  'decks:saveLocal': (input: DeckSaveLocalInput) => Res<DeckSaveLocalResult>
   'decks:setDefaultForClass': (params: { deckId: number }) => Res<Deck>
   /** `deleted` and `archived` are counts: a played deck is archived, an unplayed one deleted. */
   'decks:delete': (params: {

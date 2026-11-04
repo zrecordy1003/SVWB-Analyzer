@@ -6,6 +6,7 @@ import {
   FormControlLabel,
   Paper,
   Skeleton,
+  Snackbar,
   Switch,
   Typography
 } from '@mui/material'
@@ -23,6 +24,7 @@ import { RangeEditor, type RangePatch } from '@renderer/components/Common/filter
 import { AdvancedFilterBar } from '@renderer/components/Common/filters/AdvancedFilterBar'
 import { rangeChipLabel } from '@renderer/components/Common/filters/rangeLabels'
 import { SegmentedControl } from '@renderer/components/Common/SegmentedControl'
+import LoadingStatus from '@renderer/components/Common/LoadingStatus'
 import DeckTile from './DeckTile'
 import DeckRow, { type DeckRowData } from './DeckRow'
 import AddDeckTile from './AddDeckTile'
@@ -31,7 +33,11 @@ import DeckVersionsPanel, {
   type CorrectVersionRequest,
   type VersionStat
 } from '@renderer/components/DeckCards/DeckVersionsPanel'
-import { groupDeckFamilies, type DeckFamily } from '@renderer/components/DeckCards/deckVersions'
+import {
+  deckSavedMessage,
+  groupDeckFamilies,
+  type DeckFamily
+} from '@renderer/components/DeckCards/deckVersions'
 import AddDeckFlow from '@renderer/components/DeckBuilder/AddDeckFlow'
 import DeckBuilder from '@renderer/components/DeckBuilder/DeckBuilder'
 import { readSetting } from '@renderer/components/Analyzer/filterState'
@@ -251,6 +257,8 @@ const DeckPerformance = (): React.JSX.Element => {
   const [inspecting, setInspecting] = useState<{ id: number; name: string } | null>(null)
   /** 從某一版的「修正卡表…」開進建構器的那一版；存檔直接改寫它，不 fork。 */
   const [correcting, setCorrecting] = useState<CorrectVersionRequest | null>(null)
+  /** 修正卡表存完那一句：和牌組內容抽屜存檔時同一句話。 */
+  const [savedNotice, setSavedNotice] = useState<string | null>(null)
   // 先問「匯入還是自己建」，之後的路交給 `AddDeckFlow`。
   const [adding, setAdding] = useState(false)
 
@@ -484,6 +492,10 @@ const DeckPerformance = (): React.JSX.Element => {
           </Alert>
         )}
 
+        {/* 換條件時舊數字照常留著（`deckStatsResource` 刻意保留上一份），所以要
+            說一聲正在換，否則舊的勝率看起來就像新條件下的結果。 */}
+        {loading && !showInitialSkeleton && <LoadingStatus />}
+
         {showInitialSkeleton ? (
           <DeckPerformanceSkeleton view={viewMode} />
         ) : (
@@ -512,7 +524,8 @@ const DeckPerformance = (): React.JSX.Element => {
                       : 'text.secondary'
                   }}
                 >
-                  {overallRate.toFixed(1)}%
+                  {/* 一場都沒有時不是 0%，是還沒有勝率。 */}
+                  {totalGames ? `${overallRate.toFixed(1)}%` : '—'}
                 </Box>
                 <Box component="span" color="text.secondary">
                   {' '}
@@ -683,7 +696,10 @@ const DeckPerformance = (): React.JSX.Element => {
           correction={{ versionLabel: correcting.versionLabel }}
           categories={allCategories}
           onClose={() => setCorrecting(null)}
-          onSaved={() => refreshDecks()}
+          onSaved={(saved) => {
+            refreshDecks()
+            setSavedNotice(deckSavedMessage(saved))
+          }}
         />
       )}
 
@@ -695,6 +711,17 @@ const DeckPerformance = (): React.JSX.Element => {
         onClose={() => setInspecting(null)}
         onSaved={() => refreshDecks()}
       />
+
+      <Snackbar
+        open={savedNotice !== null}
+        autoHideDuration={4000}
+        onClose={() => setSavedNotice(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setSavedNotice(null)}>
+          {savedNotice}
+        </Alert>
+      </Snackbar>
     </Box>
   )
 }

@@ -120,6 +120,11 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
   const [loading, setLoading] = React.useState(true)
   const [categories, setCategories] = React.useState<Category[]>([])
   const [options, setOptions] = React.useState<Option[]>([])
+  /**
+   * 讀牌組失敗的原因，畫在欄位下面。原本是 `alert()`——一個擋住整個 app 的系統
+   * 對話框，而它說的只是表單裡的一格。
+   */
+  const [loadError, setLoadError] = React.useState<string | null>(null)
 
   /**
    * 新增牌組的兩道門。
@@ -154,6 +159,7 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
 
     setCategories(sortedCats)
     setOptions(list)
+    setLoadError(null)
     return list
   }, [])
 
@@ -165,7 +171,8 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
       try {
         await loadDecks()
       } catch (err: any) {
-        if (mounted) alert(err?.message ?? '載入失敗')
+        console.error('Failed to load decks:', err)
+        if (mounted) setLoadError('牌組清單載入失敗')
       } finally {
         if (mounted) setLoading(false)
       }
@@ -215,7 +222,8 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
         const found = list.find((d) => d.id === deckId)
         if (found) onChange({ id: found.id, name: found.name, class: found.class })
       } catch (err: any) {
-        alert(err?.message ?? '讀取牌組失敗')
+        console.error('Failed to reload decks:', err)
+        setLoadError('牌組已新增，但清單沒能重新讀取，請重新打開這張表單')
       }
     },
     [loadDecks, onChange]
@@ -281,6 +289,9 @@ export default function DeckPicker({ label, compact = false, klass, value, onCha
             label={label}
             size={compact ? 'small' : undefined}
             placeholder={compact ? '選擇牌組' : '搜尋或選擇牌組'}
+            error={!!loadError}
+            // 只在出錯時佔高度：這張表單在最小視窗下不能捲動，平常留白會擠掉一列。
+            helperText={loadError ?? undefined}
             sx={compact ? { '& .MuiOutlinedInput-root': { ...CONTROL_SX, py: 0 } } : undefined}
             slotProps={{
               input: {

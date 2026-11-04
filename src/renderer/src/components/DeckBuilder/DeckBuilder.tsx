@@ -63,6 +63,9 @@ import DriveFileRenameOutlineRoundedIcon from '@mui/icons-material/DriveFileRena
 import { ThemeProvider, createTheme, useTheme } from '@mui/material/styles'
 import React from 'react'
 import { invokeIpc } from '@renderer/ipc'
+import ConfirmDialog from '@renderer/components/Common/ConfirmDialog'
+import { deckErrorMessage } from '@renderer/components/DeckCards/deckErrorMessage'
+import type { DeckSaveLocalResult } from '@shared/decks'
 
 /** A full deck is 40 cards; the portal enforces the same number. */
 const DECK_SIZE = 40
@@ -221,6 +224,18 @@ const COST_BUCKETS = [0, 1, 2, 3, 4, 5, 6, 7] as const
 
 type Category = { id: string; name: string }
 
+/** 存檔後交給呼叫端的：寫到哪一列、是覆寫還是另存新版本（由 main 決定）。 */
+export type DeckSaved = Pick<DeckSaveLocalResult, 'id' | 'saveOutcome' | 'versionNumber'>
+
+/**
+ * 「有沒有改過」的比較鍵：卡表、名稱、分類。職業與賽制不必另外算——換了它們
+ * 卡表就清空，本身就會讓卡表不同。
+ */
+const snapshotOf = (counts: Map<number, number>, name: string, categoryId: string): string =>
+  JSON.stringify([[...counts.entries()].sort((a, b) => a[0] - b[0]), name.trim(), categoryId])
+
+const EMPTY_SNAPSHOT = snapshotOf(new Map(), '', '')
+
 /**
  * 「修正卡表」模式：存檔直接改寫 `deckId` 那一版，不建立新版本。`versionLabel`
  * 只給橫幅用（建構器自己不知道它是第幾版）。
@@ -267,7 +282,7 @@ export default function DeckBuilder({
    * 存好之後帶回實際寫入的那一列。編輯一副打過的牌會 fork 出新版本，`id` 就
    * 不再是傳進來的 `deckId`——呼叫端若還盯著舊 id 看，看到的會是舊卡表。
    */
-  onSaved: (saved: { id: number }) => void
+  onSaved: (saved: DeckSaved) => void
 }) {
   const [className, setClassName] = React.useState<ClassName>(initialClass ?? 'elf')
   const [battleFormat, setBattleFormat] = React.useState('2')
@@ -287,6 +302,13 @@ export default function DeckBuilder({
   const [correctionMatches, setCorrectionMatches] = React.useState<number | null>(null)
 
   const [categoryId, setCategoryId] = React.useState('')
+
+  /**
+   * 載入當下的樣子。全螢幕的建構器按 Esc、點 X 都會關，做到一半的牌組不能
+   * 這樣無聲地丟掉——和它不同就先問。
+   */
+  const [snapshot, setSnapshot] = React.useState(EMPTY_SNAPSHOT)
+  const [confirmDiscard, setConfirmDiscard] = React.useState(false)
 
   /**
    * Details for cards that are in the deck but not in the loaded pool.
@@ -382,6 +404,8 @@ export default function DeckBuilder({
     setLoadedDetails(new Map())
     setDeckName('')
     setCategoryId('')
+    setSnapshot(EMPTY_SNAPSHOT)
+    setConfirmDiscard(false)
     setQuery('')
     setCostFilter(null)
 
@@ -421,7 +445,9 @@ export default function DeckBuilder({
       setBattleFormat(nextFormat)
       setDeckName(deck.name)
       setCategoryId(deck.categoryId ?? '')
-      setCounts(new Map(cards.map((c) => [c.cardId, c.count])))
+      const loadedCounts = new Map(cards.map((c) => [c.cardId, c.count]))
+      setCounts(loadedCounts)
+      setSnapshot(snapshotOf(loadedCounts, deck.name, deck.categoryId ?? ''))
       setLoadedDetails(
         new Map(
           cards.map((c) => [
@@ -564,14 +590,12 @@ export default function DeckBuilder({
         // 明確點進來的，直接改寫那一版（plan 3.2）。
         forceInPlace: correction !== null
       })
-      if (!res?.ok) {
-        throw new Error(
-          res?.error === 'DUPLICATE_NAME'
-            ? '同職業、同分類下已經有相同名稱的牌組了。'
-            : (res?.error ?? '儲存失敗')
-        )
-      }
-      onSaved({ id: Number(res.data?.id ?? deckId) })
+      if (!res?.ok) throw new Error(deckErrorMessage(res?.error))
+      onSaved({
+        id: Number(res.data.id),
+        saveOutcome: res.data.saveOutcome,
+        versionNumber: res.data.versionNumber
+      })
       onClose()
     } catch (err: any) {
       setError(err?.message ?? '儲存失敗')
@@ -581,6 +605,18 @@ export default function DeckBuilder({
   }
 
   const needsSync = syncedAt === null && pool.length === 0 && bootstrap === null
+
+  const dirty = React.useMemo(
+    () => snapshotOf(counts, deckName, categoryId) !== snapshot,
+    [counts, deckName, categoryId, snapshot]
+  )
+
+  /** Esc、背景、X 都走這裡：有沒存的變更先問，不然直接關。 */
+  const requestClose = (): void => {
+    if (saving) return
+    if (dirty) setConfirmDiscard(true)
+    else onClose()
+  }
 
   /**
    * Popovers opened INSIDE a raised builder have to be raised with it.
@@ -607,7 +643,7 @@ export default function DeckBuilder({
   const dialog = (
     <Dialog
       open={open}
-      onClose={saving ? undefined : onClose}
+      onClose={requestClose}
       fullScreen
       sx={zIndex === undefined ? undefined : { zIndex }}
       slotProps={{ paper: { sx: { background: CANVAS_BG } } }}
@@ -616,7 +652,7 @@ export default function DeckBuilder({
         {/* Its own layer, pinned: in the header row it wrapped onto a second
             line on a narrow window, which is exactly when a user wants out. */}
         <IconButton
-          onClick={onClose}
+          onClick={requestClose}
           disabled={saving}
           aria-label="關閉"
           sx={{
@@ -925,6 +961,18 @@ export default function DeckBuilder({
           </Stack>
         </Box>
       </Stack>
+
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="捨棄未儲存的變更？"
+        message="這副牌組的修改還沒存，關閉後會遺失。"
+        confirmLabel="捨棄"
+        zIndex={zIndex === undefined ? undefined : zIndex + 1}
+        onClose={(ok) => {
+          setConfirmDiscard(false)
+          if (ok) onClose()
+        }}
+      />
     </Dialog>
   )
 

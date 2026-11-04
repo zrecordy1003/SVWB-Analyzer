@@ -14,6 +14,7 @@
  * name - is a prop rather than a reason to hand-roll another one.
  */
 import {
+  Alert,
   Box,
   Dialog,
   DialogActions,
@@ -26,7 +27,7 @@ import {
 import CloseIcon from '@mui/icons-material/Close'
 import React from 'react'
 
-import { HAIRLINE_BOTTOM, SURFACE_SX } from './surfaces'
+import { HAIRLINE_BOTTOM, SURFACE_SX, noteSx } from './surfaces'
 
 /**
  * The padding every dialog shares, in theme spacing units.
@@ -89,6 +90,13 @@ export type AppDialogProps = {
   zIndex?: number
   /** Escape hatch for the body only; the chrome is not negotiable. */
   contentSx?: DialogProps['sx']
+  /**
+   * Why the last attempt at this dialog's action failed, shown at the foot of
+   * the body. It belongs in here: a dialog that stays open over the page hides
+   * any error the page shows behind it, and the user only sees the spinner
+   * stop.
+   */
+  error?: React.ReactNode
   children?: React.ReactNode
 }
 
@@ -106,6 +114,7 @@ export default function AppDialog({
   maxWidth = 'sm',
   zIndex,
   contentSx,
+  error,
   children
 }: AppDialogProps): React.JSX.Element {
   const closeButton = (
@@ -209,6 +218,11 @@ export default function AppDialog({
         }}
       >
         {children}
+        {error && (
+          <Alert severity="error" role="alert" sx={{ ...noteSx('error'), mt: 2 }}>
+            {error}
+          </Alert>
+        )}
       </DialogContent>
 
       {actions && (

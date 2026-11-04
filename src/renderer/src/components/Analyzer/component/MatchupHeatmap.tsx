@@ -25,11 +25,13 @@ import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp'
 
 import ClassIcon from '@renderer/components/Common/ClassIcon'
 import EmptyState from '@renderer/components/Common/EmptyState'
+import LowSampleTag from './LowSampleTag'
 import { useFlipRows } from '@renderer/components/Common/useFlipRows'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 import { classesMap, classTextSx } from '@renderer/map/classMap'
 import {
   LOSS_RGB,
+  LOW_SAMPLE_GAMES,
   RATE_DEAD_BAND as DEAD_BAND,
   rateColor,
   SWING_THRESHOLD,
@@ -46,7 +48,12 @@ import type { RankedWinrateByOpponent } from '@shared/types'
 
 type MatchupHeatmapProps = {
   data: RankedWinrateByOpponent | null | undefined
+  /** 沒有資料時那句話。分析器與環境數據頁的「放寬什麼」不一樣。 */
+  emptyDescription?: string
 }
+
+const EMPTY_DESCRIPTION =
+  '這組條件下沒有對局。換個職業或模式、放寬場數或時間區間，或清掉幾條進階條件再看看。'
 
 const NEUTRAL_FILL = 'rgba(255,255,255,0.045)'
 /** Where the colour ramp tops out. Beyond 15 points a matchup is simply lopsided. */
@@ -78,7 +85,10 @@ function cellFill(rate: number | null): string {
   return `rgba(${delta > 0 ? WIN_RGB : LOSS_RGB}, ${alpha.toFixed(3)})`
 }
 
-const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
+const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
+  data: stats,
+  emptyDescription = EMPTY_DESCRIPTION
+}) => {
   // 排序狀態與長條圖共用：換一種畫法不該把順序換掉。
   const { sortKey, descending, setSortKey, setDescending } = useMatchupSort()
 
@@ -97,9 +107,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
   if (!stats || !stats.byOpponent || stats.overall.all.total === 0) {
     // 和對局列表共用同一塊空狀態：兩頁問的是同一個問題（是不是篩過頭了），
     // 答案不該長得不一樣。
-    return (
-      <EmptyState description="這組條件下沒有任何對戰紀錄。放寬場數或時間區間，或清掉幾條進階條件再看看。" />
-    )
+    return <EmptyState description={emptyDescription} />
   }
 
   const overall = stats.overall
@@ -261,6 +269,15 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
                   {stat.wins}勝 {losses}敗 · {stat.total} 場
                 </Typography>
               </Box>
+              {row.lowSample && (
+                <Typography
+                  variant="caption"
+                  component="div"
+                  sx={{ mt: 0.5, color: 'warning.light' }}
+                >
+                  這個對位不到 {LOW_SAMPLE_GAMES} 場，一場就能讓勝率跳很多，參考就好。
+                </Typography>
+              )}
             </Box>
           )
         }
@@ -276,7 +293,9 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
             justifyContent: 'flex-end',
             px: 0.75,
             borderRadius: 1,
-            bgcolor: cellFill(stat.rate)
+            bgcolor: cellFill(stat.rate),
+            // 樣本薄的那一列整排壓淡：4/6 的 66.7% 不該跟 120/180 一樣實心。
+            opacity: row.lowSample ? 0.5 : 1
           }}
         >
           <Typography
@@ -442,6 +461,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({ data: stats }) => {
                 >
                   {row.label}
                 </Typography>
+                {row.lowSample && <LowSampleTag />}
               </Box>
 
               {rateCell(row.first, '先攻', row)}

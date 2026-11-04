@@ -40,6 +40,7 @@ import type {
   DeckImportCommitInput,
   DeckListItem,
   DeckSaveLocalInput,
+  DeckSaveLocalResult,
   DeckStatsRow,
   DeckUpdateInput
 } from '../../shared/decks.js'
@@ -1377,7 +1378,7 @@ export function registerDecksIpc(): void {
   // （卡片主資料已經由卡池同步進來了）。
   handleIpc(
     'decks:saveLocal',
-    async (_e, input: DeckSaveLocalInput): Promise<Res<Deck>> =>
+    async (_e, input: DeckSaveLocalInput): Promise<Res<DeckSaveLocalResult>> =>
       wrap(async () => {
         const name = assertValidName(input?.name)
         const cls = CLASS_ID_TO_NAME[Number(input?.classId)]
@@ -1420,7 +1421,7 @@ export function registerDecksIpc(): void {
           if (dupName) throw new Error('DUPLICATE_NAME')
 
           const now = nowMs()
-          return upsertDeckWithCards(tx, {
+          const row = await upsertDeckWithCards(tx, {
             replaceDeckId: replaceId,
             cls,
             isDefault: input.isDefault,
@@ -1444,10 +1445,19 @@ export function registerDecksIpc(): void {
               updatedAt: now
             }
           })
+          // 這一列在家族裡是第幾版：和 renderer 的 `groupDeckFamilies` 同一套
+          // 編號（依 id 排序），存檔提示才講得出「另存為 vN」。
+          const family = await familyVersionRows(tx, row.familyId ?? row.id)
+          return { row, versionNumber: family.findIndex((r) => r.id === row.id) + 1 }
         })
 
         notifyReferenceDataChanged('decks')
-        return deckFromRow(saved)
+        return {
+          ...deckFromRow(saved.row),
+          saveOutcome:
+            replaceId === null ? 'created' : saved.row.id === replaceId ? 'updated' : 'forked',
+          versionNumber: saved.versionNumber
+        }
       })
   )
 

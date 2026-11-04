@@ -24,6 +24,7 @@ import {
   DROPDOWN_ITEM_SX,
   DROPDOWN_PAPER_SX
 } from '@renderer/components/Common/filters/dropdownSurface'
+import LowSampleTag from './LowSampleTag'
 import {
   DELTA_LABEL_THRESHOLD,
   MATCHUP_SORT_LABELS,
@@ -318,6 +319,8 @@ function MatchupBarRow({
         sx={{
           ...ROW_GRID,
           flex: '1 1 0',
+          // 和熱圖同一條規則：樣本薄的整列壓淡，數字照給。
+          opacity: row.lowSample ? 0.55 : 1,
           minHeight: 0,
           px: 1,
           py: 0.75,
@@ -335,13 +338,16 @@ function MatchupBarRow({
               職業那一欄不該長得不一樣。沒有場次時一起壓暗。 */}
           <ClassIcon id={row.key} tone={row.color} dim={row.games === 0} />
           <Box sx={{ minWidth: 0 }}>
-            <Typography
-              variant="body2"
-              noWrap
-              sx={{ color: row.games === 0 ? 'text.disabled' : 'rgba(255,255,255,0.9)' }}
-            >
-              {row.label}
-            </Typography>
+            <Box display="flex" alignItems="center" gap={0.75} sx={{ minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{ color: row.games === 0 ? 'text.disabled' : 'rgba(255,255,255,0.9)' }}
+              >
+                {row.label}
+              </Typography>
+              {row.lowSample && <LowSampleTag />}
+            </Box>
             {showDelta && (
               <Typography
                 variant="caption"
@@ -379,11 +385,17 @@ function MatchupBarRow({
 
 type Props = {
   data: RankedWinrateByOpponent | null | undefined
+  /** 沒有資料時那句話。分析器與環境數據頁的「放寬什麼」不一樣。 */
+  emptyDescription?: string
   /** 未來要接 matchup 詳情、對戰紀錄時從這裡進去。 */
   onMatchupClick?: (row: MatchupRow) => void
 }
 
-const MatchupBars: React.FC<Props> = ({ data, onMatchupClick }) => {
+const MatchupBars: React.FC<Props> = ({
+  data,
+  onMatchupClick,
+  emptyDescription = '這組條件下沒有對局。換個職業或模式、放寬場數或時間區間，或清掉幾條進階條件再看看。'
+}) => {
   const { sortKey, descending, setSortKey, setDescending } = useMatchupSort()
 
   const allRows = useMemo(() => buildMatchupRows(data), [data])
@@ -396,9 +408,7 @@ const MatchupBars: React.FC<Props> = ({ data, onMatchupClick }) => {
   const registerRow = useFlipRows(rows.map((row) => row.key))
 
   if (!data || !data.byOpponent || data.overall.all.total === 0) {
-    return (
-      <EmptyState description="這組條件下沒有任何對戰紀錄。放寬場數或時間區間，或清掉幾條進階條件再看看。" />
-    )
+    return <EmptyState description={emptyDescription} />
   }
 
   const overall = data.overall

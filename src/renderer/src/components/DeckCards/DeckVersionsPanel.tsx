@@ -25,7 +25,6 @@
  */
 import {
   alpha,
-  Alert,
   Box,
   Button,
   ButtonBase,
@@ -57,6 +56,7 @@ import {
 import React from 'react'
 
 import DeckVersionDiffDialog, { type DiffEndpoint } from './DeckVersionDiffDialog'
+import { deckErrorMessage } from './deckErrorMessage'
 import { invokeIpc } from '@renderer/ipc'
 import {
   diffChips,
@@ -249,11 +249,17 @@ function ChangesCell({
   }
 
   if (!prev) {
+    // null 是讀取失敗，不是空卡表：說成「沒有卡表」就是一句錯的話。
+    if (mine === null) {
+      return (
+        <Typography variant="caption" color="text.disabled" noWrap>
+          初始版本 · 無法讀取卡表
+        </Typography>
+      )
+    }
     return (
       <Typography variant="caption" color="text.secondary" noWrap>
-        {mine === null || mine.length === 0
-          ? '初始版本 · 沒有卡表'
-          : `初始版本 · ${mine.length} 種卡`}
+        {mine.length === 0 ? '初始版本 · 沒有卡表' : `初始版本 · ${mine.length} 種卡`}
       </Typography>
     )
   }
@@ -530,6 +536,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
       setImpact(null)
       return
     }
+    setError(null)
     let mounted = true
     void invokeIpc('decks:versionImpact', { id: discarding.deck.id })
       .then((res: Res<VersionImpact>) => {
@@ -551,10 +558,11 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
       const res: Res<unknown> = await invokeIpc('decks:deleteVersion', {
         id: discarding.deck.id
       })
-      if (!res.ok) throw new Error(res.error)
+      if (!res.ok) throw new Error(deckErrorMessage(res.error))
       setDiscarding(null)
       onChanged?.()
     } catch (err: any) {
+      // 畫在確認框裡：框還開著，面板上那條會被它蓋住。
       setError(err?.message ?? '刪除失敗')
     } finally {
       setBusy(false)
@@ -596,12 +604,6 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
 
   return (
     <Box data-testid={`deck-versions-panel-${family.familyId}`}>
-      {error && (
-        <Alert severity="error" sx={{ mb: 1, borderRadius: 2 }} onClose={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-
       {/* 說明收成右上角一個 ⓘ：數字才是這一區的主角。 */}
       <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 1, mb: -0.5 }}>
         <Box component="span" data-testid="deck-versions-caveat">
@@ -864,6 +866,7 @@ export default function DeckVersionsPanel<T extends VersionDeckLike>({
         open={discarding !== null}
         onClose={() => !busy && setDiscarding(null)}
         busy={busy}
+        error={error}
         maxWidth="xs"
         title={discarding ? `刪除 ${versionLabel(discarding.number)}？` : '刪除此版本？'}
         subtitle={family.current.name}

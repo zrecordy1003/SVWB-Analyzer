@@ -105,6 +105,7 @@ const MatchList = (): React.JSX.Element => {
     isLoadingMore,
     loadError,
     hasMore,
+    hasAnyMatch,
     loadMore,
     patchRow,
     removeRow,
@@ -115,12 +116,15 @@ const MatchList = (): React.JSX.Element => {
   // 編輯 / 新增 / 刪除
   const [editId, setEditId] = useState<number | null>(null)
   const [creating, setCreating] = useState(false)
-  const [createdNote, setCreatedNote] = useState<string | null>(null)
+  /** 底部的成功提示：新增、刪除完成時各說一句。 */
+  const [notice, setNotice] = useState<string | null>(null)
   const [deckError, setDeckError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: number | null }>({
     open: false,
     id: null
   })
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // 就地更新單列時要拿到最新一版的該列，但又不想讓 rows 進 callback 的相依
   const rowsRef = useRef(rows)
@@ -143,6 +147,7 @@ const MatchList = (): React.JSX.Element => {
   }, [])
 
   const openEdit = useCallback((id: number) => setEditId(id), [])
+  const openCreate = useCallback(() => setCreating(true), [])
   const closeEdit = useCallback(() => setEditId(null), [])
 
   // 卡片上的牌組下拉：寫完才更新該列，失敗就維持原樣並說明，不做樂觀更新
@@ -166,14 +171,32 @@ const MatchList = (): React.JSX.Element => {
     [allDecks, patchRow]
   )
 
-  const requestDelete = useCallback((id: number) => setConfirmDelete({ open: true, id }), [])
+  const requestDelete = useCallback((id: number) => {
+    setDeleteError(null)
+    setConfirmDelete({ open: true, id })
+  }, [])
+  // 刪除期間對話框留著、按鈕鎖住；失敗就在對話框裡說，關掉的話使用者只會看到
+  // 什麼都沒發生。
   const handleConfirmDelete = useCallback(
     async (ok: boolean) => {
       const id = confirmDelete.id
-      setConfirmDelete({ open: false, id: null })
-      if (!ok || !id) return
-      await invokeIpc('matches:delete', id)
-      removeRow(id)
+      if (!ok || !id) {
+        setConfirmDelete({ open: false, id: null })
+        return
+      }
+      setDeleteBusy(true)
+      setDeleteError(null)
+      try {
+        await invokeIpc('matches:delete', id)
+        removeRow(id)
+        setConfirmDelete({ open: false, id: null })
+        setNotice('已刪除')
+      } catch (e) {
+        console.error('Failed to delete match:', e)
+        setDeleteError('刪除失敗，請再試一次。')
+      } finally {
+        setDeleteBusy(false)
+      }
     },
     [confirmDelete.id, removeRow]
   )
@@ -200,7 +223,7 @@ const MatchList = (): React.JSX.Element => {
         <Button
           size="small"
           startIcon={<AddIcon fontSize="small" />}
-          onClick={() => setCreating(true)}
+          onClick={openCreate}
           sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700, ml: -0.5 }}
         >
           新增紀錄
@@ -227,8 +250,10 @@ const MatchList = (): React.JSX.Element => {
           isLoadingMore={isLoadingMore}
           isInitialLoading={isInitialLoading}
           loadError={loadError}
+          hasAnyMatch={hasAnyMatch}
           onLoadMore={loadMore}
           onRetry={reload}
+          onCreate={openCreate}
         />
       </Box>
 
@@ -244,7 +269,11 @@ const MatchList = (): React.JSX.Element => {
             tagCount: updated.tags?.length ?? 0
           })
         }
-        onDeleted={() => editId && removeRow(editId)}
+        onDeleted={() => {
+          if (!editId) return
+          removeRow(editId)
+          setNotice('已刪除')
+        }}
       />
 
       {/* 新增：同一個抽屜，開在 create 模式 */}
@@ -257,30 +286,33 @@ const MatchList = (): React.JSX.Element => {
           // 不做樂觀插入：新紀錄的時間可能落在這份清單的任何位置（甚至在還沒
           // 載入的那幾頁裡），塞在最前面會讓它看起來排錯。重查一次比較誠實。
           reload()
-          setCreatedNote(
+          setNotice(
             withinActiveRange(filters, new Date(created.playedAt))
-              ? '已新增一筆紀錄'
+              ? '已新增一場對局'
               : '已新增，但它不在目前的時間篩選範圍內——把範圍往前調才看得到'
           )
         }}
       />
 
-      {/* 刪除確認 */}
+      {/* 刪除確認：和編輯抽屜裡那一個同一句話、同一顆按鈕 */}
       <ConfirmDialog
         open={confirmDelete.open}
-        title="刪除此對戰紀錄？"
-        message="此操作無法復原。"
-        onClose={handleConfirmDelete}
+        title="刪除這場對局？"
+        message="刪除後無法復原。"
+        confirmLabel="刪除"
+        busy={deleteBusy}
+        error={deleteError}
+        onClose={(ok) => void handleConfirmDelete(ok)}
       />
 
       <Snackbar
-        open={!!createdNote}
+        open={!!notice}
         autoHideDuration={6000}
-        onClose={() => setCreatedNote(null)}
+        onClose={() => setNotice(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert severity="success" onClose={() => setCreatedNote(null)}>
-          {createdNote}
+        <Alert severity="success" onClose={() => setNotice(null)}>
+          {notice}
         </Alert>
       </Snackbar>
 

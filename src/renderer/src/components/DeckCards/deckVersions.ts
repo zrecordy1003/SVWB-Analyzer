@@ -91,6 +91,16 @@ export function previousVersion<T extends VersionLike>(
 
 export const versionLabel = (number: number): string => `v${number}`
 
+/**
+ * 存檔後的提示：改寫了原本那一列，還是 fork 出新版本。打過的牌一改就是新版本
+ * （由 main 決定），不講的話使用者不知道舊卡表還留著。
+ */
+export const deckSavedMessage = (saved: {
+  saveOutcome: 'created' | 'updated' | 'forked'
+  versionNumber: number
+}): string =>
+  saved.saveOutcome === 'forked' ? `已另存為新版本 ${versionLabel(saved.versionNumber)}` : '已儲存'
+
 /* ------------------------------------------------------------------ diff */
 
 export type DiffableCard = { cardId: number; count: number }

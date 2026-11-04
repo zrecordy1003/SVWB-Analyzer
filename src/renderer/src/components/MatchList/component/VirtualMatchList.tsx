@@ -1,7 +1,11 @@
 import React, { useCallback, useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Alert, Box, Button, CircularProgress, Typography } from '@mui/material'
+import AddIcon from '@mui/icons-material/Add'
+import ListAltIcon from '@mui/icons-material/ListAlt'
 import EmptyState from '@renderer/components/Common/EmptyState'
+import LoadingStatus from '@renderer/components/Common/LoadingStatus'
+import SoftButton from '@renderer/components/Common/SoftButton'
 import MatchCard, { MATCH_CARD_CONTENT_HEIGHT } from './MatchCard'
 import type { InlineDeckOption } from './InlineDeckSelect'
 import type { MatchRow } from '../types'
@@ -21,10 +25,15 @@ type Props = {
   onSetDeck: (id: number, side: 'my' | 'oppo', deckId: number) => void
   hasMore: boolean
   isLoadingMore: boolean
+  /** True while the first page of a new query is in flight; rows may still hold the previous one. */
   isInitialLoading: boolean
   loadError: string | null
+  /** Whether any match exists at all, filters aside; null when unknown. */
+  hasAnyMatch: boolean | null
   onLoadMore: () => void
+  /** Reload from the top - for a failed first page only. */
   onRetry: () => void
+  onCreate: () => void
 }
 
 const VirtualMatchList: React.FC<Props> = ({
@@ -38,8 +47,10 @@ const VirtualMatchList: React.FC<Props> = ({
   isLoadingMore,
   isInitialLoading,
   loadError,
+  hasAnyMatch,
   onLoadMore,
-  onRetry
+  onRetry,
+  onCreate
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollbarRef = useRef<HTMLDivElement>(null)
@@ -100,14 +111,24 @@ const VirtualMatchList: React.FC<Props> = ({
     }
   }, [rows.length, updateScrollbar])
 
+  // 有錯就停：失敗的那一頁 hasMore 仍是 true，不擋的話會一直重打同一個失敗的請求。
+  // 要不要再試交給下面那顆「重試」。
   useEffect(() => {
-    if (lastIndex == null) return
+    if (lastIndex == null || loadError) return
     if (lastIndex >= rows.length - LOAD_MORE_THRESHOLD && hasMore && !isLoadingMore) {
       onLoadMore()
     }
-  }, [lastIndex, rows.length, hasMore, isLoadingMore, onLoadMore])
+  }, [lastIndex, rows.length, hasMore, isLoadingMore, loadError, onLoadMore])
 
-  if (isInitialLoading) {
+  // 換條件時舊的列先留著；新的第一頁一落地就回到頂端，從第一筆開始讀。
+  const refreshing = isInitialLoading && rows.length > 0
+  const wasRefreshingRef = useRef(false)
+  useEffect(() => {
+    if (wasRefreshingRef.current && !isInitialLoading) scrollRef.current?.scrollTo({ top: 0 })
+    wasRefreshingRef.current = refreshing
+  }, [isInitialLoading, refreshing])
+
+  if (isInitialLoading && rows.length === 0) {
     return (
       <Box display="flex" justifyContent="center" py={6}>
         <CircularProgress size={28} />
@@ -131,6 +152,27 @@ const VirtualMatchList: React.FC<Props> = ({
   }
 
   if (rows.length === 0) {
+    // 預設範圍是「今天」，全新的使用者一打開就落在這裡；叫他放寬條件是答錯了
+    // 問題。所以先分清楚是篩光了，還是根本還沒有任何一筆。
+    if (hasAnyMatch === false) {
+      return (
+        <EmptyState
+          title="還沒有對局紀錄"
+          icon={<ListAltIcon sx={{ fontSize: 40, opacity: 0.6 }} />}
+          description="開著遊戲對戰，每一場會自動記下來；也可以手動補一筆。"
+          action={
+            <SoftButton
+              size="small"
+              tone="primary"
+              startIcon={<AddIcon fontSize="small" />}
+              onClick={onCreate}
+            >
+              新增紀錄
+            </SoftButton>
+          }
+        />
+      )
+    }
     // 和分析器共用同一塊空狀態：兩頁問的是同一個問題，答案不該長得不一樣。
     return (
       <EmptyState description="這段時間沒有符合條件的對局。放寬上方的時間範圍，或清掉幾條進階條件再看看。" />
@@ -139,11 +181,16 @@ const VirtualMatchList: React.FC<Props> = ({
 
   return (
     <Box sx={{ position: 'relative', height: '100%', minHeight: 0 }}>
+      {refreshing && <LoadingStatus />}
       <Box
         ref={scrollRef}
         onScroll={handleScroll}
+        // 舊結果淡下去但仍可操作：它們都是真的對局，點進去編輯或刪除不會錯。
+        aria-busy={refreshing}
         sx={{
           height: '100%',
+          opacity: refreshing ? 0.55 : 1,
+          transition: 'opacity 160ms ease-out',
           overflowY: 'auto',
           overscrollBehaviorY: 'contain',
           scrollbarWidth: 'none',
@@ -199,7 +246,7 @@ const VirtualMatchList: React.FC<Props> = ({
             <CircularProgress size={20} />
           </Box>
         )}
-        {!hasMore && (
+        {!hasMore && !refreshing && !loadError && (
           <Box display="flex" justifyContent="center" py={2}>
             <Typography variant="caption" color="text.secondary">
               已無更多對局
@@ -211,7 +258,8 @@ const VirtualMatchList: React.FC<Props> = ({
             severity="warning"
             sx={{ mx: 1, mb: 1 }}
             action={
-              <Button color="inherit" size="small" onClick={onRetry}>
+              // 只重抓失敗的那一頁，不把整份清單重載回頂端。
+              <Button color="inherit" size="small" onClick={onLoadMore}>
                 重試
               </Button>
             }
