@@ -280,8 +280,13 @@ pub struct Template {
     pub name: String,
     pub width: u32,
     pub height: u32,
-    /// Zero-mean pixel values, so matching only needs a dot product.
-    centered: Vec<f64>,
+    /// Raw pixel values. The numerator is computed as `sum(T*I) - mean(T) *
+    /// sum(I)` rather than as a dot product against zero-mean values: the two
+    /// are the same quantity, but this one is an integer product of bytes, which
+    /// the compiler vectorises and `f64` accumulation would not. It is also
+    /// exact, where summing `f64` products rounded on every step.
+    pixels: Vec<u16>,
+    mean: f64,
     /// `sum((T - mean(T))^2)`, the template half of the normalizing term.
     sum_sq_dev: f64,
 }
@@ -291,13 +296,13 @@ impl Template {
         let n = (gray.width() * gray.height()) as f64;
         let sum: f64 = gray.pixels().map(|p| p[0] as f64).sum();
         let mean = sum / n;
-        let centered: Vec<f64> = gray.pixels().map(|p| p[0] as f64 - mean).collect();
-        let sum_sq_dev = centered.iter().map(|v| v * v).sum();
+        let sum_sq_dev = gray.pixels().map(|p| (p[0] as f64 - mean).powi(2)).sum();
         Self {
             name: name.into(),
             width: gray.width(),
             height: gray.height(),
-            centered,
+            pixels: gray.pixels().map(|p| p[0] as u16).collect(),
+            mean,
             sum_sq_dev,
         }
     }
@@ -385,23 +390,28 @@ pub fn match_template(
     let last_x = search.x + search.w - tw;
     let last_y = search.y + search.h - th;
 
-    // The template mean is already folded into `centered`, so the numerator is a
-    // plain dot product of centered template against raw window pixels.
+    // Integer dot product of raw template against raw window pixels; the mean
+    // term comes from the integral image below. Each row's products fit a u32
+    // (255 * 255 * 66k), the whole window's go into a u64.
+    let tw_us = tw as usize;
     let best = (search.y..=last_y)
         .into_par_iter()
         .map(|y| {
             let mut row_best: Option<(f64, u32, u32)> = None;
             for x in search.x..=last_x {
-                let mut dot = 0f64;
+                let mut raw_dot = 0u64;
                 for ty in 0..th as usize {
-                    let frame_row = (y as usize + ty) * frame_w + x as usize;
-                    let tpl_row = ty * tw as usize;
-                    for tx in 0..tw as usize {
-                        dot += template.centered[tpl_row + tx] * pixels[frame_row + tx] as f64;
-                    }
+                    let frame_row = &pixels[(y as usize + ty) * frame_w + x as usize..][..tw_us];
+                    let tpl_row = &template.pixels[ty * tw_us..][..tw_us];
+                    raw_dot += frame_row
+                        .iter()
+                        .zip(tpl_row)
+                        .map(|(&i, &t)| i as u32 * t as u32)
+                        .sum::<u32>() as u64;
                 }
 
                 let (s1, s2) = integral.window(x, y, tw, th);
+                let dot = raw_dot as f64 - template.mean * s1;
                 let window_var = s2 - s1 * s1 / n;
                 let denom = (template.sum_sq_dev * window_var).max(0.0).sqrt();
                 // A flat window or flat template has no correlation to speak of.

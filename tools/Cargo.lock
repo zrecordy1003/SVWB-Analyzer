@@ -799,6 +799,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "image",
+ "rayon",
  "rusqlite",
  "serde",
  "serde_json",

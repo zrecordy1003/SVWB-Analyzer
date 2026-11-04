@@ -32,7 +32,22 @@ use svwb_engine::fingerprint::NoCards;
 use svwb_engine::numbers::{self, NoNumbers};
 use svwb_engine::{calibration, diagnostics, host, live, reading, replay, store};
 
+/// Upper bound on the matcher's worker threads.
+///
+/// rayon defaults to one per logical core, and on a 32-thread machine that made
+/// a tick cost ~1s of CPU for ~0.5s of actual work: the extra workers spend
+/// their time waking, stealing and spinning, not matching. A handful already
+/// finishes a tick far inside its 500ms budget, and the engine runs next to a
+/// game that wants the rest of the machine.
+const MAX_MATCH_THREADS: usize = 4;
+
 fn main() -> ExitCode {
+    let threads = std::thread::available_parallelism()
+        .map_or(1, |n| n.get())
+        .min(MAX_MATCH_THREADS);
+    // Fails only if a pool was already built, in which case that one stands.
+    let _ = rayon::ThreadPoolBuilder::new().num_threads(threads).build_global();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("probe-dump") => match probe_dump(&args[1..]) {
