@@ -51,12 +51,32 @@ pub fn to_gray_opencv(img: &DynamicImage) -> GrayImage {
     let (w, h) = (rgb.width(), rgb.height());
     let mut out = GrayImage::new(w, h);
     for (src, dst) in rgb.pixels().zip(out.pixels_mut()) {
-        let r = src[0] as u32;
-        let g = src[1] as u32;
-        let b = src[2] as u32;
-        dst[0] = ((r * 4899 + g * 9617 + b * 1868 + 8192) >> 14) as u8;
+        dst[0] = gray_bt601(src[0], src[1], src[2]);
     }
     out
+}
+
+/// [`to_gray_opencv`] for tightly packed BGRA rows, the layout Windows Graphics
+/// Capture delivers.
+///
+/// Reading the capture bytes directly is the point: going through
+/// [`to_gray_opencv`] would need an RGBA image built first, and live capture
+/// used to build one for every frame the window produced - most of which no
+/// tick ever looked at.
+///
+/// `None` when `bgra` is not exactly `width * height` pixels.
+pub fn bgra_to_gray_opencv(width: u32, height: u32, bgra: &[u8]) -> Option<GrayImage> {
+    if bgra.len() != width as usize * height as usize * 4 {
+        return None;
+    }
+    let gray = bgra.chunks_exact(4).map(|px| gray_bt601(px[2], px[1], px[0])).collect();
+    GrayImage::from_raw(width, height, gray)
+}
+
+#[inline]
+fn gray_bt601(r: u8, g: u8, b: u8) -> u8 {
+    let (r, g, b) = (r as u32, g as u32, b as u32);
+    ((r * 4899 + g * 9617 + b * 1868 + 8192) >> 14) as u8
 }
 
 /// A row with at least this much variation across the sampled columns counts as
@@ -466,6 +486,23 @@ mod tests {
 
     fn gray_from(w: u32, h: u32, vals: &[u8]) -> GrayImage {
         GrayImage::from_raw(w, h, vals.to_vec()).unwrap()
+    }
+
+    #[test]
+    fn bgra_gray_matches_the_rgba_path() {
+        // Every channel value in every position, so a swapped R and B would show.
+        let (w, h) = (64u32, 16u32);
+        let rgba: Vec<u8> = (0..w * h * 4).map(|i| (i * 37 % 256) as u8).collect();
+        let bgra: Vec<u8> =
+            rgba.chunks_exact(4).flat_map(|p| [p[2], p[1], p[0], p[3]]).collect();
+        let via_rgba =
+            to_gray_opencv(&DynamicImage::ImageRgba8(image::RgbaImage::from_raw(w, h, rgba).unwrap()));
+        assert_eq!(bgra_to_gray_opencv(w, h, &bgra).unwrap(), via_rgba);
+    }
+
+    #[test]
+    fn bgra_gray_refuses_a_short_buffer() {
+        assert!(bgra_to_gray_opencv(4, 4, &[0; 4 * 4 * 4 - 1]).is_none());
     }
 
     #[test]

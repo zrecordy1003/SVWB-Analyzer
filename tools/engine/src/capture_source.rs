@@ -34,6 +34,8 @@ use windows_capture::settings::{
     SecondaryWindowSettings,
 };
 
+use svwb_vision_native::{GrayImage, bgra_to_gray_opencv};
+
 use crate::calibration::timing;
 use crate::frame::Frame;
 use crate::frame_source::{FrameError, FrameSource, SourceControl, TimedFrame};
@@ -85,11 +87,19 @@ fn optional_settings_for_platform() -> OptionalCaptureSettings {
     )
 }
 
+/// One captured frame exactly as WGC delivered it: tightly packed BGRA rows.
+#[derive(Default)]
+struct Bgra {
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+}
+
 /// The newest captured frame, plus a sequence number so a reader can tell
-/// "new frame" from "the one I already took".
+/// "new frame" from "the one I already took". Sequence 0 means none yet.
 #[derive(Default)]
 struct Slot {
-    image: Option<image::DynamicImage>,
+    latest: Bgra,
     sequence: u64,
     /// Set by `on_closed`: the window is gone and no more frames will come.
     closed: bool,
@@ -101,9 +111,19 @@ struct Shared {
 }
 
 /// Receives WGC frames and publishes the latest into the slot.
+///
+/// This runs for EVERY frame the window produces - up to the game's frame rate
+/// where the OS cannot throttle delivery (`MinimumUpdateInterval` needs Windows
+/// 11 24H2) - while a tick takes one every 500ms. So it does the least it can:
+/// one copy of the rows into a buffer it owns, then a swap with the slot. The
+/// colour work waits until a tick actually takes the frame. Measured at
+/// 2560x1440 with delivery unthrottled, the old per-frame BGRA-to-RGBA swap into
+/// a fresh allocation cost 280ms of CPU every second.
 struct SlotWriter {
     shared: Arc<Shared>,
-    scratch: Vec<u8>,
+    /// The buffer being filled. Swapped with the slot's rather than copied, so
+    /// after the first frame neither side allocates.
+    back: Bgra,
 }
 
 impl windows_capture::capture::GraphicsCaptureApiHandler for SlotWriter {
@@ -113,7 +133,7 @@ impl windows_capture::capture::GraphicsCaptureApiHandler for SlotWriter {
     fn new(ctx: windows_capture::capture::Context<Self::Flags>) -> Result<Self, Self::Error> {
         Ok(Self {
             shared: ctx.flags,
-            scratch: Vec::new(),
+            back: Bgra::default(),
         })
     }
 
@@ -122,28 +142,26 @@ impl windows_capture::capture::GraphicsCaptureApiHandler for SlotWriter {
         frame: &mut windows_capture::frame::Frame,
         _control: windows_capture::graphics_capture_api::InternalCaptureControl,
     ) -> Result<(), Self::Error> {
-        let width = frame.width();
-        let height = frame.height();
-        let buffer = frame.buffer()?;
-        let bgra = buffer.as_nopadding_buffer(&mut self.scratch);
-
-        // BGRA -> RGBA. The old tool wrote PNGs, which decode as RGB(A), so
-        // every calibrated threshold was measured against that channel order -
-        // handing BGRA through unswapped would silently shift the grayscale
-        // weights and with them every score.
-        let mut rgba = vec![0u8; bgra.len()];
-        for (out, px) in rgba.chunks_exact_mut(4).zip(bgra.chunks_exact(4)) {
-            out[0] = px[2];
-            out[1] = px[1];
-            out[2] = px[0];
-            out[3] = px[3];
-        }
-        let Some(imag) = image::RgbaImage::from_raw(width, height, rgba) else {
+        let mut buffer = frame.buffer()?;
+        let (width, height) = (buffer.width(), buffer.height());
+        let pitch = buffer.row_pitch() as usize;
+        let row = width as usize * 4;
+        let raw = buffer.as_raw_buffer();
+        if height == 0 || pitch < row || raw.len() < pitch * (height as usize - 1) + row {
             return Ok(()); // a torn frame is skipped, not fatal
-        };
+        }
+
+        // Rows only: the mapped texture pads each one out to `pitch`. The
+        // resize is a no-op after the first frame of a given size.
+        self.back.pixels.resize(row * height as usize, 0);
+        for (dst, src) in self.back.pixels.chunks_exact_mut(row).zip(raw.chunks(pitch)) {
+            dst.copy_from_slice(&src[..row]);
+        }
+        self.back.width = width;
+        self.back.height = height;
 
         let mut slot = self.shared.slot.lock().unwrap();
-        slot.image = Some(image::DynamicImage::ImageRgba8(imag));
+        std::mem::swap(&mut slot.latest, &mut self.back);
         slot.sequence += 1;
         drop(slot);
         self.shared.arrived.notify_all();
@@ -167,7 +185,11 @@ type Control =
 /// and the live loop simply keeps polling for commands.
 pub struct CaptureSource {
     session: Option<(u64, Control, Arc<Shared>)>,
+    /// Sequence number `gray` was converted from; 0 for none.
     last_taken: u64,
+    /// The last frame taken, already converted, for the ticks that find no
+    /// newer one - see `next_frame`.
+    gray: Option<GrayImage>,
 }
 
 impl CaptureSource {
@@ -175,6 +197,7 @@ impl CaptureSource {
         Self {
             session: None,
             last_taken: 0,
+            gray: None,
         }
     }
 
@@ -185,6 +208,7 @@ impl CaptureSource {
             let _ = control.stop();
         }
         self.last_taken = 0;
+        self.gray = None;
     }
 
     fn attach(&mut self, hwnd: u64) -> Result<(), String> {
@@ -256,7 +280,10 @@ impl FrameSource for CaptureSource {
             self.detach();
             return Err(FrameError::NotReady);
         }
-        // Clone-and-keep rather than take, and NO freshness check, on purpose.
+        if slot.sequence == 0 {
+            return Err(FrameError::NotReady);
+        }
+        // Keep rather than take, and NO freshness check, on purpose.
         //
         // WGC only delivers a frame when the window's content changes, so a
         // static screen stops the stream. The old pipeline re-read the same PNG
@@ -264,16 +291,22 @@ impl FrameSource for CaptureSource {
         // a static BP value settles by being read on several ticks of the SAME
         // unchanged screen. Handing out each frame once would make "the screen
         // stopped animating" indistinguishable from "the screen went away", and
-        // quietly starve every Tally-based agreement. The clone costs ~3.7MB
-        // against the ~20MB the frame pipeline allocates per tick anyway.
-        let Some(decoded) = slot.image.clone() else {
-            return Err(FrameError::NotReady);
-        };
-        self.last_taken = slot.sequence;
+        // quietly starve every Tally-based agreement. So an unchanged sequence
+        // hands out the same frame again, from the grey kept last time - which
+        // also spares a static screen the conversion.
+        if slot.sequence != self.last_taken || self.gray.is_none() {
+            let latest = &slot.latest;
+            let Some(gray) = bgra_to_gray_opencv(latest.width, latest.height, &latest.pixels)
+            else {
+                return Err(FrameError::NotReady);
+            };
+            self.gray = Some(gray);
+            self.last_taken = slot.sequence;
+        }
         drop(slot);
 
         Ok(TimedFrame {
-            frame: Frame::from_image(&decoded),
+            frame: Frame::from_gray(self.gray.as_ref().expect("converted above")),
             at: Instant::now(),
         })
     }
