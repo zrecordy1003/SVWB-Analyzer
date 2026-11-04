@@ -265,7 +265,8 @@ function App(): React.JSX.Element {
     // 一顆地球：分析器看的是自己的資料，這一頁看的是所有人的。
     { key: 'Meta', text: '環境數據', icon: <PublicOutlinedIcon /> },
     { key: 'Settings', text: '設定', icon: <SettingsIcon /> },
-    { key: 'About', text: '贊助', icon: <InfoOutlinedIcon /> }
+    // 「關於」而不是「贊助」：這一頁講的是工具本身，贊助只是其中一塊。
+    { key: 'About', text: '關於', icon: <InfoOutlinedIcon /> }
   ]
 
   useEffect(() => {
