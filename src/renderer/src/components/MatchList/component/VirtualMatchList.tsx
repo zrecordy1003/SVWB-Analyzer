@@ -15,6 +15,13 @@ import { EASE, MOTION, motion } from '../../Common/motion'
 const LOAD_MORE_THRESHOLD = 5
 /** 卡片內容 + 上下框線 + 列間距，每張卡片都一樣高 */
 const ROW_HEIGHT = MATCH_CARD_CONTENT_HEIGHT + 2 + 12
+/** Gap between the thumb's travel and the list's top and bottom edges. */
+const THUMB_INSET = 6
+/**
+ * Width kept clear on the right for the scrollbar. Cards end before it, so the
+ * bar never sits over a card's edit and delete buttons and can always be grabbed.
+ */
+const SCROLLBAR_GUTTER = 14
 
 type Props = {
   rows: MatchRow[]
@@ -56,48 +63,136 @@ const VirtualMatchList: React.FC<Props> = ({
   const scrollRef = useRef<HTMLDivElement>(null)
   const scrollbarRef = useRef<HTMLDivElement>(null)
   const scrollbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scrollingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Pointer over the list: the bar shows faintly so it can be found and grabbed. */
+  const hoverRef = useRef(false)
+  /** An in-progress thumb drag: where the pointer and the scroll position started. */
+  const dragRef = useRef<{ startY: number; startTop: number } | null>(null)
 
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     getItemKey: (index) => rows[index].id,
     estimateSize: () => ROW_HEIGHT,
-    // One extra viewport edge is enough to avoid blank rows while keeping the
-    // per-scroll render cost low.
-    overscan: 4
+    // Enough rows past each edge that a fast flick of the wheel does not
+    // outrun rendering and show a blank strip; rows are cheap (~50 nodes).
+    overscan: 6
   })
 
   const virtualItems = virtualizer.getVirtualItems()
   const lastIndex = virtualItems[virtualItems.length - 1]?.index
 
-  const updateScrollbar = useCallback((visible: boolean) => {
+  /** Thumb size and the distance it can travel, from the list's current size. */
+  const thumbGeometry = useCallback(() => {
     const element = scrollRef.current
-    const thumb = scrollbarRef.current
-    if (!element || !thumb) return
-
-    const { clientHeight, scrollHeight, scrollTop } = element
-    if (scrollHeight <= clientHeight) {
-      thumb.style.opacity = '0'
-      return
-    }
-
-    const trackInset = 6
-    const trackHeight = clientHeight - trackInset * 2
+    if (!element) return null
+    const { clientHeight, scrollHeight } = element
+    if (scrollHeight <= clientHeight) return null
+    const trackHeight = clientHeight - THUMB_INSET * 2
     const height = Math.max(32, (clientHeight / scrollHeight) * trackHeight)
-    const travel = trackHeight - height
-    const progress = scrollTop / (scrollHeight - clientHeight)
-    // The scrollbar is visual-only. Updating it directly avoids a React render
-    // for every browser scroll event, leaving the virtualizer as the sole
-    // scroll-driven render path.
-    thumb.style.height = `${height}px`
-    thumb.style.transform = `translate3d(0, ${trackInset + travel * progress}px, 0)`
-    thumb.style.opacity = visible ? '0.72' : '0'
+    return { height, travel: trackHeight - height, range: scrollHeight - clientHeight }
   }, [])
+
+  /**
+   * Position and show the thumb. Written to the DOM directly rather than through
+   * React state, so a scroll event never causes a render of its own and the
+   * virtualizer stays the only scroll-driven render path.
+   *
+   * Three levels: hidden when the pointer is elsewhere, faint while the pointer
+   * is over the list (so the bar can be found and grabbed), solid while
+   * scrolling or dragging.
+   */
+  const updateScrollbar = useCallback(
+    (active: boolean) => {
+      const element = scrollRef.current
+      const thumb = scrollbarRef.current
+      if (!element || !thumb) return
+      const geometry = thumbGeometry()
+      if (!geometry) {
+        thumb.style.opacity = '0'
+        return
+      }
+      const progress = element.scrollTop / geometry.range
+      thumb.style.height = `${geometry.height}px`
+      thumb.style.transform = `translate3d(0, ${THUMB_INSET + geometry.travel * progress}px, 0)`
+      thumb.style.opacity = dragRef.current
+        ? '0.9'
+        : active
+          ? '0.72'
+          : hoverRef.current
+            ? '0.36'
+            : '0'
+    },
+    [thumbGeometry]
+  )
 
   const handleScroll = useCallback(() => {
     updateScrollbar(true)
     if (scrollbarTimerRef.current) clearTimeout(scrollbarTimerRef.current)
     scrollbarTimerRef.current = setTimeout(() => updateScrollbar(false), 850)
+    // While the list moves, cards ignore the pointer: otherwise every card that
+    // passes under a resting cursor runs its hover colour and opens its
+    // tooltips, which reads as the list flickering. Restored a moment after
+    // the last scroll event.
+    const element = scrollRef.current
+    if (!element) return
+    element.dataset.scrolling = ''
+    if (scrollingTimerRef.current) clearTimeout(scrollingTimerRef.current)
+    scrollingTimerRef.current = setTimeout(() => delete element.dataset.scrolling, 150)
+  }, [updateScrollbar])
+
+  const handleThumbPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const element = scrollRef.current
+      if (!element) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.currentTarget.setPointerCapture(event.pointerId)
+      dragRef.current = { startY: event.clientY, startTop: element.scrollTop }
+      updateScrollbar(true)
+    },
+    [updateScrollbar]
+  )
+
+  const handleThumbPointerMove = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      const element = scrollRef.current
+      const geometry = thumbGeometry()
+      if (!drag || !element || !geometry || geometry.travel <= 0) return
+      element.scrollTop =
+        drag.startTop + ((event.clientY - drag.startY) * geometry.range) / geometry.travel
+    },
+    [thumbGeometry]
+  )
+
+  const handleThumbPointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!dragRef.current) return
+      event.currentTarget.releasePointerCapture(event.pointerId)
+      dragRef.current = null
+      handleScroll()
+    },
+    [handleScroll]
+  )
+
+  /** A click on the track beside the thumb pages towards the click, like a native bar. */
+  const handleTrackPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const element = scrollRef.current
+    const thumb = scrollbarRef.current
+    if (!element || !thumb) return
+    const above = event.clientY < thumb.getBoundingClientRect().top
+    element.scrollBy({ top: (above ? -1 : 1) * element.clientHeight * 0.9, behavior: 'smooth' })
+  }, [])
+
+  const handlePointerEnter = useCallback(() => {
+    hoverRef.current = true
+    updateScrollbar(false)
+  }, [updateScrollbar])
+
+  const handlePointerLeave = useCallback(() => {
+    hoverRef.current = false
+    if (!dragRef.current) updateScrollbar(false)
   }, [updateScrollbar])
 
   useEffect(() => {
@@ -109,6 +204,7 @@ const VirtualMatchList: React.FC<Props> = ({
     return () => {
       observer.disconnect()
       if (scrollbarTimerRef.current) clearTimeout(scrollbarTimerRef.current)
+      if (scrollingTimerRef.current) clearTimeout(scrollingTimerRef.current)
     }
   }, [rows.length, updateScrollbar])
 
@@ -181,15 +277,31 @@ const VirtualMatchList: React.FC<Props> = ({
   }
 
   return (
-    <Box sx={{ position: 'relative', height: '100%', minHeight: 0 }}>
+    <Box
+      // Reaches into the page's right padding by the gutter's width, so the
+      // cards still line up with the toolbar above and the bar sits in the margin.
+      sx={{ position: 'relative', height: '100%', minHeight: 0, mr: `-${SCROLLBAR_GUTTER}px` }}
+      onPointerEnter={handlePointerEnter}
+      onPointerLeave={handlePointerLeave}
+    >
       {refreshing && <LoadingStatus />}
       <Box
         ref={scrollRef}
         onScroll={handleScroll}
         // 舊結果淡下去但仍可操作：它們都是真的對局，點進去編輯或刪除不會錯。
         aria-busy={refreshing}
+        // Focusable, so the arrow keys, PageUp/PageDown and Home/End scroll the
+        // list once it has been clicked or tabbed to.
+        tabIndex={0}
+        aria-label="對局列表"
         sx={{
           height: '100%',
+          outline: 'none',
+          '&:focus-visible': {
+            boxShadow: 'inset 0 0 0 2px rgba(144,202,249,0.45)',
+            borderRadius: 1
+          },
+          '&[data-scrolling] [data-index]': { pointerEvents: 'none' },
           opacity: refreshing ? 0.55 : 1,
           transition: motion(['opacity'], 'base'),
           overflowY: 'auto',
@@ -206,7 +318,10 @@ const VirtualMatchList: React.FC<Props> = ({
       >
         {/* Height in `style` for the same reason as each row's position below:
             it changes with every page loaded, and `sx` would keep each value. */}
-        <Box sx={{ position: 'relative' }} style={{ height: virtualizer.getTotalSize() }}>
+        <Box
+          sx={{ position: 'relative', mr: `${SCROLLBAR_GUTTER}px` }}
+          style={{ height: virtualizer.getTotalSize() }}
+        >
           {virtualItems.map((item) => {
             const match = rows[item.index]
             return (
@@ -275,30 +390,42 @@ const VirtualMatchList: React.FC<Props> = ({
           </Alert>
         )}
       </Box>
+      {/* The track: clicking beside the thumb pages, the thumb itself drags. */}
       <Box
         aria-hidden
+        onPointerDown={handleTrackPointerDown}
         sx={{
-          pointerEvents: 'none',
           position: 'absolute',
           top: 0,
-          right: 2,
-          width: 7,
+          right: 0,
+          width: SCROLLBAR_GUTTER,
           height: '100%',
-          zIndex: 2
+          zIndex: 2,
+          // The thumb widens when the pointer is on the track, so it reads as
+          // something that can be grabbed, not only as a position indicator.
+          '&:hover > div': { width: 8 }
         }}
       >
         <Box
           ref={scrollbarRef}
+          onPointerDown={handleThumbPointerDown}
+          onPointerMove={handleThumbPointerMove}
+          onPointerUp={handleThumbPointerUp}
+          onPointerCancel={handleThumbPointerUp}
           sx={{
             position: 'absolute',
-            width: '100%',
+            right: 3,
+            width: 6,
+            cursor: 'default',
+            touchAction: 'none',
             minHeight: 32,
             borderRadius: 999,
             opacity: 0,
             backgroundColor: 'rgba(197, 215, 238, 0.72)',
             boxShadow: '0 1px 5px rgba(0,0,0,0.28)',
             willChange: 'transform, opacity',
-            transition: `${motion(['opacity'], 'base')}, ${motion(['background-color'], 'fast')}`
+            transition:
+              motion(['opacity', 'width'], 'base') + ', ' + motion(['background-color'], 'fast')
           }}
         />
       </Box>

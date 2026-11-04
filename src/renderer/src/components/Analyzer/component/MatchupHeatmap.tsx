@@ -19,7 +19,7 @@
  * 120/180.
  */
 import React, { useMemo } from 'react'
-import { Box, Tooltip, Typography } from '@mui/material'
+import { Box, ButtonBase, Tooltip, Typography } from '@mui/material'
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown'
 import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp'
 
@@ -63,9 +63,18 @@ const MAX_ALPHA = 0.4
 
 const NUMERIC = { fontVariantNumeric: 'tabular-nums' } as const
 
-/** grid template shared by the header and every row, so the columns cannot drift. */
+/**
+ * Grid template shared by the header and every row, so the columns cannot drift.
+ *
+ * The class column is capped and the three rate columns share whatever is left.
+ * It used to be the other way round - fixed 76px rates and a class column that
+ * took all the slack - which on a wide window left a long empty stretch between
+ * a class name and its numbers, and kept the colour blocks this table is read by
+ * as small as they could be.
+ */
 const COLUMNS = {
-  gridTemplateColumns: 'minmax(108px, 1.6fr) 76px 76px 68px 76px minmax(92px, 108px)'
+  gridTemplateColumns:
+    'minmax(108px, 200px) minmax(76px, 1fr) minmax(76px, 1fr) 76px minmax(76px, 1fr) minmax(92px, 120px)'
 }
 /** Mobile / narrow: games folds away, the three rates stay. */
 const COLUMNS_NARROW = {
@@ -192,34 +201,50 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
     return undefined
   }
 
-  const headerCell = (label: string, key: SortKey, align: 'left' | 'right'): React.JSX.Element => {
+  const headerCell = (
+    label: string,
+    key: SortKey,
+    align: 'left' | 'center' | 'right'
+  ): React.JSX.Element => {
     const active = sortKey === key
+    // A real button, so sorting works from the keyboard and a screen reader
+    // hears which column is sorted and which way.
     return (
       <Box
-        onClick={() => toggleSort(key)}
         sx={{
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
-          gap: 0.25,
-          cursor: 'pointer',
-          userSelect: 'none',
-          color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)',
-          transition: motion(['color'], 'fast'),
-          '&:hover': { color: 'rgba(255,255,255,0.9)' }
+          justifyContent:
+            align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start'
         }}
       >
-        <Typography variant="caption" sx={{ letterSpacing: '.02em' }}>
-          {label}
-        </Typography>
-        {/* The indicator only exists on the sorted column; a full set of grey
+        <ButtonBase
+          onClick={() => toggleSort(key)}
+          aria-label={`依${label}排序${active ? (descending ? '，目前由高到低' : '，目前由低到高') : ''}`}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.25,
+            px: 0.5,
+            mx: -0.5,
+            borderRadius: 0.75,
+            userSelect: 'none',
+            color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.5)',
+            transition: motion(['color'], 'fast'),
+            '&:hover': { color: 'rgba(255,255,255,0.9)' }
+          }}
+        >
+          <Typography variant="caption" sx={{ letterSpacing: '.02em' }}>
+            {label}
+          </Typography>
+          {/* The indicator only exists on the sorted column; a full set of grey
             chevrons on every header is noise pretending to be affordance. */}
-        {active &&
-          (descending ? (
-            <ArrowDropDownIcon sx={{ fontSize: 16 }} />
-          ) : (
-            <ArrowDropUpIcon sx={{ fontSize: 16 }} />
-          ))}
+          {active &&
+            (descending ? (
+              <ArrowDropDownIcon sx={{ fontSize: 16 }} />
+            ) : (
+              <ArrowDropUpIcon sx={{ fontSize: 16 }} />
+            ))}
+        </ButtonBase>
       </Box>
     )
   }
@@ -290,7 +315,9 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
             minHeight: 26,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            // Centred: the blocks are wide now, and a number pinned to the right
+            // edge of one reads as belonging to the next column.
+            justifyContent: 'center',
             px: 0.75,
             borderRadius: 1,
             bgcolor: cellFill(stat.rate),
@@ -404,8 +431,8 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
         }}
       >
         {headerCell('對手職業', 'class', 'left')}
-        {headerCell('先攻', 'first', 'right')}
-        {headerCell('後攻', 'second', 'right')}
+        {headerCell('先攻', 'first', 'center')}
+        {headerCell('後攻', 'second', 'center')}
         <Typography
           variant="caption"
           sx={{
@@ -416,7 +443,7 @@ const MatchupHeatmap: React.FC<MatchupHeatmapProps> = ({
         >
           先後差
         </Typography>
-        {headerCell('總勝率', 'overall', 'right')}
+        {headerCell('總勝率', 'overall', 'center')}
         <Box sx={{ '@media (max-width: 720px)': { display: 'none' } }}>
           {headerCell('場數', 'games', 'right')}
         </Box>
