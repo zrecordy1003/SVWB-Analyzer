@@ -114,7 +114,7 @@ async function main() {
   check('report.md names the core count', md.includes('| 8 |'))
   check(
     'report.md explains the important kind',
-    md.includes('mode-unattributable') && md.includes('最需要關注')
+    md.includes('mode-unattributable') && md.includes('最需要處理')
   )
   const unknownModeMd = mod.buildReportMarkdown(
     [{ at: '2026-08-26T10:05:00.000Z', kind: 'mode-guessed', label: 'unknown' }],
@@ -170,10 +170,10 @@ async function main() {
     (await logRound.file('engine.log').async('string')).includes('cannot start capture')
   )
   const logMd = await logRound.file('report.md').async('string')
-  check('report.md points at the startup log', logMd.includes('引擎啟動記錄'))
+  check('report.md points at the startup log', logMd.includes('辨識啟動紀錄'))
   check(
     'report.md says an empty report is not a healthy one',
-    logMd.includes('引擎從未產出任何辨識結果')
+    logMd.includes('辨識沒有產生任何結果')
   )
 
   console.log('\nclearStore')
