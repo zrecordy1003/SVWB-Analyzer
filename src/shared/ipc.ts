@@ -385,7 +385,11 @@ export type IpcContract = {
   'hud:setCompact': (compact: boolean) => boolean
   /** The height that was applied, or null when the value was not a number. */
   'hud:setContentHeight': (height: number) => number | null
-  'hud:setIgnoreMouse': (ignore: boolean) => boolean
+  /**
+   * The HUD's clickable areas, in its own CSS pixels from the top-left of the
+   * window. Main lets the pointer through everywhere else.
+   */
+  'hud:setHitRects': (rects: Array<{ x: number; y: number; width: number; height: number }>) => void
   'hud:show': () => void
   'hud:hide': () => void
   'hud:close': () => void

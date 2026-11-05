@@ -122,7 +122,8 @@ contextBridge.exposeInMainWorld('hud', {
   setOpacity: (v: number) => ipcRenderer.invoke('hud:setOpacity', v),
   setCompact: (b: boolean) => ipcRenderer.invoke('hud:setCompact', b),
   setContentHeight: (h: number) => ipcRenderer.invoke('hud:setContentHeight', h),
-  setIgnoreMouse: (ignore: boolean) => ipcRenderer.invoke('hud:setIgnoreMouse', ignore),
+  setHitRects: (rects: Array<{ x: number; y: number; width: number; height: number }>) =>
+    ipcRenderer.invoke('hud:setHitRects', rects),
   // Manual dragging: the OS drag region is inert on this click-through overlay,
   // so the title row reports the press and main follows the cursor.
   dragStart: () => ipcRenderer.invoke('hud:dragStart'),

@@ -32,6 +32,7 @@ import { DEFAULT_STATS_DAYS, type StatsRange } from './component/statsRange'
 import ModeFilterSelect from './component/ModeFilterSelect'
 import { DEFAULT_MODE_FILTER, isModeFilter, type ModeFilter } from './component/modeFilter'
 import { usePointerPassthrough } from './usePointerPassthrough'
+import { beginHudDrag, endHudDrag, isHudDragging } from './hudDrag'
 import type { Match } from '@shared/domain'
 
 import { classesMap } from '@renderer/map/classMap'
@@ -414,21 +415,28 @@ const HudApp: React.FC = () => {
           onPointerDown={(e) => {
             // The header is the drag handle, but its buttons are still buttons.
             if ((e.target as HTMLElement).closest('button,[role="button"],a,input')) return
+            // Only the primary button drags; a right click is not a grab.
+            if (e.button !== 0) return
             e.preventDefault()
             ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-            void window.hud?.dragStart?.()
+            beginHudDrag()
           }}
           onPointerMove={(e) => {
             // Only while this pointer is captured by the press above; hover
             // moves must not stream IPC.
+            if (!isHudDragging()) return
             if (!(e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) return
             window.hud?.dragMove?.()
           }}
           onPointerUp={(e) => {
             ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-            void window.hud?.dragEnd?.()
+            endHudDrag()
           }}
-          onPointerCancel={() => void window.hud?.dragEnd?.()}
+          onPointerCancel={endHudDrag}
+          // The capture can also go without a release reaching us (the window
+          // lost focus, the pointer was taken by the system). Ending the drag
+          // here is what keeps main from being left mid-drag forever.
+          onLostPointerCapture={endHudDrag}
         >
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>

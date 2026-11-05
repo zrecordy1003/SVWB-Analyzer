@@ -167,10 +167,10 @@ declare global {
       /** Report measured content height; resolves to the height actually applied. */
       setContentHeight(...args: IpcArgs<'hud:setContentHeight'>): Answer<'hud:setContentHeight'>
       /**
-       * Let the pointer through to the game underneath (`true`) or take it back
-       * for the HUD's own controls (`false`); resolves to the state applied.
+       * Where the HUD's own controls are. Main takes the pointer while it is over
+       * one of them and lets it through to the game everywhere else.
        */
-      setIgnoreMouse(...args: IpcArgs<'hud:setIgnoreMouse'>): Answer<'hud:setIgnoreMouse'>
+      setHitRects(...args: IpcArgs<'hud:setHitRects'>): Answer<'hud:setHitRects'>
       /** Manual dragging: press reported by the title row, cursor followed by main. */
       dragStart(): Answer<'hud:dragStart'>
       /**

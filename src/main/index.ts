@@ -13,7 +13,13 @@ import { initDatabase } from './data/db/initDb.js'
 import { setupAutoUpdates } from './updates.js'
 import { getBattleStatus, type BattleStatus } from './recognition/engine.js'
 import type { GameStatus } from '../shared/types.js'
-import { createHudWindow, hudCouldMove, isHudDragging, syncHudWithGame } from './windows/hud.js'
+import {
+  createHudWindow,
+  hudCouldMove,
+  isHudDragging,
+  syncHudWithGame,
+  updateHudPointerPassthrough
+} from './windows/hud.js'
 // import { attachCloseGuard } from './closeGuard.js'
 import { createAppTray } from './windows/tray.js'
 import { attachSmartClose } from './windows/smartClose.js'
@@ -505,6 +511,9 @@ function startPollingForGame(): void {
     // bring the HUD back, and what lets a hide finish after the game exits.
     if (!lastGameStatus?.running && !hudCouldMove()) return
     syncHudWithGame(isGameWindowFocused())
+    // Whether the pointer is over one of the HUD's controls. Two cheap native
+    // reads (cursor, window position), and a call only when the answer flips.
+    updateHudPointerPassthrough()
   }, FOCUS_POLL_MS)
 
   // 系統事件：睡眠/鎖定 → 只停擷取，不立即停分析（交給 30 分鐘門檻）

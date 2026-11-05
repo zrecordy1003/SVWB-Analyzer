@@ -176,33 +176,74 @@ function fitHeight(contentHeight: number): number | null {
 
 /**
  * The HUD sits on top of a full-screen game, so by default it lets the pointer
- * reach the game underneath: only the strips the renderer reports as
- * interactive - the title row and the controls - actually take clicks.
- * `forward` is what makes that workable: the window keeps receiving move events
- * while ignoring clicks, which is how the renderer can tell when the pointer
- * has arrived over one of those strips and ask for the events back.
+ * reach the game underneath: only its controls - the title row, the buttons,
+ * the chips - take clicks. The renderer reports where those are; this decides,
+ * from the real cursor, whether the pointer is over one.
+ *
+ * Main decides rather than the renderer, because the renderer cannot see the
+ * pointer while the window ignores it. That used to rest on Electron's
+ * `forward` option, which is meant to keep move events arriving while clicks
+ * pass through. On Windows it is a low-level mouse hook in this process, and it
+ * proved unreliable in place (2026-11): over the title row the page received no
+ * moves at all, or one a whole interaction late, so the HUD never took the
+ * pointer back - the header could not be pressed, and so could not be dragged.
+ * Reading the cursor here needs no hook and cannot miss: it rides the focus
+ * poll in `index.ts`, which already runs every 16ms while the HUD is up.
  */
-function setIgnoreMouse(ignore: boolean): boolean {
-  if (!hudWin || hudWin.isDestroyed()) return false
-  hudWin.setIgnoreMouseEvents(ignore, ignore ? { forward: true } : undefined)
-  return ignore
+type HitRect = { x: number; y: number; width: number; height: number }
+let hitRects: HitRect[] = []
+/** What the window was last told, so the poll costs no native call when nothing changed. */
+let ignoring: boolean | null = null
+
+function setIgnoreMouse(ignore: boolean): void {
+  if (!hudWin || hudWin.isDestroyed() || ignoring === ignore) return
+  ignoring = ignore
+  hudWin.setIgnoreMouseEvents(ignore)
+}
+
+/** Take the pointer while it is over a control, and let it through everywhere else. */
+export function updateHudPointerPassthrough(): void {
+  if (!hudWin || hudWin.isDestroyed() || !hudWin.isVisible()) return
+  // Mid-drag the window trails the cursor by an event, so the cursor can be
+  // briefly off the title row; it is still the HUD's pointer until the release.
+  if (dragOffset) return setIgnoreMouse(false)
+  const cursor = screen.getCursorScreenPoint()
+  const { x, y } = hudWin.getContentBounds()
+  const px = cursor.x - x
+  const py = cursor.y - y
+  const over = hitRects.some(
+    (r) => px >= r.x && px <= r.x + r.width && py >= r.y && py <= r.y + r.height
+  )
+  setIgnoreMouse(!over)
+}
+
+function setHitRects(rects: unknown): void {
+  hitRects = Array.isArray(rects)
+    ? rects.filter(
+        (r): r is HitRect =>
+          !!r &&
+          [r.x, r.y, r.width, r.height].every((n) => typeof n === 'number' && Number.isFinite(n))
+      )
+    : []
+  updateHudPointerPassthrough()
 }
 
 /**
  * Dragging, driven from here rather than by the OS.
  *
  * `-webkit-app-region: drag` does not work on this window (user-reported with a
- * real mouse; synthetic verification is impossible here - injected events never
- * reach this overlay's DOM at all). Rather than chase which of transparent /
- * frameless / click-through / `setIgnoreMouseEvents` toggling breaks the OS
- * hit-test, dragging is driven manually: it needs nothing but DOM pointer
- * events, which demonstrably arrive (the header's buttons work). The renderer
- * reports pointer-down on the title row, and this follows the real cursor until
- * it reports the release.
+ * real mouse). Rather than chase which of transparent / frameless /
+ * click-through toggling breaks the OS hit-test, dragging is driven manually:
+ * it needs nothing but DOM pointer events. The renderer reports pointer-down on
+ * the title row, and this follows the real cursor until it reports the release.
  *
- * The offset is captured once at the start; each tick just re-anchors the
- * window to the cursor. The pointer therefore stays over the title row for the
- * whole drag, which also keeps the passthrough hook holding the mouse events.
+ * The offset is captured once at the start; each move just re-anchors the
+ * window to the cursor. The window holds the pointer for the whole drag (see
+ * `updateHudPointerPassthrough`), so the release always reaches the HUD.
+ *
+ * Testing it by hand: a game running as administrator refuses synthetic input
+ * from a normal-privilege process while it is in front, so injected mouse
+ * events only reach the HUD once the HUD itself is the foreground window.
  */
 let dragOffset: { dx: number; dy: number } | null = null
 
@@ -216,6 +257,7 @@ function startManualDrag(): void {
   const cursor = screen.getCursorScreenPoint()
   const [x, y] = hudWin.getPosition()
   dragOffset = { dx: cursor.x - x, dy: cursor.y - y }
+  setIgnoreMouse(false)
 }
 
 /**
@@ -241,6 +283,7 @@ function endManualDrag(): void {
   dragOffset = null
   // The resting place is worth keeping; every intermediate frame was not.
   if (hudWin && !hudWin.isDestroyed()) store.set('hudBounds', hudWin.getBounds())
+  updateHudPointerPassthrough()
 }
 
 /**
@@ -363,6 +406,8 @@ export function createHudWindow(): BrowserWindow {
   hudWin.on('closed', () => {
     cancelPendingHide()
     hudWin = null
+    hitRects = []
+    ignoring = null
   })
 
   const forceRepaint = (): void => {
@@ -372,9 +417,9 @@ export function createHudWindow(): BrowserWindow {
   }
   hudWin.webContents.once('did-finish-load', () => {
     forceRepaint()
-    // Click-through from the first frame: until the renderer has seen a pointer
-    // move it cannot know where the interactive strips are, and a HUD that eats
-    // clicks meant for the game is worse than one that misses its own.
+    // Click-through from the first frame: until the renderer has reported where
+    // its controls are there is nothing to take the pointer for, and a HUD that
+    // eats clicks meant for the game is worse than one that misses its own.
     setIgnoreMouse(true)
     // While following the game the first poll owns this, a second from now;
     // showing here would flash the HUD over the desktop on every launch.
@@ -394,7 +439,7 @@ export function createHudWindow(): BrowserWindow {
     ipcMain.removeHandler('hud:setCompact')
     ipcMain.removeHandler('hud:getState')
     ipcMain.removeHandler('hud:setContentHeight')
-    ipcMain.removeHandler('hud:setIgnoreMouse')
+    ipcMain.removeHandler('hud:setHitRects')
     ipcMain.removeHandler('hud:show')
     ipcMain.removeHandler('hud:hide')
     ipcMain.removeHandler('hud:close')
@@ -412,7 +457,7 @@ export function createHudWindow(): BrowserWindow {
     handleIpc('hud:setContentHeight', (_e, height) =>
       Number.isFinite(height) ? fitHeight(height) : null
     )
-    handleIpc('hud:setIgnoreMouse', (_e, ignore) => setIgnoreMouse(ignore !== false))
+    handleIpc('hud:setHitRects', (_e, rects) => setHitRects(rects))
     handleIpc('hud:show', () => setVisibility(true))
     handleIpc('hud:hide', () => setVisibility(false))
     handleIpc('hud:close', () => hudWin?.close())
