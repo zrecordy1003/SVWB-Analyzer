@@ -12,7 +12,7 @@ import PlayedAtLabel from '@renderer/components/Common/PlayedAtLabel'
 import MatchScoreBlock from '@renderer/components/Common/MatchScoreBlock'
 import { toPngDataUrl } from '@renderer/utils/pngDataUrl'
 import InlineDeckSelect, { type InlineDeckOption } from './InlineDeckSelect'
-import OpeningHandStrip from './OpeningHandStrip'
+import OpeningHandStrip, { OPENING_HAND_STRIP_HEIGHT } from './OpeningHandStrip'
 import type { OpeningHandView } from '@shared/ipc'
 import type { MatchRow } from '../types'
 import { motion } from '../../Common/motion'
@@ -20,8 +20,16 @@ import { motion } from '../../Common/motion'
 /**
  * A compact play-order header, matchup block (class over deck), and one meta row, so every card is this
  * tall no matter what it carries.
+ *
+ * The text needs 112; the opening-hand strip is what sets the height - its
+ * thumbnails plus 12px clear above and below (96 + 24 = 120). Derived rather
+ * than written as a number so resizing the thumbnails cannot leave the card
+ * (and the virtual list's row estimate, which is built from this) a size
+ * behind. Shrinking them below 88 would take the card under the 112 the text
+ * needs; put a floor back if that ever happens.
  */
-export const MATCH_CARD_CONTENT_HEIGHT = 112
+const HAND_STRIP_CLEARANCE = 12
+export const MATCH_CARD_CONTENT_HEIGHT = OPENING_HAND_STRIP_HEIGHT + HAND_STRIP_CLEARANCE * 2
 
 /** Past this, tags collapse into a "+n" so they never crowd out the note. */
 const VISIBLE_TAGS = 2

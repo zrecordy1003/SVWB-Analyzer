@@ -38,6 +38,7 @@ import React from 'react'
 import { TOOLTIP_SURFACE_SX } from '@renderer/components/Common/tooltipSurface'
 import { ART_WINDOW_RATIO, artWindowImageSx } from '@renderer/components/Common/cardArtWindow'
 import { CardTooltipBody, type CardTooltipCard } from '@renderer/components/DeckCards/CardTooltip'
+import { motion } from '@renderer/components/Common/motion'
 
 /**
  * 插畫窗與它的算式都在 `Common/cardArtWindow.ts`。
@@ -51,17 +52,21 @@ import { CardTooltipBody, type CardTooltipCard } from '@renderer/components/Deck
  *
  * **改這一個數字就好**，寬度和整條帶子的寬度都是從它算出來的。
  *
- * 64 而不是 88。112px 的列高扣掉上下留白最多能放到 88，第一版也真的放到 88 了，
- * 但排出來之後它變成整列對比最強、細節最多的東西——比 WIN/LOSS 和職業名還搶眼，
- * 而那兩者才是這個清單真正要被掃視的內容。手牌是脈絡，不是主角。
+ * 96。上一版縮到 64，理由是 88 會比勝敗和職業名還搶眼；實際用起來是反過來的
+ * 問題——這一列是使用者唯一看得出「起手辨識有沒有在動」的地方，64 小到要湊近才
+ * 認得出是哪張，等於沒畫。所以放大，而且放過 88：112px 的列高原本只容得下 88，
+ * 這裡讓列高跟著格子走（`MatchCard` 的 `MATCH_CARD_CONTENT_HEIGHT` 由
+ * [[OPENING_HAND_STRIP_HEIGHT]] 加上下留白算出來），每列多 8px，換到的是每張卡的
+ * 臉大一半。
  *
- * 可讀性的功勞本來就不在尺寸，在裁切：換成插畫窗之後整格都是圖，臉在 64px 下
- * 一樣看得出來，而 88 多出來的那 24px 買到的是「更搶眼」，不是「更認得出」。
+ * 搶眼的問題用別的方式收：格子的框和底維持最淡的那一階，沒有任何顏色，結果欄
+ * 那條色帶仍然是往下掃時最先抓到的東西。
  *
- * 寬度跟著窗口比例走（64 × 0.889 ≈ 57），四格帶 4px 間距約 240px——和第一版
- * 縮圖的 252px 幾乎一樣，所以對手那一欄不用為了這次改動再讓出任何寬度。
+ * 寬度跟著窗口比例走（96 × 0.889 ≈ 85），四格帶 4px 間距約 352px。對手那一欄
+ * 因此讓出約 110px，在 1100px 寬的視窗下資訊區仍然排得下（見下方的斷點說明）。
  */
-const SLOT_H = 64
+export const OPENING_HAND_STRIP_HEIGHT = 96
+const SLOT_H = OPENING_HAND_STRIP_HEIGHT
 const SLOT_W = Math.round(SLOT_H * ART_WINDOW_RATIO)
 const SLOT_GAP = 4
 const SLOTS = 4
@@ -113,13 +118,16 @@ const ENTER_DELAY_MS = 300
 /**
  * 交換徽章。第一版是 34px 高的格子上放 12px，會被畫吃掉。
  *
- * 16px 是「在插畫上看得到、又只蓋住一個角」的折衷——再大就開始遮臉，而角落正是
- * 這個窗口裡最不會有臉的地方。跟著 [[SLOT_H]] 走：格子如果改回 88，這裡要一起
- * 放大，否則徽章會相對縮成一個雜點。
+ * 約為格子高的五分之一，是「在插畫上看得到、又只蓋住一個角」的折衷——再大就
+ * 開始遮臉，而角落正是這個窗口裡最不會有臉的地方。跟著 [[SLOT_H]] 走：64px 的
+ * 格子用 16，96 用 20，否則徽章會相對縮成一個雜點。
+ *
+ * 左上的費用寶石大一號（`COST_SIZE`）：它要裝一個襯線數字，而且照官方卡面畫成
+ * 帶金框的球，同直徑下框會把數字擠得太小。
  */
-const BADGE_SIZE = 16
-const BADGE_ICON = 11
-const BADGE_INSET = 3
+const BADGE_SIZE = 20
+const BADGE_ICON = 13
+const BADGE_INSET = 4
 
 /**
  * 退到 `list` 橫幅時的裁切位置。橫幅插畫偏右（起手統計頁的 `BannerArt` 用的也是
@@ -394,6 +402,68 @@ const SlotTip: React.FC<{ played: OpeningHandSlot | null; discarded: OpeningHand
 }
 
 /**
+ * 費用角標，疊在格子左上角。
+ *
+ * 插畫窗是從卡圖的 21.8% 高處開始裁的（`ART_WINDOW.top`），卡上原本印在左上角的
+ * 費用寶石整顆被裁掉了——格子裡看不到費用，而換牌時看的多半就是它。所以補一枚，
+ * 放在**左上**：那正是寶石在整張卡上的位置，認得這款遊戲的人眼睛本來就往那裡找。
+ * 交換徽章在右上，兩枚分佔兩角、不互相擠。
+ *
+ * 長相照官方卡面上的費用寶石畫，而不是 app 其他頁的藍色 `CostBadge`：這裡的角標
+ * 是補回**被裁掉的那一塊卡面**，畫成卡上原本那顆，看的人不用學一個新記號。官方的
+ * 寶石是：綠色球面（左上受光、右下暗）、一圈金屬感的金框、米白色的高反差襯線數
+ * 字。在 22px 的直徑下照搬三樣、省掉細節：
+ *
+ * - 球面用一層偏左上的放射漸層，加內陰影壓暗下緣，就讀得出「圓的、凸的」。
+ * - 金框用 `border-box` 上的線性漸層透出 2px 邊——CSS 的 border 本身畫不了漸層。
+ *   亮—暗—亮的三段是金屬反光最省的寫法。
+ * - 數字用襯線字。官方是 Didone 系的高反差字，Windows 上有 Office 才有 Bodoni，
+ *   沒有就退到 Times New Roman；兩者在這個字級下都讀得出「卡面上那種數字」。
+ *   粗一階，因為細的襯線在 14px 會斷。
+ *
+ * 外加一圈很淡的投影，讓它浮在插畫上——官方寶石也是壓在卡框外面的。
+ *
+ * 沒認出卡、或卡池沒有這張卡的費用時不畫。畫一個「?」會讓空格和未命名的格子看起來
+ * 像是「有卡、只是不知道費用」，而那兩種情況要說的是「不知道是哪張卡」。
+ */
+const COST_SIZE = 22
+const COST_FONT = 15
+const COST_GEM_FILL =
+  'radial-gradient(circle at 34% 28%, #9be267 0%, #4cad2c 34%, #237a16 72%, #17540e 100%)'
+const COST_GEM_RING = 'linear-gradient(155deg, #fff0b8 0%, #d9a94e 38%, #8c5d1f 58%, #f0cf7c 100%)'
+
+const CostCorner: React.FC<{ cost: number }> = ({ cost }) => (
+  <Box
+    aria-hidden
+    sx={{
+      position: 'absolute',
+      top: BADGE_INSET - 1,
+      left: BADGE_INSET - 1,
+      width: COST_SIZE,
+      height: COST_SIZE,
+      boxSizing: 'border-box',
+      borderRadius: '50%',
+      border: '2px solid transparent',
+      background: `${COST_GEM_FILL} padding-box, ${COST_GEM_RING} border-box`,
+      boxShadow:
+        'inset 0 1px 1px rgba(255,255,255,0.35), inset 0 -2px 3px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.6)',
+      display: 'grid',
+      placeItems: 'center',
+      fontFamily: '"Bodoni MT", Didot, "Times New Roman", Georgia, serif',
+      fontSize: COST_FONT,
+      fontWeight: 700,
+      lineHeight: 1,
+      // 10 費以上是兩位數，字距收一點才塞得進同一顆寶石。
+      letterSpacing: cost >= 10 ? '-0.08em' : 0,
+      color: '#fff6dc',
+      textShadow: '0 1px 1px rgba(0,0,0,0.55)'
+    }}
+  >
+    {cost}
+  </Box>
+)
+
+/**
  * 一個位置。整格都是 hover 目標而不只是徽章：徽章只有 16px，要人準確滑到上面
  * 才肯說話太苛刻，而這一格本來就要在 hover 時把整張卡攤開，兩件事併成同一個
  * 目標。`tabIndex` 讓鍵盤也走得到（MUI 的 Tooltip 對 focus 也會開）。
@@ -435,10 +505,16 @@ const Slot: React.FC<{ played: OpeningHandSlot | null; discarded: OpeningHandSlo
           borderColor: known ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)',
           bgcolor: known ? 'action.hover' : 'transparent',
           outlineOffset: 1,
+          // 跟卡片本身的 hover 同一個速度：框亮一階，告訴人這一格停下來會有東西看。
+          transition: motion(['border-color'], 'fast'),
+          '&:hover': {
+            borderColor: known ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.12)'
+          },
           '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main' }
         }}
       >
         {played && <Art slot={played} width={SLOT_W} height={SLOT_H} />}
+        {played?.cardId != null && played.cost != null && <CostCorner cost={played.cost} />}
         {swapped && (
           <Box
             aria-hidden
@@ -500,9 +576,10 @@ const OpeningHandStrip: React.FC<OpeningHandStripProps> = ({ hand }) => {
         // 手牌是整列裡最先讓位的東西。分析頁在 720px 收起次要欄位；這一條在
         // 252px 寬的時候 960px 以下就已經把對手那一側擠到只剩截斷的職業名，現在
         // 寬了 72px，斷點跟著往右移同樣的量，收起來時對手側剩的空間才跟以前一樣。
-        // 帶子縮回 240px 之後，讓位的門檻也跟著回到原本那個：它佔的寬度和
-        // 第一版縮圖差不多，就不該比第一版更早把對手那一欄擠掉。
-        '@media (max-width: 960px)': { display: 'none' }
+        // 帶子縮回 240px 之後，讓位的門檻也跟著回到原本那個。現在格子放大到
+        // 96px、帶子寬 352px（比 240 多 112），門檻照同一個規則往右移 112：
+        // 收起之前對手那一側剩的空間，和 240px 版在 960px 時一樣。
+        '@media (max-width: 1072px)': { display: 'none' }
       }}
     >
       {positions?.map((p, i) => (
