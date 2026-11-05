@@ -11,7 +11,11 @@ import path from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { bootstrapCardPool } from '../../src/main/data/cardPoolBootstrap'
-import { missingCardPoolSlices, syncCardPoolSlice } from '../../src/main/data/cardPool'
+import {
+  CARD_POOL_MAX_AGE_MS,
+  cardPoolSlicesDue,
+  syncCardPoolSlice
+} from '../../src/main/data/cardPool'
 import { setPortalFetchForTests } from '../../src/main/data/svwbApi'
 import { createMigratedTestDb, removeTestDb, testDb, type TestDb } from '../helpers/db'
 
@@ -185,18 +189,62 @@ describe('bootstrapCardPool', () => {
   })
 })
 
-describe('missingCardPoolSlices', () => {
+describe('cardPoolSlicesDue', () => {
+  const wanted = [
+    { classId: 1, battleFormat: 2 },
+    { classId: 2, battleFormat: 2 }
+  ]
+  const HOUR = 60 * 60_000
+  /** Rewrite when a slice was fetched, as if it happened back then. */
+  const fetchedAt = (at: number): Promise<unknown> =>
+    testDb().updateTable('CardPoolSync').set({ syncedAt: at }).execute()
+
   it('reports everything before any sync, and nothing after', async () => {
-    const wanted = [
-      { classId: 1, battleFormat: 2 },
-      { classId: 2, battleFormat: 2 }
-    ]
-    expect(await missingCardPoolSlices(testDb(), wanted, 'cht')).toHaveLength(2)
+    expect(await cardPoolSlicesDue(testDb(), wanted, 'cht', { releases: [] })).toHaveLength(2)
 
     setPortalFetchForTests(async () => json(POOL))
     await syncCardPoolSlice(testDb(), wanted[0], 'cht')
 
-    const missing = await missingCardPoolSlices(testDb(), wanted, 'cht')
-    expect(missing).toEqual([wanted[1]])
+    const due = await cardPoolSlicesDue(testDb(), wanted, 'cht', { releases: [] })
+    expect(due).toEqual([wanted[1]])
+  })
+
+  it('fetches again once a card pack has gone live since the last fetch', async () => {
+    setPortalFetchForTests(async () => json(POOL))
+    for (const slice of wanted) await syncCardPoolSlice(testDb(), slice, 'cht')
+
+    const release = Date.parse('2026-10-28T08:00:00Z')
+    const releases = [{ name: 'next pack', releasedAt: '2026-10-28T08:00:00Z' }]
+    await fetchedAt(release - HOUR)
+
+    // A day after the release, well inside the weekly age: the pack alone makes it stale.
+    const now = release + 24 * HOUR
+    expect(await cardPoolSlicesDue(testDb(), wanted, 'cht', { now, releases })).toEqual(wanted)
+
+    // Fetched after the release, the same slices are fresh.
+    await fetchedAt(release + HOUR)
+    expect(await cardPoolSlicesDue(testDb(), wanted, 'cht', { now, releases })).toEqual([])
+  })
+
+  it('ignores a release that has not happened yet', async () => {
+    setPortalFetchForTests(async () => json(POOL))
+    await syncCardPoolSlice(testDb(), wanted[0], 'cht')
+    const now = Date.now()
+    const releases = [{ name: 'announced', releasedAt: new Date(now + 24 * HOUR).toISOString() }]
+    expect(await cardPoolSlicesDue(testDb(), [wanted[0]], 'cht', { now, releases })).toEqual([])
+  })
+
+  it('fetches again after a week even with no known release', async () => {
+    setPortalFetchForTests(async () => json(POOL))
+    await syncCardPoolSlice(testDb(), wanted[0], 'cht')
+    const now = Date.now()
+
+    await fetchedAt(now - CARD_POOL_MAX_AGE_MS + HOUR)
+    expect(await cardPoolSlicesDue(testDb(), [wanted[0]], 'cht', { now, releases: [] })).toEqual([])
+
+    await fetchedAt(now - CARD_POOL_MAX_AGE_MS - HOUR)
+    expect(await cardPoolSlicesDue(testDb(), [wanted[0]], 'cht', { now, releases: [] })).toEqual([
+      wanted[0]
+    ])
   })
 })

@@ -2,17 +2,20 @@
  * Filling the card pool on first launch, so nothing in the app is ever empty
  * waiting for the user to press a button they did not know about.
  *
- * Runs in the background after startup and only fetches slices we do not hold:
- * the second launch does nothing at all, and a launch after a language change
- * fetches only that language. It is never awaited by startup - a slow or absent
- * connection must not delay the window appearing.
+ * Runs in the background after startup and only fetches slices that are due
+ * (`cardPoolSlicesDue`): ones we do not hold, and ones fetched before the latest
+ * card pack or more than a week ago. Most launches do nothing at all, and a
+ * launch after a language change fetches only that language. It is never
+ * awaited by startup - a slow or absent connection must not delay the window
+ * appearing.
  *
  * # The cost, stated plainly
  *
  * A slice is one class in one format, about 560KB. Seven classes across the two
- * playable formats is 14 requests, roughly 7-8MB, ONCE. Requests are serialised
- * with a gap rather than fired together: this is somebody else's server, and a
- * fan tool has no business opening fourteen parallel connections to it.
+ * playable formats is 14 requests, roughly 7-8MB, at most once a week. Requests
+ * are serialised with a gap rather than fired together: this is somebody else's
+ * server, and a fan tool has no business opening fourteen parallel connections
+ * to it.
  *
  * Both formats are fetched even though their card sets are currently identical,
  * because they diverge as sets rotate out and `is_include_rotation` does not
@@ -21,7 +24,7 @@
 import type { Kysely } from 'kysely'
 
 import type { Database } from './db/client.js'
-import { missingCardPoolSlices, syncCardPoolSlice, type CardPoolSlice } from './cardPool.js'
+import { cardPoolSlicesDue, syncCardPoolSlice, type CardPoolSlice } from './cardPool.js'
 import { SvwbApiError, type PortalLang } from './svwbApi.js'
 import { broadcast } from '../utils/broadcast.js'
 
@@ -48,7 +51,7 @@ let running = false
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 /**
- * Fetch every slice we are missing, in the background.
+ * Fetch every slice that is missing or stale, in the background.
  *
  * Failures are deliberately quiet. There is nothing the user can do about a
  * flaky connection at launch, the app works without the pool (imported decks
@@ -69,7 +72,7 @@ export async function bootstrapCardPool(
     const wanted: CardPoolSlice[] = FORMATS.flatMap((battleFormat) =>
       CLASS_IDS.map((classId) => ({ classId, battleFormat }))
     )
-    const missing = await missingCardPoolSlices(db, wanted, lang)
+    const missing = await cardPoolSlicesDue(db, wanted, lang)
     if (missing.length === 0) return { done: 0, total: 0 }
 
     broadcast('cards:poolBootstrap', { done: 0, total: missing.length })

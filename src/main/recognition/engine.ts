@@ -86,6 +86,8 @@ let lastCaptureFailure: string | null = null
  * window badge reports.
  */
 let engineReady = false
+/** The fingerprint algorithm the running engine reported in `ready`; 0 until then. */
+let cardAlgoVersion = 0
 
 function getEnginePath(): string {
   return app.isPackaged
@@ -327,6 +329,20 @@ async function indexCardsInBackground(algoVersion: number): Promise<void> {
   }
 }
 
+/**
+ * Index again, because the card pool just changed under a running engine.
+ *
+ * Indexing otherwise happens once, at `ready`. The pool is refreshed in the
+ * background at launch, often after the game was already found, so the cards
+ * of a new pack would wait for the next engine start before an opening hand
+ * could name them. Nothing to do while no engine is ready: the next `ready`
+ * indexes everything anyway.
+ */
+export function reindexCards(): void {
+  if (!engineReady || cardAlgoVersion <= 0) return
+  void indexCardsInBackground(cardAlgoVersion)
+}
+
 function send(command: Record<string, unknown>): void {
   const stdin = engineProcess?.stdin
   if (!stdin || !stdin.writable) return
@@ -452,7 +468,8 @@ async function handle(event: Record<string, unknown>, child: ChildProcess): Prom
       // Card fingerprints, if any are missing. Deliberately not awaited: it
       // reads the database and may download pictures, and neither should stand
       // between the engine being ready and the first frame.
-      void indexCardsInBackground(Number(event.cardAlgoVersion ?? 0))
+      cardAlgoVersion = Number(event.cardAlgoVersion ?? 0)
+      void indexCardsInBackground(cardAlgoVersion)
       break
 
     case 'cardsIndexed':

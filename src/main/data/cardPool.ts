@@ -17,6 +17,7 @@ import type { Kysely } from 'kysely'
 import type { Database } from './db/client.js'
 import { nowMs } from './db/client.js'
 import { fetchCardPool, type PortalLang } from './svwbApi.js'
+import { currentSeason, type MetaSeason } from '../../shared/meta.js'
 
 export type CardPoolSlice = { classId: number; battleFormat: number }
 
@@ -105,19 +106,50 @@ export async function syncCardPoolSlice(
   return { cardCount: cards.length, syncedAt: now }
 }
 
-/** Which slices we do not hold for this language yet. */
-export async function missingCardPoolSlices(
+/**
+ * How old a held slice may get before it is fetched again.
+ *
+ * The pack list below catches a release the app knows about; this catches the
+ * rest - a pack shipped after this build, cards added between packs, a balance
+ * patch that rewrote a card's text. A refresh is the same 14 requests as a cold
+ * start, so once a week is a small price for never being a pack behind.
+ */
+export const CARD_POOL_MAX_AGE_MS = 7 * 24 * 60 * 60_000
+
+export type CardPoolDueOptions = {
+  now?: number
+  maxAgeMs?: number
+  releases?: readonly MetaSeason[]
+}
+
+/**
+ * Which slices to fetch for this language: the ones we do not hold, and the
+ * ones that went stale.
+ *
+ * Holding a slice used to be the whole test, so a pool fetched once was kept
+ * forever and every card from a later pack was missing - from the builder, and
+ * from the opening-hand index, which only names cards that are in the pool.
+ * A slice is now stale when it was fetched before the latest card pack went
+ * live, or more than `CARD_POOL_MAX_AGE_MS` ago.
+ */
+export async function cardPoolSlicesDue(
   db: Kysely<Database>,
   slices: readonly CardPoolSlice[],
-  lang: PortalLang
+  lang: PortalLang,
+  options: CardPoolDueOptions = {}
 ): Promise<CardPoolSlice[]> {
+  const now = options.now ?? nowMs()
+  const maxAgeMs = options.maxAgeMs ?? CARD_POOL_MAX_AGE_MS
+  const season = currentSeason(new Date(now), options.releases)
+  const freshSince = Math.max(now - maxAgeMs, season ? Date.parse(season.releasedAt) : 0)
+
   const have = await db
     .selectFrom('CardPoolSync')
-    .select(['classId', 'battleFormat'])
+    .select(['classId', 'battleFormat', 'syncedAt'])
     .where('lang', '=', lang)
     .execute()
 
   const key = (s: CardPoolSlice): string => `${s.classId}:${s.battleFormat}`
-  const held = new Set(have.map(key))
-  return slices.filter((s) => !held.has(key(s)))
+  const fresh = new Set(have.filter((row) => Number(row.syncedAt) >= freshSince).map(key))
+  return slices.filter((s) => !fresh.has(key(s)))
 }

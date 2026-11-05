@@ -6,7 +6,7 @@ import { store } from './store.js'
 
 // 輕依賴先載（重依賴延遲到用到才 import）
 import { isGameWindowFocused, isShadowverseRunning } from './recognition/svwbDetector.js'
-import { attachCapture, detachCapture } from './recognition/engine.js'
+import { attachCapture, detachCapture, reindexCards } from './recognition/engine.js'
 
 // DB 與更新延後：只載入 helper，初始化放到事件之後
 import { initDatabase } from './data/db/initDb.js'
@@ -570,18 +570,20 @@ app.whenReady().then(async () => {
   const { registerMetaIpc } = await import('./ipc/meta.js')
   registerMetaIpc()
 
-  // Fill the card pool if we have never done it, so decks and the builder are
-  // populated on first run instead of showing a button nobody knew to press.
+  // Fill the card pool on first run, and refresh it after a new card pack (or a
+  // week), so decks, the builder and opening-hand names are never a pack behind.
   //
   // Deliberately NOT awaited: it is ~14 requests to somebody else's server, and
-  // the window must not wait on them. It skips everything already held, so this
-  // is a no-op from the second launch onwards, and a failure just means the
-  // next launch tries again.
+  // the window must not wait on them. It skips every slice still fresh, so most
+  // launches do nothing, and a failure just means the next launch tries again.
+  // When it did fetch, a running engine indexes the new cards now rather than
+  // at its next start.
   void (async () => {
     const { bootstrapCardPool } = await import('./data/cardPoolBootstrap.js')
     const { getDb } = await import('./data/db/client.js')
     const lang = store.get('settings')?.cardLang ?? 'cht'
-    await bootstrapCardPool(getDb(), lang).catch(() => {})
+    const result = await bootstrapCardPool(getDb(), lang).catch(() => null)
+    if (result && result.done > 0) reindexCards()
   })()
 
   const { registerDiagnosticsIpc } = await import('./ipc/diagnostics.js')
